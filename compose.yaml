@@ -37,6 +37,8 @@ services:
       - "3478:3478/udp"
       - "50000-50200:50000-50200/udp"
       - "50201-50300:50201-50300/udp"
+    environment:
+      NODE_IP: ${PUBLIC_IP:?set PUBLIC_IP in .env to the public IP of this host}
     volumes: ["./livekit.yaml:/livekit.yaml:ro"]
     depends_on: [redis]
 

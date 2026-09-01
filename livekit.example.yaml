@@ -10,7 +10,11 @@ rtc:
   port_range_start: 50000
   port_range_end: 50200
   tcp_port: 7881
-  use_external_ip: true
+  # Leaving use_external_ip true makes LiveKit STUN twilio.com and google.com on
+  # every start to discover an address the deployer already knows.
+  use_external_ip: false
+  # Compose supplies this as NODE_IP from PUBLIC_IP in .env, which overrides it.
+  # node_ip: 203.0.113.10
 
 turn:
   enabled: true

@@ -84,15 +84,18 @@ The first output is `push.vapid_private_key` and the second is `push.vapid_publi
 
 **3. Fill in the config files.**
 
-`.env` holds the Postgres password, which compose reads into both the database and the application's `DATABASE_URL`:
+`.env` holds the Postgres password, which compose reads into both the database and the application's `DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
 
 ```
 POSTGRES_PASSWORD=<the first generated secret>
+PUBLIC_IP=<the address your domain resolves to>
 ```
+
+`PUBLIC_IP` is the address LiveKit advertises to clients as its ICE and TURN candidate, so it must be the public address your domain resolves to rather than the host's private interface. Compose refuses to start without it. Setting it is also what keeps the deployment off third-party infrastructure: LiveKit's `use_external_ip` discovers the address by querying `global.stun.twilio.com` and `stun.l.google.com`, and supplying the address directly skips that lookup. `NODE_IP` overrides `rtc.node_ip` in `livekit.yaml`, so either place works and the environment wins.
 
 In `config.yaml`, set `server.public_url` and `livekit.public_url` to the real hostname, both VAPID keys, `push.subject` to a `mailto:` address you own, and `livekit.api_secret`. Leave `database.url` as it is, since compose overrides it.
 
-In `livekit.yaml` and `egress.yaml`, replace both `REPLACE_ME_openssl_rand_base64_32` values with the same LiveKit API secret you put in `config.yaml`.
+In `livekit.yaml` and `egress.yaml`, replace both `REPLACE_ME_openssl_rand_base64_32` values with the same LiveKit API secret you put in `config.yaml`. Leave `rtc.node_ip` commented out unless you are running LiveKit outside compose, since compose supplies it from `PUBLIC_IP`.
 
 **4. Create the data directories with the right ownership.**
 
