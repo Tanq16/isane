@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/socket"

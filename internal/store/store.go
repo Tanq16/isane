@@ -84,7 +84,6 @@ func (db *DB) Migrate(ctx context.Context) error {
 	return nil
 }
 
-// Tx runs fn inside a transaction, committing on nil and rolling back otherwise.
 func (db *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -101,8 +100,8 @@ func (db *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
 }
 
 func IsUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	return ok && pgErr.Code == "23505"
 }
 
 func mapErr(err error) error {

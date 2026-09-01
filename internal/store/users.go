@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -22,7 +22,7 @@ func scanUser(row pgx.Row) (User, error) {
 }
 
 func insertUser(ctx context.Context, queryRow func(context.Context, string, ...any) pgx.Row, u User) (User, error) {
-	if u.ID == uuid.Nil {
+	if u.ID == uuid.Nil() {
 		u.ID = uuid.New()
 	}
 	out, err := scanUser(queryRow(ctx, insertUserSQL,

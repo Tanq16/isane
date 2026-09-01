@@ -1,10 +1,10 @@
 package socket
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/store"
 )
@@ -42,8 +42,8 @@ const (
 )
 
 type Frame struct {
-	T string          `json:"t"`
-	D json.RawMessage `json:"d,omitempty"`
+	T string         `json:"t"`
+	D jsontext.Value `json:"d,omitempty"`
 }
 
 func NewFrame(t string, d any) Frame {

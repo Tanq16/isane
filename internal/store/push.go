@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -19,7 +19,7 @@ func scanPushSubscription(row pgx.Row) (PushSubscription, error) {
 }
 
 func (db *DB) UpsertPushSubscription(ctx context.Context, s PushSubscription) (PushSubscription, error) {
-	if s.ID == uuid.Nil {
+	if s.ID == uuid.Nil() {
 		s.ID = uuid.New()
 	}
 	out, err := scanPushSubscription(db.Pool.QueryRow(ctx, `insert into push_subscriptions

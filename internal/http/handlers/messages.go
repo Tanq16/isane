@@ -4,8 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/socket"

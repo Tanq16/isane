@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -91,7 +91,7 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 }
 
 func nullUUID(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
+	if id == uuid.Nil() {
 		return nil
 	}
 	return &id

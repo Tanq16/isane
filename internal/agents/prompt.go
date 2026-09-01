@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/store"
 )

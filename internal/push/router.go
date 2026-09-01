@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/store"
 )

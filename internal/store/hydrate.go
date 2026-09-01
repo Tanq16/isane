@@ -2,8 +2,7 @@ package store
 
 import (
 	"context"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 func (db *DB) AttachmentsForMessages(ctx context.Context, messageIDs []uuid.UUID) (map[uuid.UUID][]Attachment, error) {

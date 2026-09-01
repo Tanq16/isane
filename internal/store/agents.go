@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -171,7 +171,7 @@ func (db *DB) CountAgents(ctx context.Context) (int64, error) {
 }
 
 func (db *DB) CreateAgentJob(ctx context.Context, j AgentJob, attachmentIDs []uuid.UUID) (AgentJob, error) {
-	if j.ID == uuid.Nil {
+	if j.ID == uuid.Nil() {
 		j.ID = uuid.New()
 	}
 	var out AgentJob

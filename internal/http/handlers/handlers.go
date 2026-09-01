@@ -2,16 +2,15 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/store"
 )
@@ -112,7 +111,7 @@ func WriteError(w http.ResponseWriter, err error) {
 
 func ReadJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxJSONBody)).Decode(v); err != nil {
+	if err := json.UnmarshalRead(io.LimitReader(r.Body, maxJSONBody), v); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
 	return nil
@@ -164,7 +163,7 @@ func conflictf(format string, a ...any) error {
 func pathUUID(r *http.Request, name string) (uuid.UUID, error) {
 	id, err := uuid.Parse(r.PathValue(name))
 	if err != nil {
-		return uuid.Nil, badRequestf("%s must be a uuid", name)
+		return uuid.Nil(), badRequestf("%s must be a uuid", name)
 	}
 	return id, nil
 }

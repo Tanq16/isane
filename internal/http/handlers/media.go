@@ -10,8 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/socket"

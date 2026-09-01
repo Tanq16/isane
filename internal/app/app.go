@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-
 	"github.com/tanq16/isane/internal/agents"
 	"github.com/tanq16/isane/internal/calls"
 	"github.com/tanq16/isane/internal/config"

@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-
 	"github.com/tanq16/isane/internal/auth"
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/store"

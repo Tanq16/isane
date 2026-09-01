@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/goccy/go-yaml"
 )
 
 type Config struct {
@@ -125,9 +125,6 @@ func Default() Config {
 	}
 }
 
-// Load reads the YAML file at path over the defaults, then applies environment
-// overrides named by uppercasing each YAML path and joining the segments with
-// underscores, so push.vapid_private_key is PUSH_VAPID_PRIVATE_KEY.
 func Load(path string) (Config, error) {
 	cfg := Default()
 	raw, err := os.ReadFile(path)
@@ -158,8 +155,6 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// PushEnabled reports whether Web Push can be delivered. Push needs a trusted
-// certificate, so insecure mode never has working subscriptions.
 func (c Config) PushEnabled() bool {
 	return !c.Server.Insecure && c.Push.VAPIDPublicKey != "" && c.Push.VAPIDPrivateKey != ""
 }

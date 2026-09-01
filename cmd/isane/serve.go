@@ -18,13 +18,12 @@ import (
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/http"
 	"github.com/tanq16/isane/internal/store"
-	u "github.com/tanq16/isane/utils"
 )
 
 func runServe(cmd *cobra.Command, args []string) {
 	cfg, err := config.Load(rootFlags.config)
 	if err != nil {
-		u.PrintFatal("Failed to load "+rootFlags.config, err)
+		log.Fatal().Err(err).Str("config", rootFlags.config).Msg("load config")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -32,30 +31,30 @@ func runServe(cmd *cobra.Command, args []string) {
 
 	db, err := store.Open(ctx, cfg.Database.URL)
 	if err != nil {
-		u.PrintFatal("Failed to reach Postgres", err)
+		log.Fatal().Err(err).Msg("connect to postgres")
 	}
 	defer db.Close()
 
 	if err := db.Migrate(ctx); err != nil {
-		u.PrintFatal("Failed to apply migrations", err)
+		log.Fatal().Err(err).Msg("apply migrations")
 	}
 
 	a, err := app.New(ctx, cfg, db, log.Logger)
 	if err != nil {
-		u.PrintFatal("Failed to build the application", err)
+		log.Fatal().Err(err).Msg("build application")
 	}
 	defer a.Close()
 
 	if err := bootstrapInvite(ctx, cfg, db); err != nil {
-		u.PrintFatal("Failed to mint the bootstrap invite", err)
+		log.Fatal().Err(err).Msg("mint bootstrap invite")
 	}
 
 	a.Start(ctx)
 
 	if err := http.NewServer(a, isane.WebFS()).ListenAndServe(ctx); err != nil {
-		u.PrintFatal("Server failed", err)
+		log.Fatal().Err(err).Msg("serve")
 	}
-	u.PrintSuccess("Shut down")
+	log.Info().Msg("shut down")
 }
 
 const bootstrapInviteTTL = 30 * 24 * time.Hour
@@ -79,7 +78,7 @@ func bootstrapInvite(ctx context.Context, cfg config.Config, db *store.DB) error
 	if err != nil {
 		return fmt.Errorf("store bootstrap invite: %w", err)
 	}
-	u.PrintInfo("No accounts exist. Open this once to create the first administrator:")
-	u.PrintGeneric(strings.TrimSuffix(cfg.Server.PublicURL, "/") + "/invite/" + raw)
+	log.Info().Str("url", strings.TrimSuffix(cfg.Server.PublicURL, "/")+"/invite/"+raw).
+		Msg("no accounts exist, open this once to create the first administrator")
 	return nil
 }

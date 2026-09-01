@@ -2,14 +2,13 @@ package socket
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"sync/atomic"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-
 	"github.com/tanq16/isane/internal/store"
 )
 

@@ -7,10 +7,9 @@ import (
 	"path"
 	"path/filepath"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/livekit/protocol/livekit"
-
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
@@ -66,7 +65,7 @@ func (h *Calls) Start(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, conflictf("container %s is archived", containerID))
 		return
 	}
-	call, created, err := h.app.DB.StartCall(r.Context(), containerID, u.ID, "call_"+uuid.NewString())
+	call, created, err := h.app.DB.StartCall(r.Context(), containerID, u.ID, "call_"+uuid.New().String())
 	if err != nil {
 		WriteError(w, err)
 		return
@@ -265,11 +264,11 @@ func (h *Calls) finishEgress(ctx context.Context, info *livekit.EgressInfo) erro
 func (h *Calls) eventCall(ctx context.Context, e *livekit.WebhookEvent) (store.Call, uuid.UUID, error) {
 	userID, err := uuid.Parse(e.GetParticipant().GetIdentity())
 	if err != nil {
-		return store.Call{}, uuid.Nil, fmt.Errorf("parse participant identity: %w", err)
+		return store.Call{}, uuid.Nil(), fmt.Errorf("parse participant identity: %w", err)
 	}
 	call, err := h.app.DB.CallByRoom(ctx, e.GetRoom().GetName())
 	if err != nil {
-		return store.Call{}, uuid.Nil, err
+		return store.Call{}, uuid.Nil(), err
 	}
 	return call, userID, nil
 }

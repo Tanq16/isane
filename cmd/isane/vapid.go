@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
+
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	"github.com/tanq16/isane/internal/push"
-	u "github.com/tanq16/isane/utils"
 )
 
 var vapidCmd = &cobra.Command{
@@ -14,11 +16,10 @@ var vapidCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		public, private, err := push.GenerateVAPIDKeys()
 		if err != nil {
-			u.PrintFatal("Failed to generate a VAPID key pair", err)
+			log.Fatal().Err(err).Msg("generate vapid key pair")
 		}
-		u.PrintInfo("Paste these into config.yaml:")
-		u.PrintGeneric("push:")
-		u.PrintGeneric("  vapid_public_key: " + public)
-		u.PrintGeneric("  vapid_private_key: " + private)
+		fmt.Println("push:")
+		fmt.Println("  vapid_public_key: " + public)
+		fmt.Println("  vapid_private_key: " + private)
 	},
 }

@@ -8,8 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/auth"
 	"github.com/tanq16/isane/internal/http/handlers"
@@ -28,7 +27,7 @@ const ctxRequestID ctxKey = iota
 
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := uuid.NewString()
+		id := uuid.New().String()
 		w.Header().Set("X-Request-Id", id)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxRequestID, id)))
 	})

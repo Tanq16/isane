@@ -3,8 +3,7 @@ package store
 import (
 	"net/netip"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 type UserKind string
@@ -129,8 +128,6 @@ type Container struct {
 	ArchivedAt *time.Time    `json:"archived_at,omitempty"`
 }
 
-// ContainerView is a container as one user sees it: the row plus that user's
-// unread state, notification level, and the participant list for conversations.
 type ContainerView struct {
 	Container
 	Unread       int64             `json:"unread"`
@@ -158,7 +155,6 @@ type Message struct {
 	Mentions          []uuid.UUID  `json:"mentions,omitempty"`
 }
 
-// NewMessage is the input to InsertMessage. Seq is allocated by the store.
 type NewMessage struct {
 	ContainerID   uuid.UUID
 	AuthorID      uuid.UUID
@@ -274,8 +270,6 @@ type Stats struct {
 	DatabaseBytes  int64 `json:"database_bytes"`
 }
 
-// AgentInfo pairs an agent's user row with its agent row, which every agent
-// surface needs together.
 type AgentInfo struct {
 	User  User  `json:"user"`
 	Agent Agent `json:"agent"`

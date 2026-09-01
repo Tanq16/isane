@@ -4,7 +4,8 @@ go 1.27.0
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
-	github.com/google/uuid v1.6.0
+	github.com/charmbracelet/x/term v0.2.2
+	github.com/goccy/go-yaml v1.19.2
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/livekit/protocol v1.51.0
@@ -12,7 +13,6 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	golang.org/x/crypto v0.55.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -31,6 +31,7 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/cel-go v0.29.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -91,4 +92,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/grpc v1.83.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

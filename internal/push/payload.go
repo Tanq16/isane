@@ -4,8 +4,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/markdown"
 	"github.com/tanq16/isane/internal/store"

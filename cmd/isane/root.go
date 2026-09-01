@@ -5,11 +5,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-
-	"github.com/tanq16/isane/utils"
 )
 
 var AppVersion = "dev-build"
@@ -37,14 +36,13 @@ func Execute() {
 func setupLogs() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	var out io.Writer = os.Stdout
-	if utils.StdoutIsTerminal {
+	if term.IsTerminal(os.Stdout.Fd()) {
 		out = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.DateTime}
 	}
 	log.Logger = zerolog.New(out).With().Timestamp().Logger()
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if debugFlag {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		utils.GlobalDebugFlag = true
 	}
 }
 

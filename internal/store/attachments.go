@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -34,7 +34,7 @@ func (db *DB) queryAttachments(ctx context.Context, op, sql string, args ...any)
 }
 
 func (db *DB) CreateAttachment(ctx context.Context, a Attachment) (Attachment, error) {
-	if a.ID == uuid.Nil {
+	if a.ID == uuid.Nil() {
 		a.ID = uuid.New()
 	}
 	out, err := scanAttachment(db.Pool.QueryRow(ctx, `insert into attachments

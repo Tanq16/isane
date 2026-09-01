@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -200,7 +200,7 @@ func (db *DB) SetRecordingState(ctx context.Context, callID uuid.UUID, state Rec
 }
 
 func (db *DB) CreateCallRecording(ctx context.Context, r CallRecording) (CallRecording, error) {
-	if r.ID == uuid.Nil {
+	if r.ID == uuid.Nil() {
 		r.ID = uuid.New()
 	}
 	out, err := scanRecording(db.Pool.QueryRow(ctx, `insert into call_recordings

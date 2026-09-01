@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/store"
 )

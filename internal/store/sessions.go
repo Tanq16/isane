@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 func (db *DB) CreateSession(ctx context.Context, s Session) error {

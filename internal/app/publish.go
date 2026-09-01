@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/tanq16/isane/internal/markdown"
 	"github.com/tanq16/isane/internal/socket"
@@ -72,7 +71,7 @@ func (a *App) postMessage(ctx context.Context, author store.User, p socket.SendP
 
 	clientID := p.ClientID
 	if clientID == "" {
-		clientID = uuid.NewString()
+		clientID = uuid.New().String()
 	}
 	existing, err := a.DB.MessageByClientID(ctx, author.ID, clientID)
 	if err == nil {
@@ -118,7 +117,7 @@ func (a *App) PostSystem(ctx context.Context, containerID uuid.UUID, authorID uu
 		ContainerID:  containerID,
 		AuthorID:     authorID,
 		Body:         body,
-		ClientID:     uuid.NewString(),
+		ClientID:     uuid.New().String(),
 		ThreadRootID: threadRootID,
 		IsSystem:     true,
 	})
