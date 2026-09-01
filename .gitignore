@@ -1,0 +1,9 @@
+/isane
+/data/
+/config.yaml
+/livekit.yaml
+/egress.yaml
+/dist/
+/web/vendor/
+/web/css/app.css
+*.env
