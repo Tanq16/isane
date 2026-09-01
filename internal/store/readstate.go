@@ -12,7 +12,7 @@ import (
 func (db *DB) SetReadMarker(ctx context.Context, userID, containerID uuid.UUID, seq int64) (int64, error) {
 	var effective int64
 	err := db.Pool.QueryRow(ctx, `insert into read_markers (user_id, container_id, last_read_seq)
-		values ($1, $2, greatest($3::bigint, 0))
+		select $1, $2, greatest(least($3::bigint, c.last_seq), 0) from containers c where c.id = $2
 		on conflict (user_id, container_id) do update
 		set last_read_seq = greatest(read_markers.last_read_seq, excluded.last_read_seq), updated_at = now()
 		returning last_read_seq`, userID, containerID, seq).Scan(&effective)

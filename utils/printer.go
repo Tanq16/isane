@@ -45,6 +45,10 @@ func PrintError(msg string, err error) {
 		emit(log.Error(), msg, err)
 		return
 	}
+	if err != nil {
+		render(colorRed, "✗ "+msg+": "+err.Error())
+		return
+	}
 	render(colorRed, "✗ "+msg)
 }
 
