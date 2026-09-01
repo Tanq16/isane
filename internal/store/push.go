@@ -39,8 +39,9 @@ func (db *DB) UpsertPushSubscription(ctx context.Context, s PushSubscription) (P
 	return out, nil
 }
 
-func (db *DB) DeletePushSubscription(ctx context.Context, endpoint string) error {
-	_, err := db.Pool.Exec(ctx, `delete from push_subscriptions where endpoint = $1`, endpoint)
+func (db *DB) DeletePushSubscription(ctx context.Context, userID uuid.UUID, endpoint string) error {
+	_, err := db.Pool.Exec(ctx,
+		`delete from push_subscriptions where user_id = $1 and endpoint = $2`, userID, endpoint)
 	if err != nil {
 		return fmt.Errorf("delete push subscription: %w", mapErr(err))
 	}

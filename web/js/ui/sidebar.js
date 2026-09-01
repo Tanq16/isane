@@ -78,13 +78,13 @@ function containers(kind) {
 }
 
 function conversationTitle(c) {
-  const ids = (c.participant_ids || []).filter((id) => id !== (state.me && state.me.id))
+  const ids = (c.participants || []).filter((id) => id !== (state.me && state.me.id))
   if (!ids.length) return c.name || 'Conversation'
   return ids.map((id) => user(id).display_name).join(', ')
 }
 
 function conversationOnline(c) {
-  const ids = (c.participant_ids || []).filter((id) => id !== (state.me && state.me.id))
+  const ids = (c.participants || []).filter((id) => id !== (state.me && state.me.id))
   return ids.some((id) => state.presence.has(id))
 }
 

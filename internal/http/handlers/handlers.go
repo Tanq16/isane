@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -99,9 +100,9 @@ func WriteError(w http.ResponseWriter, err error) {
 		status, message = http.StatusConflict, err.Error()
 	case errors.Is(err, ErrUnauthorized):
 		status, message = http.StatusUnauthorized, err.Error()
-	case errors.Is(err, ErrForbidden):
+	case errors.Is(err, ErrForbidden), errors.Is(err, app.ErrForbidden):
 		status, message = http.StatusForbidden, err.Error()
-	case errors.Is(err, ErrBadRequest):
+	case errors.Is(err, ErrBadRequest), errors.Is(err, app.ErrInvalid):
 		status, message = http.StatusBadRequest, err.Error()
 	default:
 		log.Error().Err(err).Msg("request failed")

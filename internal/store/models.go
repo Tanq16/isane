@@ -232,6 +232,7 @@ type CallRecording struct {
 	UserID      *uuid.UUID `json:"user_id,omitempty"`
 	EgressID    *string    `json:"-"`
 	StoragePath string     `json:"-"`
+	SizeBytes   int64      `json:"size_bytes"`
 	DurationMs  *int       `json:"duration_ms,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 }

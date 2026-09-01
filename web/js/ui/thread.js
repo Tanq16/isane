@@ -21,7 +21,6 @@ let noticeEl = null
 const nodes = new Map()
 const bodyText = new WeakMap()
 const loaded = new Set()
-const muted = new Map()
 
 let mountedRoot = null
 let loading = false
@@ -271,8 +270,8 @@ function close() {
 }
 
 function toggleMute(rootId) {
-  const next = muted.get(rootId) === 'muted' ? 'subscribed' : 'muted'
-  muted.set(rootId, next)
+  const next = state.threadSubs.get(rootId) === 'muted' ? 'subscribed' : 'muted'
+  state.threadSubs.set(rootId, next)
   socket.send('thread_sub', { thread_root_id: rootId, state: next })
   renderHeader(rootId)
 }
@@ -284,7 +283,7 @@ function renderHeader(rootId) {
 
   const muteButton = el('button', 'rounded-lg border border-surface1 px-2 py-1 text-xs text-subtext0 hover:bg-surface0', '')
   muteButton.type = 'button'
-  muteButton.textContent = muted.get(rootId) === 'muted' ? 'Unmute' : 'Mute'
+  muteButton.textContent = state.threadSubs.get(rootId) === 'muted' ? 'Unmute' : 'Mute'
   muteButton.addEventListener('click', () => toggleMute(rootId))
   bar.appendChild(muteButton)
 
@@ -303,9 +302,12 @@ async function load(rootId) {
   try {
     for (;;) {
       const page = await api.get('/api/threads/' + rootId + '/messages', { after, limit: PAGE })
-      for (const m of page) upsertMessage(m)
-      if (page.length < PAGE) break
-      after = page[page.length - 1].seq
+      const msgs = (page && page.messages) || []
+      if (page && page.root) upsertMessage(page.root)
+      state.threadSubs.set(rootId, (page && page.subscription) || '')
+      for (const m of msgs) upsertMessage(m)
+      if (msgs.length < PAGE) break
+      after = msgs[msgs.length - 1].seq
     }
     loaded.add(rootId)
   } catch {}
@@ -339,7 +341,6 @@ function submit() {
   })
 
   socket.send('send', { container_id: cid, client_id: clientId, body, thread_root_id: rootId })
-  if (!muted.has(rootId)) muted.set(rootId, 'subscribed')
 
   textarea.value = ''
   textarea.style.height = 'auto'

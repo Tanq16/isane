@@ -148,7 +148,7 @@ function candidates(query) {
   if (c && c.kind === 'channel' && 'channel'.startsWith(q)) {
     out.push({ handle: 'channel', display_name: 'Notify everyone in this channel', kind: 'channel' })
   }
-  const participants = c && c.kind === 'conversation' ? new Set(c.participant_ids || []) : null
+  const participants = c && c.kind === 'conversation' ? new Set(c.participants || []) : null
   for (const u of state.users.values()) {
     if (u.deactivated_at) continue
     if (participants && u.kind !== 'agent' && !participants.has(u.id)) continue

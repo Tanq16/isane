@@ -184,7 +184,7 @@ function buildUsers() {
           button(u.is_admin ? 'Revoke admin' : 'Make admin', async () => {
             clearError(section)
             try {
-              await api.patch('/api/admin/users/' + u.id, { is_admin: !u.is_admin })
+              await api.put('/api/admin/users/' + u.id + '/admin', { is_admin: !u.is_admin })
               await section.load()
             } catch (err) {
               fail(section, err)

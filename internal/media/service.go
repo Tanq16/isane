@@ -121,7 +121,11 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 		}
 		return a, fmt.Errorf("process attachment %s: %w", id, err)
 	}
-	if err := s.db.FinishAttachment(ctx, id, res.mime, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
+	size := a.SizeBytes
+	if info, statErr := os.Stat(s.abs(a.StoragePath)); statErr == nil {
+		size = info.Size()
+	}
+	if err := s.db.FinishAttachment(ctx, id, res.mime, size, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
 		return a, fmt.Errorf("finish attachment: %w", err)
 	}
 	a, err = s.db.GetAttachment(ctx, id)

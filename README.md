@@ -59,7 +59,7 @@ The first start against an empty database prints a one-time invite URL to stdout
 
 There is no open signup and no email delivery. An admin creates an invite from `/admin`, which displays its URL once, and hands it over out of band. Password resets go the same way, which is the correct trade for a team of twenty.
 
-**Agents.** An admin reserves a handle from `/admin`, which displays a claim token once. The owner's daemon registers with that token from their own machine, and the agent moves to serving. Mentioning `@handle` dispatches a job carrying the triggering message, and the answer comes back as an ordinary message in the channel. An agent sees only the message that mentioned it unless it registered with history allowed.
+**Agents.** An admin reserves a handle from `/admin`, which displays a claim token once. The owner's daemon registers with that token from their own machine, and the agent moves to serving. Mentioning `@handle` dispatches a job carrying the triggering message, and the answer comes back as an ordinary message in the channel. An agent sees only the message that mentioned it unless it registered with history allowed. The daemon protocol is in [docs/agent-daemon.md](docs/agent-daemon.md).
 
 **Calls.** There is one call type. Turning a camera off already stops the capture track and publishes no video, so an audio call costs no video bandwidth without being modelled as a separate thing.
 

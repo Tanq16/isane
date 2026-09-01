@@ -259,7 +259,22 @@ func (h *Messages) Thread(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, nonNil(msgs))
+	sub, subscribed, err := h.app.DB.ThreadSubscription(r.Context(), u.ID, rootID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	body := threadResponse{Root: root, Messages: nonNil(msgs)}
+	if subscribed {
+		body.Subscription = string(sub)
+	}
+	WriteJSON(w, http.StatusOK, body)
+}
+
+type threadResponse struct {
+	Root         store.Message   `json:"root"`
+	Messages     []store.Message `json:"messages"`
+	Subscription string          `json:"subscription"`
 }
 
 func (h *Messages) Subscribe(w http.ResponseWriter, r *http.Request) {

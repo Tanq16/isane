@@ -69,14 +69,15 @@ func (h *Push) Subscribe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Push) Unsubscribe(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requestUser(w, r); !ok {
+	u, ok := requestUser(w, r)
+	if !ok {
 		return
 	}
 	body, ok := readEndpoint(w, r)
 	if !ok {
 		return
 	}
-	if err := h.app.DB.DeletePushSubscription(r.Context(), body.Endpoint); err != nil {
+	if err := h.app.DB.DeletePushSubscription(r.Context(), u.ID, body.Endpoint); err != nil {
 		WriteError(w, err)
 		return
 	}

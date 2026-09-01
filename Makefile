@@ -8,6 +8,7 @@ MARKED_VERSION      := 18.0.11
 MERMAID_VERSION     := 11.17.2
 HIGHLIGHTJS_VERSION := 11.12.0
 LIVEKIT_JS_VERSION  := 2.22.1
+LUCIDE_VERSION      := 1.38.0
 TAILWIND_VERSION    := 4.3.3
 
 WEB_DIR    := web
@@ -59,6 +60,7 @@ $(STAMP): $(MAKEFILE_LIST)
 	$(call npm_file,@highlightjs/cdn-assets,$(HIGHLIGHTJS_VERSION),highlight.min.js,$(VENDOR_DIR)/highlight.min.js)
 	$(call npm_file,@highlightjs/cdn-assets,$(HIGHLIGHTJS_VERSION),styles/github-dark.min.css,$(VENDOR_DIR)/highlight.css)
 	$(call npm_file,livekit-client,$(LIVEKIT_JS_VERSION),dist/livekit-client.umd.js,$(VENDOR_DIR)/livekit-client.umd.min.js)
+	$(call npm_file,lucide,$(LUCIDE_VERSION),dist/umd/lucide.min.js,$(VENDOR_DIR)/lucide.min.js)
 	@for w in 400 500 600 700; do $(MAKE) --no-print-directory font FAMILY=Inter SLUG=inter WEIGHT=$$w; done
 	@for w in 400 600; do $(MAKE) --no-print-directory font FAMILY=JetBrains+Mono SLUG=jetbrains-mono WEIGHT=$$w; done
 	@touch $(STAMP)

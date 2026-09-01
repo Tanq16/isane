@@ -2,39 +2,24 @@ package store
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/google/uuid"
 )
-
-const attachmentsForMessagesSQL = `select id, message_id, uploader_id, kind::text, original_name, mime,
-	size_bytes, width, height, duration_ms, storage_path, thumb_path, state::text, error, created_at
-	from attachments where message_id = any($1::uuid[]) order by created_at, id`
 
 func (db *DB) AttachmentsForMessages(ctx context.Context, messageIDs []uuid.UUID) (map[uuid.UUID][]Attachment, error) {
 	out := make(map[uuid.UUID][]Attachment, len(messageIDs))
 	if len(messageIDs) == 0 {
 		return out, nil
 	}
-	rows, err := db.Pool.Query(ctx, attachmentsForMessagesSQL, messageIDs)
+	list, err := db.queryAttachments(ctx, "list attachments", `select `+attachmentColumns+`
+		from attachments where message_id = any($1::uuid[]) order by created_at, id`, messageIDs)
 	if err != nil {
-		return nil, fmt.Errorf("list attachments: %w", mapErr(err))
+		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var a Attachment
-		err := rows.Scan(&a.ID, &a.MessageID, &a.UploaderID, &a.Kind, &a.OriginalName, &a.Mime,
-			&a.SizeBytes, &a.Width, &a.Height, &a.DurationMs, &a.StoragePath, &a.ThumbPath,
-			&a.State, &a.Error, &a.CreatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("list attachments: %w", err)
-		}
+	for _, a := range list {
 		if a.MessageID != nil {
 			out[*a.MessageID] = append(out[*a.MessageID], a)
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list attachments: %w", err)
 	}
 	return out, nil
 }

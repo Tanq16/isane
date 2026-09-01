@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/livekit"
@@ -20,6 +21,7 @@ const (
 	eventParticipantJoined = "participant_joined"
 	eventParticipantLeft   = "participant_left"
 	eventRoomFinished      = "room_finished"
+	eventEgressEnded       = "egress_ended"
 )
 
 type Calls struct{ app *app.App }
@@ -214,8 +216,50 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 		}
 		broadcastTo(ctx, h.app, call.ContainerID,
 			socket.NewFrame(socket.TypeCallEnded, socket.CallEndedPayload{CallID: call.ID}))
+	case eventEgressEnded:
+		return h.finishEgress(ctx, e.GetEgressInfo())
 	}
 	return nil
+}
+
+func (h *Calls) finishEgress(ctx context.Context, info *livekit.EgressInfo) error {
+	if info == nil || info.GetEgressId() == "" {
+		return nil
+	}
+	var duration *int
+	var size int64
+	for _, f := range info.GetFileResults() {
+		size += f.GetSize()
+		if ms := int(f.GetDuration() / int64(time.Millisecond)); ms > 0 {
+			duration = &ms
+		}
+	}
+	if err := h.app.DB.CompleteCallRecording(ctx, info.GetEgressId(), duration); err != nil {
+		return err
+	}
+	call, err := h.app.DB.CallByRoom(ctx, info.GetRoomName())
+	if err != nil {
+		return err
+	}
+	recordings, err := h.app.DB.ListCallRecordings(ctx, call.ID)
+	if err != nil {
+		return err
+	}
+	for _, rec := range recordings {
+		if rec.EgressID != nil && *rec.EgressID == info.GetEgressId() && size > 0 {
+			if err := h.app.DB.SetRecordingSize(ctx, rec.ID, size); err != nil {
+				return err
+			}
+		}
+	}
+	if call.RecordingState != store.RecordingProcessing {
+		return nil
+	}
+	ids, err := h.app.Calls.ListEgress(ctx, call.RoomName)
+	if err != nil || len(ids) > 0 {
+		return err
+	}
+	return h.app.DB.SetRecordingState(ctx, call.ID, store.RecordingReady)
 }
 
 func (h *Calls) eventCall(ctx context.Context, e *livekit.WebhookEvent) (store.Call, uuid.UUID, error) {

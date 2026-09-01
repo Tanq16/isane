@@ -6,6 +6,7 @@ export const state = {
   containers: new Map(),
   messages: new Map(),
   threads: new Map(),
+  threadSubs: new Map(),
   pending: new Map(),
   typing: new Map(),
   presence: new Set(),
@@ -128,7 +129,10 @@ export async function loadMessages(containerId, opts = {}) {
 export async function loadThread(rootId, opts = {}) {
   const params = { limit: opts.limit ?? 50 }
   if (opts.after != null) params.after = opts.after
-  const msgs = listOf(await get(`/threads/${rootId}/messages`, params))
+  const page = await get(`/threads/${rootId}/messages`, params)
+  const msgs = listOf(page && page.messages)
+  if (page && page.root) upsertMessage(page.root)
+  state.threadSubs.set(rootId, (page && page.subscription) || '')
   merge(state.threads, rootId, msgs, false)
   notify('threads')
   return msgs

@@ -85,7 +85,7 @@ function currentContainer() {
 }
 
 function conversationTitle(c) {
-  const ids = (c.participant_ids || []).filter((id) => id !== (state.me && state.me.id))
+  const ids = (c.participants || []).filter((id) => id !== (state.me && state.me.id))
   if (!ids.length) return c.name || 'Conversation'
   return ids.map((id) => user(id).display_name).join(', ')
 }
@@ -429,7 +429,7 @@ function reconcile(list) {
 
 function headerSignatureOf(c) {
   if (!c) return 'none'
-  return [c.id, c.kind, c.slug, c.name, c.topic, c.level, c.archived_at, (c.participant_ids || []).join(',')].join('|')
+  return [c.id, c.kind, c.slug, c.name, c.topic, c.level, c.archived_at, (c.participants || []).join(',')].join('|')
 }
 
 function renderHeader() {

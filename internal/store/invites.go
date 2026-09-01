@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const inviteColumns = `token_hash, created_by, note, expires_at, used_by, used_at, created_at`
+const inviteColumns = `token_hash, coalesce(created_by, '00000000-0000-0000-0000-000000000000'::uuid), note, expires_at, used_by, used_at, created_at`
 
 func scanInvite(row pgx.Row) (Invite, error) {
 	var inv Invite
@@ -18,7 +18,7 @@ func scanInvite(row pgx.Row) (Invite, error) {
 
 func (db *DB) CreateInvite(ctx context.Context, inv Invite) error {
 	_, err := db.Pool.Exec(ctx, `insert into invites (token_hash, created_by, note, expires_at)
-		values ($1, $2, $3, $4)`, inv.TokenHash, inv.CreatedBy, inv.Note, inv.ExpiresAt)
+		values ($1, $2, $3, $4)`, inv.TokenHash, nullUUID(inv.CreatedBy), inv.Note, inv.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("create invite: %w", mapErr(err))
 	}
@@ -88,4 +88,11 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 		return User{}, fmt.Errorf("accept invite: %w", err)
 	}
 	return created, nil
+}
+
+func nullUUID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
 }

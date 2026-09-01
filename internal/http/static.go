@@ -56,3 +56,11 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = w.Write(page)
 }
+
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.DB.Pool.Ping(r.Context()); err != nil {
+		handlers.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "database unreachable"})
+		return
+	}
+	handlers.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}

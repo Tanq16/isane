@@ -37,7 +37,7 @@ create index sessions_expires_at_idx on sessions (expires_at);
 
 create table invites (
     token_hash bytea primary key,
-    created_by uuid  not null references users(id),
+    created_by uuid  null references users(id),
     note       text  null,
     expires_at timestamptz not null,
     used_by    uuid  null references users(id),
@@ -208,6 +208,7 @@ create table call_recordings (
     user_id      uuid null references users(id),
     egress_id    text null,
     storage_path text not null,
+    size_bytes   bigint not null default 0,
     duration_ms  int  null,
     created_at   timestamptz not null default now()
 );

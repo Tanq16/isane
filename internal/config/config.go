@@ -183,6 +183,11 @@ func applyEnv(v reflect.Value, path []string) error {
 			}
 			continue
 		}
+		switch field.Kind() {
+		case reflect.String, reflect.Bool, reflect.Int, reflect.Int32, reflect.Int64:
+		default:
+			continue
+		}
 		name := strings.ToUpper(strings.Join(next, "_"))
 		raw, ok := os.LookupEnv(name)
 		if !ok {
@@ -219,8 +224,6 @@ func setField(field reflect.Value, raw string) error {
 			return err
 		}
 		field.SetInt(n)
-	default:
-		return fmt.Errorf("unsupported kind %s", field.Kind())
 	}
 	return nil
 }

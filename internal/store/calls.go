@@ -11,7 +11,7 @@ import (
 
 const callColumns = `id, container_id, room_name, started_by, started_at, ended_at, recording_state`
 
-const recordingColumns = `id, call_id, user_id, egress_id, storage_path, duration_ms, created_at`
+const recordingColumns = `id, call_id, user_id, egress_id, storage_path, size_bytes, duration_ms, created_at`
 
 func scanCall(row pgx.Row) (Call, error) {
 	var c Call
@@ -22,7 +22,7 @@ func scanCall(row pgx.Row) (Call, error) {
 
 func scanRecording(row pgx.Row) (CallRecording, error) {
 	var r CallRecording
-	err := row.Scan(&r.ID, &r.CallID, &r.UserID, &r.EgressID, &r.StoragePath, &r.DurationMs,
+	err := row.Scan(&r.ID, &r.CallID, &r.UserID, &r.EgressID, &r.StoragePath, &r.SizeBytes, &r.DurationMs,
 		&r.CreatedAt)
 	return r, err
 }
@@ -204,10 +204,10 @@ func (db *DB) CreateCallRecording(ctx context.Context, r CallRecording) (CallRec
 		r.ID = uuid.New()
 	}
 	out, err := scanRecording(db.Pool.QueryRow(ctx, `insert into call_recordings
-		(id, call_id, user_id, egress_id, storage_path, duration_ms)
-		values ($1, $2, $3, $4, $5, $6)
+		(id, call_id, user_id, egress_id, storage_path, size_bytes, duration_ms)
+		values ($1, $2, $3, $4, $5, $6, $7)
 		returning `+recordingColumns,
-		r.ID, r.CallID, r.UserID, r.EgressID, r.StoragePath, r.DurationMs))
+		r.ID, r.CallID, r.UserID, r.EgressID, r.StoragePath, r.SizeBytes, r.DurationMs))
 	if err != nil {
 		return CallRecording{}, fmt.Errorf("insert call recording: %w", mapErr(err))
 	}
@@ -224,6 +224,11 @@ func (db *DB) CompleteCallRecording(ctx context.Context, egressID string, durati
 		`update call_recordings set duration_ms = $2 where egress_id = $1`, egressID, durationMs)
 }
 
+func (db *DB) SetRecordingSize(ctx context.Context, id uuid.UUID, sizeBytes int64) error {
+	return db.execOne(ctx, "set recording size",
+		`update call_recordings set size_bytes = $2 where id = $1`, id, sizeBytes)
+}
+
 func (db *DB) ListRecordingsBefore(ctx context.Context, cutoff time.Time) ([]CallRecording, error) {
 	return db.queryRecordings(ctx, "list recordings before", `select `+recordingColumns+`
 		from call_recordings where created_at < $1 order by created_at`, cutoff)
@@ -236,7 +241,11 @@ func (db *DB) DeleteCallRecording(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// call_recordings carries no size column, so there is no sum to take here.
 func (db *DB) TotalRecordingBytes(ctx context.Context) (int64, error) {
-	return 0, nil
+	var total int64
+	err := db.Pool.QueryRow(ctx, `select coalesce(sum(size_bytes), 0) from call_recordings`).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("total recording bytes: %w", err)
+	}
+	return total, nil
 }

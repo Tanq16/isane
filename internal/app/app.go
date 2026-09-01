@@ -78,6 +78,7 @@ func New(ctx context.Context, cfg config.Config, db *store.DB, log zerolog.Logge
 
 func (a *App) Start(ctx context.Context) {
 	context.AfterFunc(ctx, a.cancel)
+	a.requeueProcessingAttachments(ctx)
 	a.every(agentTimeoutInterval, "agent timeouts", a.expireAgentJobs)
 	a.every(callReapInterval, "call reaper", a.reapCalls)
 	a.every(retentionInterval, "retention", a.runRetention)
@@ -223,4 +224,21 @@ func (a *App) deleteExpired(ctx context.Context) {
 		a.Log.Error().Err(err).Msg("delete expired invites")
 	}
 	a.Log.Debug().Int64("sessions", sessions).Int64("invites", invites).Msg("expired rows deleted")
+}
+
+func (a *App) requeueProcessingAttachments(ctx context.Context) {
+	ids, err := a.DB.RequeueProcessingAttachments(ctx)
+	if err != nil {
+		a.Log.Error().Err(err).Msg("requeue processing attachments")
+		return
+	}
+	for _, id := range ids {
+		a.spawn(func() {
+			a.guard("reprocess attachment", func() {
+				if _, err := a.Media.Process(a.ctx, id); err != nil {
+					a.Log.Error().Err(err).Str("attachment", id.String()).Msg("reprocess attachment")
+				}
+			})
+		})
+	}
 }

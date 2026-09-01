@@ -315,16 +315,28 @@ func (h *Admin) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		WriteError(w, badRequestf("name is required"))
-		return
-	}
-	if err := h.app.DB.UpdateChannel(r.Context(), id, name, trimTopic(req.Topic)); err != nil {
+	c, err := h.app.DB.GetContainer(r.Context(), id)
+	if err != nil {
 		WriteError(w, err)
 		return
 	}
-	c, err := h.app.DB.GetContainer(r.Context(), id)
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		if c.Name == nil {
+			WriteError(w, badRequestf("name is required"))
+			return
+		}
+		name = *c.Name
+	}
+	topic := c.Topic
+	if req.Topic != nil {
+		topic = trimTopic(req.Topic)
+	}
+	if err := h.app.DB.UpdateChannel(r.Context(), id, name, topic); err != nil {
+		WriteError(w, err)
+		return
+	}
+	c, err = h.app.DB.GetContainer(r.Context(), id)
 	if err != nil {
 		WriteError(w, err)
 		return
