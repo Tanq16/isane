@@ -13,8 +13,8 @@ ARG TARGETOS TARGETARCH VERSION=dev-build
 
 RUN make assets && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
-      -ldflags="-s -w -X 'main.AppVersion=${VERSION}'" \
-      -o /app/isane ./cmd/isane
+      -ldflags="-s -w -X 'github.com/tanq16/isane/cmd.AppVersion=${VERSION}'" \
+      -o /app/isane .
 
 FROM alpine:3.24.1
 
@@ -33,4 +33,4 @@ VOLUME ["/media"]
 USER 10001:10001
 EXPOSE 8080
 ENTRYPOINT ["./isane"]
-CMD ["--config", "/config.yaml"]
+CMD ["serve", "--config", "/config.yaml"]

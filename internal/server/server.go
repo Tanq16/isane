@@ -1,4 +1,4 @@
-package http
+package server
 
 import (
 	"context"
@@ -21,17 +21,21 @@ const (
 
 type Server struct {
 	app     *app.App
-	web     fs.FS
+	static  fs.FS
 	log     zerolog.Logger
 	handler http.Handler
 }
 
-func NewServer(a *app.App, web fs.FS) *Server {
-	s := &Server{app: a, web: web, log: a.Log}
+func New(a *app.App) (*Server, error) {
+	static, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		return nil, fmt.Errorf("mount embedded static tree: %w", err)
+	}
+	s := &Server{app: a, static: static, log: a.Log}
 	mux := http.NewServeMux()
 	s.routes(mux)
 	s.handler = requestID(s.recovery(s.accessLog(mux)))
-	return s
+	return s, nil
 }
 
 func (s *Server) Handler() http.Handler {

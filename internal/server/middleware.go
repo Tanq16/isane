@@ -1,4 +1,4 @@
-package http
+package server
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"uuid"
 
 	"github.com/tanq16/isane/internal/auth"
-	"github.com/tanq16/isane/internal/http/handlers"
+	"github.com/tanq16/isane/internal/server/handlers"
 	"github.com/tanq16/isane/internal/store"
 )
 

@@ -1,20 +1,28 @@
-package http
+package server
 
 import (
+	"embed"
 	"fmt"
 	"io/fs"
 	"net/http"
-	"path"
 	"strconv"
 	"strings"
 
-	"github.com/tanq16/isane/internal/http/handlers"
+	"github.com/tanq16/isane/internal/server/handlers"
 	"github.com/tanq16/isane/internal/store"
 )
 
+//go:embed static
+var staticFiles embed.FS
+
 const serviceWorkerPath = "sw.js"
 
-func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveWorker(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	http.ServeFileFS(w, r, s.static, serviceWorkerPath)
+}
+
+func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 		handlers.WriteError(w, fmt.Errorf("%w: no such endpoint", store.ErrNotFound))
 		return
@@ -24,24 +32,7 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-	if name == "" || name == "." || !fs.ValidPath(name) {
-		s.serveIndex(w, r)
-		return
-	}
-	info, err := fs.Stat(s.web, name)
-	if err != nil || info.IsDir() {
-		s.serveIndex(w, r)
-		return
-	}
-	if name == serviceWorkerPath {
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	}
-	http.ServeFileFS(w, r, s.web, name)
-}
-
-func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
-	page, err := fs.ReadFile(s.web, "index.html")
+	page, err := fs.ReadFile(s.static, "index.html")
 	if err != nil {
 		s.log.Error().Err(err).Msg("read index.html")
 		handlers.WriteError(w, fmt.Errorf("%w: index.html", store.ErrNotFound))

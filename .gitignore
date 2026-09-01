@@ -4,6 +4,6 @@
 /livekit.yaml
 /egress.yaml
 /dist/
-/web/vendor/
-/web/css/app.css
+/internal/server/static/vendor/
+/internal/server/static/css/app.css
 *.env

@@ -1,8 +1,6 @@
-package main
+package cmd
 
 import (
-	"fmt"
-
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
@@ -18,8 +16,9 @@ var vapidCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal().Err(err).Msg("generate vapid key pair")
 		}
-		fmt.Println("push:")
-		fmt.Println("  vapid_public_key: " + public)
-		fmt.Println("  vapid_private_key: " + private)
+		log.Info().
+			Str("vapid_public_key", public).
+			Str("vapid_private_key", private).
+			Msg("add these under push: in the configuration file")
 	},
 }

@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"context"
@@ -12,18 +12,32 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	"github.com/tanq16/isane"
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
 	"github.com/tanq16/isane/internal/config"
-	"github.com/tanq16/isane/internal/http"
+	"github.com/tanq16/isane/internal/server"
 	"github.com/tanq16/isane/internal/store"
 )
 
+var serveFlags struct {
+	config string
+}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Run the chat server",
+	Args:  cobra.NoArgs,
+	Run:   runServe,
+}
+
+func init() {
+	serveCmd.Flags().StringVarP(&serveFlags.config, "config", "c", "config.yaml", "Path to the configuration file")
+}
+
 func runServe(cmd *cobra.Command, args []string) {
-	cfg, err := config.Load(rootFlags.config)
+	cfg, err := config.Load(serveFlags.config)
 	if err != nil {
-		log.Fatal().Err(err).Str("config", rootFlags.config).Msg("load config")
+		log.Fatal().Err(err).Str("config", serveFlags.config).Msg("load config")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -51,7 +65,12 @@ func runServe(cmd *cobra.Command, args []string) {
 
 	a.Start(ctx)
 
-	if err := http.NewServer(a, isane.WebFS()).ListenAndServe(ctx); err != nil {
+	srv, err := server.New(a)
+	if err != nil {
+		log.Fatal().Err(err).Msg("build http server")
+	}
+
+	if err := srv.ListenAndServe(ctx); err != nil {
 		log.Fatal().Err(err).Msg("serve")
 	}
 	log.Info().Msg("shut down")

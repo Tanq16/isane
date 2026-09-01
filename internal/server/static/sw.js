@@ -1,6 +1,6 @@
 const VAPID_KEY_URL = '/api/push/vapid-key';
 const SUBSCRIBE_URL = '/api/push/subscribe';
-const ICON_URL = '/icons/icon-192.png';
+const ICON_URL = '/static/icons/icon-192.png';
 
 function decodeKey(value) {
     const normalized = value.replace(/-/g, '+').replace(/_/g, '/');

@@ -1,4 +1,4 @@
-.PHONY: help assets font build docker run clean
+.PHONY: help assets verify-assets font build docker run clean
 
 APP_NAME := isane
 
@@ -11,11 +11,13 @@ LIVEKIT_JS_VERSION  := 2.22.1
 LUCIDE_VERSION      := 1.38.0
 TAILWIND_VERSION    := 4.3.3
 
-WEB_DIR    := web
-CSS_DIR    := $(WEB_DIR)/css
-VENDOR_DIR := $(WEB_DIR)/vendor
+MODULE     := github.com/tanq16/isane
+
+STATIC_DIR := internal/server/static
+CSS_DIR    := $(STATIC_DIR)/css
+VENDOR_DIR := $(STATIC_DIR)/vendor
 FONTS_DIR  := $(VENDOR_DIR)/fonts
-STAMP      := $(VENDOR_DIR)/.stamp
+STAMP      := $(VENDOR_DIR)/.assets-stamp
 
 TAILWIND_BIN   := dist/tailwindcss
 TAILWIND_OS    := $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/')
@@ -86,15 +88,24 @@ $(CSS_DIR)/app.css: $(CSS_DIR)/input.css $(TAILWIND_BIN)
 	@$(TAILWIND_BIN) -i $(CSS_DIR)/input.css -o $@ --minify
 	@echo "$(GREEN)Built: $@$(NC)"
 
-build: assets ## Build the binary for this machine
-	@CGO_ENABLED=0 go build -ldflags="-s -w -X 'main.AppVersion=$(VERSION)'" -o $(APP_NAME) ./cmd/$(APP_NAME)
+verify-assets: ## Fail early if the embedded tree is missing an asset
+	@test -s $(CSS_DIR)/app.css || { echo "app.css missing, run 'make assets'"; exit 1; }
+	@for f in marked.min.js mermaid.min.js highlight.min.js highlight.css livekit-client.umd.min.js lucide.min.js; do \
+	  test -s $(VENDOR_DIR)/$$f || { echo "$$f missing, run 'make assets'"; exit 1; }; \
+	done
+	@for f in inter-400 inter-500 inter-600 inter-700 jetbrains-mono-400 jetbrains-mono-600; do \
+	  test -s $(FONTS_DIR)/$$f.woff2 || { echo "$$f.woff2 missing, run 'make assets'"; exit 1; }; \
+	done
+
+build: assets verify-assets ## Build the binary for this machine
+	@CGO_ENABLED=0 go build -ldflags="-s -w -X '$(MODULE)/cmd.AppVersion=$(VERSION)'" -o $(APP_NAME) .
 	@echo "$(GREEN)Built: ./$(APP_NAME)$(NC)"
 
 docker: ## Build the container image
 	@docker build --build-arg VERSION=$(VERSION) -t $(APP_NAME):$(VERSION) -t $(APP_NAME):latest .
 
 run: assets ## Run against http://localhost:8080 with debug logging
-	@go run ./cmd/$(APP_NAME) --debug
+	@go run . serve --debug
 
 clean: ## Remove the binary, the vendored assets, and the compiled stylesheet
 	@rm -f $(APP_NAME) $(CSS_DIR)/app.css

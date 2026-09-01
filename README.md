@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="internal/server/static/icons/icon.svg" alt="Isane Logo" width="200">
   <h1>Isane</h1>
 
   <a href="https://github.com/Tanq16/isane/actions/workflows/build.yaml"><img alt="Build Workflow" src="https://github.com/Tanq16/isane/actions/workflows/build.yaml/badge.svg"></a><br><br>
@@ -51,7 +52,7 @@ Go 1.27, plus `curl`, `jq`, `tar`, and `openssl` on the path.
 make build
 ```
 
-The build vendors the pinned frontend assets into `web/vendor/`, verifies each download against the digest its publisher signed, compiles the Tailwind stylesheet, and produces a static `./isane` with the whole frontend embedded. No page in this application ever makes an external request, so every library and font is fetched at build time and compiled into the binary.
+The build vendors the pinned frontend assets into `internal/server/static/vendor/`, verifies each download against the digest its publisher signed, compiles the Tailwind stylesheet, and produces a static `./isane` with the whole frontend embedded. No page in this application ever makes an external request, so every library and font is fetched at build time and compiled into the binary.
 
 ## Usage
 

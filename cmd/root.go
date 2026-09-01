@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"io"
@@ -15,16 +15,11 @@ var AppVersion = "dev-build"
 
 var debugFlag bool
 
-var rootFlags struct {
-	config string
-}
-
 var rootCmd = &cobra.Command{
 	Use:               "isane",
 	Short:             "Self-hosted team chat, voice, video, and screen share",
 	Version:           AppVersion,
 	CompletionOptions: cobra.CompletionOptions{HiddenDefaultCmd: true},
-	Run:               runServe,
 }
 
 func Execute() {
@@ -50,9 +45,9 @@ func init() {
 	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
 
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable debug logging")
-	rootCmd.Flags().StringVarP(&rootFlags.config, "config", "c", "config.yaml", "Path to the configuration file")
 
 	cobra.OnInitialize(setupLogs)
 
+	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(vapidCmd)
 }

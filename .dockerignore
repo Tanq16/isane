@@ -5,8 +5,8 @@ data
 dist
 docs
 isane
-web/vendor
-web/css/app.css
+internal/server/static/vendor
+internal/server/static/css/app.css
 config.yaml
 livekit.yaml
 egress.yaml

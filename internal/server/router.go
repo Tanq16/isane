@@ -1,9 +1,9 @@
-package http
+package server
 
 import (
 	"net/http"
 
-	"github.com/tanq16/isane/internal/http/handlers"
+	"github.com/tanq16/isane/internal/server/handlers"
 )
 
 func (s *Server) routes(mux *http.ServeMux) {
@@ -82,7 +82,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 
 	mux.Handle("GET /ws", s.user(s.handleWS))
 
-	mux.HandleFunc("/", s.serveStatic)
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(s.static))))
+	mux.HandleFunc("GET /sw.js", s.serveWorker)
+	mux.HandleFunc("/", s.serveIndex)
 }
 
 func (s *Server) user(h http.HandlerFunc) http.Handler {
