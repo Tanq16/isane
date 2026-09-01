@@ -1,0 +1,9 @@
+chat.example.com {
+    handle /livekit/* {
+        uri strip_prefix /livekit
+        reverse_proxy 127.0.0.1:7880
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8080
+    }
+}

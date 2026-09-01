@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Isane</title>
+
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="manifest" href="/manifest.json">
+
+    <meta name="theme-color" content="#11111b">
+    <meta name="color-scheme" content="dark">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Isane">
+
+    <link rel="stylesheet" href="/css/app.css">
+    <link rel="stylesheet" href="/vendor/highlight.css">
+
+    <script defer src="/vendor/marked.min.js"></script>
+    <script defer src="/vendor/highlight.min.js"></script>
+    <script defer src="/vendor/mermaid.min.js"></script>
+    <script defer src="/vendor/livekit-client.umd.min.js"></script>
+    <script type="module" src="/js/main.js"></script>
+</head>
+<body class="h-dvh overflow-hidden bg-crust font-sans text-subtext0 antialiased">
+
+<div id="app" class="group flex h-full" data-drawer="closed">
+    <div id="drawer-scrim" class="fixed inset-0 z-40 hidden bg-crust/70 group-data-[drawer=open]:block md:hidden"></div>
+
+    <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-72 shrink-0 -translate-x-full overflow-y-auto border-r border-surface0 bg-crust transition-transform duration-200 group-data-[drawer=open]:translate-x-0 md:static md:translate-x-0"></aside>
+
+    <div id="main" class="flex min-w-0 flex-1 flex-col bg-mantle">
+        <header id="timeline-header" class="flex h-14 shrink-0 items-center gap-3 border-b border-surface0 px-4"></header>
+        <div id="timeline" class="flex-1 overflow-y-auto overscroll-contain px-4 py-2"></div>
+        <div id="composer" class="shrink-0 border-t border-surface0 px-4 py-3"></div>
+    </div>
+
+    <section id="thread-pane" class="hidden fixed inset-0 z-30 overflow-hidden bg-mantle md:static md:z-auto md:w-96 md:shrink-0 md:border-l md:border-surface0"></section>
+
+    <section id="call-pane" class="hidden fixed inset-0 z-30 overflow-hidden bg-mantle md:static md:z-auto md:w-96 md:shrink-0 md:border-l md:border-surface0"></section>
+</div>
+
+<div id="admin-root" class="hidden h-full overflow-y-auto bg-crust"></div>
+
+<div id="login-root" class="hidden h-full flex items-center justify-center overflow-y-auto bg-crust p-4"></div>
+
+<div id="toast-root" class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 p-4 empty:hidden"></div>
+
+<div id="modal-root" class="fixed inset-0 z-50 empty:hidden"></div>
+
+<div id="push-banner" class="hidden fixed inset-x-0 top-0 z-40 flex items-center gap-3 border-b border-surface0 bg-mantle px-4 py-3 text-sm">
+    <p class="min-w-0 flex-1">Turn on notifications to hear about mentions and messages while Isane is closed.</p>
+    <button id="push-banner-enable" type="button" class="shrink-0 rounded-lg bg-mauve px-3 py-1.5 font-medium text-crust">Enable</button>
+    <button id="push-banner-dismiss" type="button" class="shrink-0 rounded-lg px-3 py-1.5 text-overlay1 hover:text-text">Not now</button>
+</div>
+
+<div id="install-hint" class="hidden fixed inset-x-4 bottom-4 z-40 mx-auto max-w-md rounded-xl border border-surface0 bg-mantle p-4 text-sm shadow-lg">
+    <p class="mb-1 font-medium text-text">Add Isane to your home screen</p>
+    <p class="mb-3">Tap Share in Safari, then Add to Home Screen. Notifications only work from the home screen app.</p>
+    <button id="install-hint-dismiss" type="button" class="rounded-lg bg-surface0 px-3 py-1.5 font-medium text-text hover:bg-surface1">Got it</button>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "Isane",
+  "short_name": "Isane",
+  "description": "Self-hosted team chat, voice, video, and screen share.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#11111b",
+  "background_color": "#11111b",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

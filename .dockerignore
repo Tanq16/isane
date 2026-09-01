@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+data
+dist
+docs
+isane
+web/vendor
+web/css/app.css
+config.yaml
+livekit.yaml
+egress.yaml
+*.env
+README.md

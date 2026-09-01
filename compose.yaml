@@ -1,0 +1,56 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      - ./data/media:/media
+      - ./config.yaml:/config.yaml:ro
+    environment:
+      DATABASE_URL: postgres://chat:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/chat?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["./data/postgres:/var/lib/postgresql/data"]
+    environment:
+      POSTGRES_DB: chat
+      POSTGRES_USER: chat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat -d chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  livekit:
+    image: livekit/livekit-server:v1.13.6
+    restart: unless-stopped
+    command: --config /livekit.yaml
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "7881:7881/tcp"
+      - "3478:3478/udp"
+      - "50000-50200:50000-50200/udp"
+      - "50201-50300:50201-50300/udp"
+    volumes: ["./livekit.yaml:/livekit.yaml:ro"]
+    depends_on: [redis]
+
+  egress:
+    image: livekit/egress:v1.14.1
+    restart: unless-stopped
+    volumes:
+      - ./data/media/recordings:/out
+      - ./egress.yaml:/egress.yaml:ro
+    environment:
+      EGRESS_CONFIG_FILE: /egress.yaml
+    depends_on: [livekit, redis]
+
+  redis:
+    image: redis:8.8-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:6379:6379"]

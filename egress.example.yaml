@@ -1,0 +1,21 @@
+api_key: isane
+api_secret: REPLACE_ME_openssl_rand_base64_32
+ws_url: ws://livekit:7880
+
+redis:
+  address: redis:6379
+
+logging:
+  level: info
+
+enable_chrome_sandbox: false
+
+# Costs above the machine's CPU count leave track egress as the only type this node accepts.
+cpu_cost:
+  room_composite_cpu_cost: 1000
+  audio_room_composite_cpu_cost: 1000
+  web_cpu_cost: 1000
+  audio_web_cpu_cost: 1000
+  participant_cpu_cost: 1000
+  track_composite_cpu_cost: 1000
+  track_cpu_cost: 0.5

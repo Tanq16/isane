@@ -1,0 +1,38 @@
+port: 7880
+
+keys:
+  isane: REPLACE_ME_openssl_rand_base64_32
+
+redis:
+  address: redis:6379
+
+rtc:
+  port_range_start: 50000
+  port_range_end: 50200
+  tcp_port: 7881
+  use_external_ip: true
+
+turn:
+  enabled: true
+  udp_port: 3478
+  # Raising tls_port off 0 also requires turn.domain and a certificate for it.
+  tls_port: 0
+  # These ports carry TURN relay traffic and must stay published in compose.yaml.
+  relay_range_start: 50201
+  relay_range_end: 50300
+
+room:
+  empty_timeout: 300
+  departure_timeout: 20
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: audio/red
+    - mime: video/vp8
+
+webhook:
+  api_key: isane
+  urls:
+    - http://app:8080/api/livekit/webhook
+
+logging:
+  level: info

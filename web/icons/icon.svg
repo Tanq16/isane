@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Isane">
+  <rect width="512" height="512" rx="112" ry="112" fill="#1e1e2e"/>
+  <path d="M144 300 L144 404 L240 332 Z" fill="#cba6f7"/>
+  <rect x="96" y="112" width="320" height="224" rx="44" ry="44" fill="#cba6f7"/>
+  <circle cx="184" cy="224" r="22" fill="#1e1e2e"/>
+  <circle cx="256" cy="224" r="22" fill="#89b4fa"/>
+  <circle cx="328" cy="224" r="22" fill="#1e1e2e"/>
+</svg>
