@@ -22,17 +22,34 @@ const (
 )
 
 type Conn struct {
-	hub    *Hub
-	ws     *websocket.Conn
-	user   store.User
-	out    chan Frame
-	done   chan struct{}
-	once   sync.Once
-	ctx    context.Context
-	cancel context.CancelFunc
+	hub   *Hub
+	ws    *websocket.Conn
+	user  store.User
+	out   chan Frame
+	done  chan struct{}
+	close func()
+	ctx   context.Context
 
 	lastSeen atomic.Int64
 	endpoint atomic.Pointer[string]
+}
+
+func newConn(h *Hub, ws *websocket.Conn, u store.User) *Conn {
+	ctx, cancel := context.WithCancel(h.ctx)
+	c := &Conn{
+		hub:  h,
+		ws:   ws,
+		user: u,
+		out:  make(chan Frame, sendBuffer),
+		done: make(chan struct{}),
+		ctx:  ctx,
+	}
+	c.close = sync.OnceFunc(func() {
+		close(c.done)
+		cancel()
+	})
+	c.touch()
+	return c
 }
 
 func (c *Conn) UserID() uuid.UUID { return c.user.ID }
@@ -61,13 +78,6 @@ func (c *Conn) touch() { c.lastSeen.Store(time.Now().UnixNano()) }
 
 func (c *Conn) seenWithin(d time.Duration) bool {
 	return time.Since(time.Unix(0, c.lastSeen.Load())) <= d
-}
-
-func (c *Conn) close() {
-	c.once.Do(func() {
-		close(c.done)
-		c.cancel()
-	})
 }
 
 func (c *Conn) readPump() {

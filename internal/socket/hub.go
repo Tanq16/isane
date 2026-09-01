@@ -66,17 +66,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, u store.User) {
 		h.log.Debug().Err(err).Str("user", u.Handle).Msg("websocket upgrade failed")
 		return
 	}
-	ctx, cancel := context.WithCancel(h.ctx)
-	c := &Conn{
-		hub:    h,
-		ws:     ws,
-		user:   u,
-		out:    make(chan Frame, sendBuffer),
-		done:   make(chan struct{}),
-		ctx:    ctx,
-		cancel: cancel,
-	}
-	c.touch()
+	c := newConn(h, ws, u)
 	h.add(c)
 	go c.writePump()
 	c.readPump()
