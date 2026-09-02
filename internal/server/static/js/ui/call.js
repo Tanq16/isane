@@ -141,7 +141,7 @@ function roomOptions() {
       videoSimulcastLayers: layers,
       videoEncoding: { maxBitrate: video.max_bitrate || 1700000, maxFramerate: framerate },
       screenShareEncoding: { maxBitrate: screen.max_bitrate || 2500000, maxFramerate: screen.max_framerate || 15 },
-      audioPreset: { maxBitrate: audio.max_bitrate || 48000 },
+      audioPreset: { maxBitrate: audio.max_bitrate || 24000 },
       dtx: audio.dtx !== false,
       red: true,
     },
