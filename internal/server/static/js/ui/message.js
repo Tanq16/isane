@@ -202,7 +202,15 @@ function liveCallOf(m) {
 }
 
 function systemNode(m) {
-  return el('article', 'px-4 py-1 text-center text-xs text-overlay1', plainText(m.body || ''))
+  const article = el('article', 'flex flex-wrap items-center justify-center gap-2 px-4 py-1 text-center text-xs text-overlay1')
+  article.appendChild(el('span', '', plainText(m.body || '')))
+  if (!liveCallOf(m)) return article
+  const join = el('button', 'rounded-full bg-mauve px-2.5 py-0.5 text-xs font-semibold text-crust transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve', 'Join')
+  join.type = 'button'
+  join.addEventListener('click', () =>
+    window.dispatchEvent(new CustomEvent('isane:call-start', { detail: { containerId: m.container_id } })))
+  article.appendChild(join)
+  return article
 }
 
 export function messageNode(view, ctx) {
@@ -293,6 +301,7 @@ export function messageSignature(view, ctx) {
     m.is_system,
     ctx.isEditing(m.id),
     mentionsMe(m),
+    Boolean(liveCallOf(m)),
     (m.attachments || []).map((a) => a.id + ':' + a.state).join(','),
   ].join('|')
 }

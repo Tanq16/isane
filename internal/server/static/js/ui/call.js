@@ -1,6 +1,7 @@
 import { state, subscribe, notify, user } from '../store.js'
 import * as api from '../api.js'
 import * as socket from '../socket.js'
+import { drawIcons, iconButton } from './dom.js'
 
 const IDLE_DIM_MS = 240000
 
@@ -14,7 +15,7 @@ let headerEl = null
 let gridEl = null
 let controlsEl = null
 let audioSinkEl = null
-let promptEl = null
+let audioButtonEl = null
 let statusEl = null
 let dimEl = null
 
@@ -31,6 +32,7 @@ let wakeLock = null
 let idleTimer = 0
 let frame = 0
 let statusText = ''
+let dismissed = false
 
 function el(tag, cls, text) {
   const node = document.createElement(tag)
@@ -57,14 +59,6 @@ function livekitUrl(fromServer) {
   return scheme + location.host + '/livekit'
 }
 
-function liveCall() {
-  const cid = state.current.containerId
-  if (!cid) return null
-  const call = state.calls.get(cid)
-  if (!call || call.ended_at) return null
-  return call
-}
-
 function roomOptions() {
   const LK = lk()
   const q = state.quality || {}
@@ -80,6 +74,7 @@ function roomOptions() {
   return {
     adaptiveStream: true,
     dynacast: true,
+    disconnectOnPageLeave: false,
     audioCaptureDefaults: {
       echoCancellation: true,
       noiseSuppression: true,
@@ -267,17 +262,23 @@ function wire() {
     }
   })
 
+  room.on(E.AudioPlaybackStatusChanged, () => render())
+
   room.on(E.Disconnected, () => teardown())
 }
 
 async function join(call) {
+  dismissed = false
   const LK = lk()
   if (!LK) {
     statusText = 'The call client did not load.'
     render()
     return
   }
-  if (connecting || joined) return
+  if (connecting || joined) {
+    render()
+    return
+  }
   connecting = true
   activeCall = call
   statusText = 'Connecting'
@@ -302,6 +303,11 @@ async function join(call) {
     resetIdle()
   } catch (err) {
     statusText = err.message || 'Could not join the call.'
+    if (room) {
+      try {
+        await room.disconnect()
+      } catch {}
+    }
     room = null
     joined = false
   }
@@ -328,6 +334,7 @@ async function leave() {
 
 function teardown() {
   joined = false
+  dismissed = false
   room = null
   activeCall = null
   screenOn = false
@@ -435,34 +442,25 @@ function renderHeader() {
   if (activeCall && activeCall.recording_state === 'recording') {
     bar.appendChild(el('span', 'rounded-full bg-red px-2 py-0.5 text-micro font-semibold uppercase tracking-widest text-crust', 'recording'))
   }
+  bar.appendChild(iconButton('x', 'Hide the call panel', dismiss))
   headerEl.appendChild(bar)
+  drawIcons(headerEl)
 }
 
-function renderPrompt(call) {
-  promptEl.replaceChildren()
-  if (joined || !call) {
-    promptEl.classList.add('hidden')
-    return
-  }
-  promptEl.classList.remove('hidden')
-  const starter = user(call.started_by)
-  promptEl.appendChild(el('p', 'text-sm text-subtext0', starter.display_name + ' started a call.'))
-  const joinButton = el('button', 'mt-2 rounded-lg bg-mauve px-3 py-1.5 text-xs font-semibold text-crust transition-colors hover:brightness-110', 'Join call')
-  joinButton.type = 'button'
-  joinButton.addEventListener('click', () => start(call.container_id))
-  promptEl.appendChild(joinButton)
+function dismiss() {
+  dismissed = true
+  render()
 }
 
 function render() {
-  const call = liveCall()
-  const visible = (joined || connecting || Boolean(call) || Boolean(statusText)) && !state.current.threadRootId
+  const visible = (joined || connecting || Boolean(statusText)) && !state.current.threadRootId && !dismissed
   rootEl.classList.toggle('hidden', !visible)
   if (!visible) return
 
   renderHeader()
-  renderPrompt(call)
   renderControls()
   gridEl.classList.toggle('hidden', !joined)
+  audioButtonEl.classList.toggle('hidden', !joined || !room || room.canPlaybackAudio)
   statusEl.textContent = statusText
   statusEl.classList.toggle('hidden', !statusText)
 }
@@ -477,8 +475,16 @@ export function mount(root) {
   panelEl.appendChild(headerEl)
 
   const body = el('div', 'relative min-h-0 flex-1 overflow-y-auto p-3')
-  promptEl = el('div', 'hidden rounded-xl bg-base p-3')
-  body.appendChild(promptEl)
+  audioButtonEl = el('button', 'mb-2 hidden w-full rounded-xl bg-mauve px-3 py-2 text-xs font-semibold text-crust transition-colors hover:brightness-110', 'Tap to hear the call')
+  audioButtonEl.type = 'button'
+  audioButtonEl.addEventListener('click', async () => {
+    if (!room) return
+    try {
+      await room.startAudio()
+    } catch {}
+    render()
+  })
+  body.appendChild(audioButtonEl)
   statusEl = el('button', 'hidden w-full py-2 text-left text-xs text-peach')
   statusEl.type = 'button'
   statusEl.addEventListener('click', () => {
@@ -501,6 +507,12 @@ export function mount(root) {
 
   rootEl.replaceChildren(panelEl)
 
+  rootEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return
+    e.preventDefault()
+    dismiss()
+  })
+
   window.addEventListener('isane:call-start', (e) => start(e.detail && e.detail.containerId))
 
   document.addEventListener('visibilitychange', () => {
@@ -512,10 +524,6 @@ export function mount(root) {
       if (joined) resetIdle()
     }, { passive: true })
   }
-
-  window.addEventListener('pagehide', () => {
-    if (room) room.disconnect()
-  })
 
   socket.on('call_ended', (d) => {
     if (activeCall && d.call_id === activeCall.id) leave()
