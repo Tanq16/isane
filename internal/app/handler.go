@@ -47,7 +47,7 @@ func (a *App) Ready(ctx context.Context, u store.User, cursors map[uuid.UUID]int
 	if err != nil {
 		return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
 	}
-	calls, err := a.DB.ListLiveCalls(ctx)
+	calls, err := a.DB.ListLiveCallsFor(ctx, u.ID)
 	if err != nil {
 		return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
 	}
@@ -148,7 +148,11 @@ func (a *App) Typing(ctx context.Context, c *socket.Conn, p socket.TypingPayload
 		return fmt.Errorf("typing: %w: not a member of this container", ErrForbidden)
 	}
 	a.Hub.ToUsersExcept(members, c, socket.NewFrame(socket.TypeTyping,
-		socket.TypingEventPayload{ContainerID: p.ContainerID, UserID: c.UserID()}))
+		socket.TypingEventPayload{
+			ContainerID:  p.ContainerID,
+			UserID:       c.UserID(),
+			ThreadRootID: p.ThreadRootID,
+		}))
 	return nil
 }
 

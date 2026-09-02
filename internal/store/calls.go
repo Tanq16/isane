@@ -11,7 +11,10 @@ import (
 
 const callColumns = `id, container_id, room_name, started_by, started_at, ended_at, recording_state`
 
-const recordingColumns = `id, call_id, user_id, egress_id, storage_path, size_bytes, duration_ms, created_at`
+const callColumnsQualified = `c.id, c.container_id, c.room_name, c.started_by, c.started_at, c.ended_at,
+	c.recording_state`
+
+const recordingColumns = `id, call_id, user_id, egress_id, storage_path, mime, size_bytes, duration_ms, created_at`
 
 func scanCall(row pgx.Row) (Call, error) {
 	var c Call
@@ -22,8 +25,8 @@ func scanCall(row pgx.Row) (Call, error) {
 
 func scanRecording(row pgx.Row) (CallRecording, error) {
 	var r CallRecording
-	err := row.Scan(&r.ID, &r.CallID, &r.UserID, &r.EgressID, &r.StoragePath, &r.SizeBytes, &r.DurationMs,
-		&r.CreatedAt)
+	err := row.Scan(&r.ID, &r.CallID, &r.UserID, &r.EgressID, &r.StoragePath, &r.Mime, &r.SizeBytes,
+		&r.DurationMs, &r.CreatedAt)
 	return r, err
 }
 
@@ -96,8 +99,24 @@ func (db *DB) LiveCall(ctx context.Context, containerID uuid.UUID) (Call, error)
 func (db *DB) ListLiveCalls(ctx context.Context) ([]Call, error) {
 	rows, err := db.Pool.Query(ctx,
 		`select `+callColumns+` from calls where ended_at is null order by started_at`)
-	if err != nil {
-		return nil, fmt.Errorf("list live calls: %w", mapErr(err))
+	return db.liveCalls(ctx, rows, err)
+}
+
+func (db *DB) ListLiveCallsFor(ctx context.Context, userID uuid.UUID) ([]Call, error) {
+	rows, err := db.Pool.Query(ctx, `select `+callColumnsQualified+`
+		from calls c join containers ct on ct.id = c.container_id
+		where c.ended_at is null and case when ct.kind = 'channel'
+			then exists (select 1 from users u where u.id = $1 and u.kind = 'human' and u.deactivated_at is null)
+			else exists (select 1 from conversation_participants p
+				where p.container_id = ct.id and p.user_id = $1)
+		end
+		order by c.started_at`, userID)
+	return db.liveCalls(ctx, rows, err)
+}
+
+func (db *DB) liveCalls(ctx context.Context, rows pgx.Rows, queryErr error) ([]Call, error) {
+	if queryErr != nil {
+		return nil, fmt.Errorf("list live calls: %w", mapErr(queryErr))
 	}
 	calls, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Call, error) { return scanCall(r) })
 	if err != nil {
@@ -161,6 +180,29 @@ func (db *DB) EndCall(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (db *DB) EndCallIfEmpty(ctx context.Context, id uuid.UUID) (bool, error) {
+	var ended bool
+	err := db.Tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `update calls set ended_at = now()
+			where id = $1 and ended_at is null
+			  and not exists (select 1 from call_participants where call_id = $1 and left_at is null)`, id)
+		if err != nil {
+			return mapErr(err)
+		}
+		ended = tag.RowsAffected() == 1
+		if !ended {
+			return nil
+		}
+		_, err = tx.Exec(ctx, `update call_participants set left_at = now()
+			where call_id = $1 and left_at is null`, id)
+		return mapErr(err)
+	})
+	if err != nil {
+		return false, fmt.Errorf("end empty call: %w", err)
+	}
+	return ended, nil
+}
+
 func (db *DB) JoinCall(ctx context.Context, callID, userID uuid.UUID) error {
 	_, err := db.Pool.Exec(ctx, `insert into call_participants (call_id, user_id)
 		select $1, $2
@@ -204,10 +246,10 @@ func (db *DB) CreateCallRecording(ctx context.Context, r CallRecording) (CallRec
 		r.ID = uuid.New()
 	}
 	out, err := scanRecording(db.Pool.QueryRow(ctx, `insert into call_recordings
-		(id, call_id, user_id, egress_id, storage_path, size_bytes, duration_ms)
-		values ($1, $2, $3, $4, $5, $6, $7)
+		(id, call_id, user_id, egress_id, storage_path, mime, size_bytes, duration_ms)
+		values ($1, $2, $3, $4, $5, $6, $7, $8)
 		returning `+recordingColumns,
-		r.ID, r.CallID, r.UserID, r.EgressID, r.StoragePath, r.SizeBytes, r.DurationMs))
+		r.ID, r.CallID, r.UserID, r.EgressID, r.StoragePath, r.Mime, r.SizeBytes, r.DurationMs))
 	if err != nil {
 		return CallRecording{}, fmt.Errorf("insert call recording: %w", mapErr(err))
 	}
@@ -219,14 +261,27 @@ func (db *DB) ListCallRecordings(ctx context.Context, callID uuid.UUID) ([]CallR
 		from call_recordings where call_id = $1 order by created_at`, callID)
 }
 
-func (db *DB) CompleteCallRecording(ctx context.Context, egressID string, durationMs *int) error {
-	return db.execOne(ctx, "complete call recording",
-		`update call_recordings set duration_ms = $2 where egress_id = $1`, egressID, durationMs)
+func (db *DB) GetCallRecording(ctx context.Context, id uuid.UUID) (CallRecording, error) {
+	r, err := scanRecording(db.Pool.QueryRow(ctx,
+		`select `+recordingColumns+` from call_recordings where id = $1`, id))
+	if err != nil {
+		return CallRecording{}, fmt.Errorf("get call recording: %w", mapErr(err))
+	}
+	return r, nil
 }
 
-func (db *DB) SetRecordingSize(ctx context.Context, id uuid.UUID, sizeBytes int64) error {
-	return db.execOne(ctx, "set recording size",
-		`update call_recordings set size_bytes = $2 where id = $1`, id, sizeBytes)
+func (db *DB) RecordingByEgressID(ctx context.Context, egressID string) (CallRecording, error) {
+	r, err := scanRecording(db.Pool.QueryRow(ctx,
+		`select `+recordingColumns+` from call_recordings where egress_id = $1`, egressID))
+	if err != nil {
+		return CallRecording{}, fmt.Errorf("get recording by egress id: %w", mapErr(err))
+	}
+	return r, nil
+}
+
+func (db *DB) FinishCallRecording(ctx context.Context, id uuid.UUID, durationMs *int, sizeBytes int64) error {
+	return db.execOne(ctx, "finish call recording",
+		`update call_recordings set duration_ms = $2, size_bytes = $3 where id = $1`, id, durationMs, sizeBytes)
 }
 
 func (db *DB) ListRecordingsBefore(ctx context.Context, cutoff time.Time) ([]CallRecording, error) {
