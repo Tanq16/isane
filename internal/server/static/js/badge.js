@@ -19,12 +19,12 @@ function draw(count) {
   if (!ctx) return null
   ctx.drawImage(source, 0, 0, SIZE, SIZE)
   if (count > 0) {
-    const red = getComputedStyle(document.documentElement).getPropertyValue('--ctp-red').trim() || '#f38ba8'
+    const style = getComputedStyle(document.documentElement)
     ctx.beginPath()
     ctx.arc(SIZE - 10, 10, 10, 0, Math.PI * 2)
-    ctx.fillStyle = red
+    ctx.fillStyle = style.getPropertyValue('--ctp-red').trim() || '#f38ba8'
     ctx.fill()
-    ctx.fillStyle = '#11111b'
+    ctx.fillStyle = style.getPropertyValue('--ctp-crust').trim() || '#11111b'
     ctx.font = 'bold 13px sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
