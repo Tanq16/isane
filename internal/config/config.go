@@ -11,6 +11,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+const envPrefix = "ISANE_"
+
 type Config struct {
 	Server       Server       `yaml:"server"`
 	Database     Database     `yaml:"database"`
@@ -125,21 +127,24 @@ func Default() Config {
 	}
 }
 
-func Load(path string) (Config, error) {
+func Load(path string) (*Config, error) {
 	cfg := Default()
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return cfg, fmt.Errorf("read config %s: %w", path, err)
+		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 	if err == nil {
 		if err := yaml.Unmarshal(raw, &cfg); err != nil {
-			return cfg, fmt.Errorf("parse config %s: %w", path, err)
+			return nil, fmt.Errorf("parse config %s: %w", path, err)
 		}
 	}
 	if err := applyEnv(reflect.ValueOf(&cfg).Elem(), nil); err != nil {
-		return cfg, err
+		return nil, err
 	}
-	return cfg, cfg.Validate()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
 }
 
 func (c Config) Validate() error {
@@ -183,7 +188,7 @@ func applyEnv(v reflect.Value, path []string) error {
 		default:
 			continue
 		}
-		name := strings.ToUpper(strings.Join(next, "_"))
+		name := envPrefix + strings.ToUpper(strings.Join(next, "_"))
 		raw, ok := os.LookupEnv(name)
 		if !ok {
 			continue

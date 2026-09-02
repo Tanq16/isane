@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"uuid"
 
@@ -64,15 +65,17 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 		var expired bool
 		err := tx.QueryRow(ctx, `select used_by, expires_at <= now() from invites
 			where token_hash = $1 for update`, tokenHash).Scan(&usedBy, &expired)
-		if err != nil {
+		if err != nil && !errors.Is(mapErr(err), ErrNotFound) {
 			return fmt.Errorf("lock invite: %w", mapErr(err))
 		}
-		if usedBy != nil {
-			return fmt.Errorf("invite already used: %w", ErrConflict)
+		if err != nil || usedBy != nil || expired {
+			return errInviteUnusable
 		}
-		if expired {
-			return fmt.Errorf("invite expired: %w", ErrConflict)
+		var existing int64
+		if err := tx.QueryRow(ctx, `select count(*) from users`).Scan(&existing); err != nil {
+			return fmt.Errorf("count users: %w", mapErr(err))
 		}
+		u.IsAdmin = existing == 0
 		created, err = insertUser(ctx, tx.QueryRow, u)
 		if err != nil {
 			return fmt.Errorf("insert user: %w", err)
@@ -82,6 +85,15 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 		if err != nil {
 			return fmt.Errorf("consume invite: %w", err)
 		}
+		if !created.IsAdmin {
+			return nil
+		}
+		_, err = tx.Exec(ctx, `insert into containers (id, kind, slug, name, topic, created_by)
+			values ($1, 'channel', $2, $3, $4, $5)`,
+			uuid.New(), firstChannelSlug, firstChannelName, firstChannelTopic, created.ID)
+		if err != nil {
+			return fmt.Errorf("create the first channel: %w", mapErr(err))
+		}
 		return nil
 	})
 	if err != nil {
@@ -89,6 +101,14 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 	}
 	return created, nil
 }
+
+const (
+	firstChannelSlug  = "general"
+	firstChannelName  = "General"
+	firstChannelTopic = "Everything that does not have a home yet"
+)
+
+var errInviteUnusable = fmt.Errorf("%w: this invite link is no longer valid", ErrConflict)
 
 func nullUUID(id uuid.UUID) *uuid.UUID {
 	if id == uuid.Nil() {

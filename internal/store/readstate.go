@@ -35,7 +35,9 @@ func (db *DB) ReadMarker(ctx context.Context, userID, containerID uuid.UUID) (in
 
 func (db *DB) UnreadCounts(ctx context.Context, userID, containerID uuid.UUID) (unread, mentions int64, err error) {
 	err = db.Pool.QueryRow(ctx, `select
-		greatest(c.last_seq - coalesce(r.last_read_seq, 0), 0),
+		(select count(*) from messages m
+			where m.container_id = c.id and m.thread_root_id is null
+			  and m.seq > coalesce(r.last_read_seq, 0) and m.deleted_at is null),
 		(select count(*) from mentions m
 			join messages msg on msg.id = m.message_id
 			where m.user_id = $1 and msg.container_id = c.id

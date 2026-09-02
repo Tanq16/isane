@@ -9,11 +9,14 @@ import (
 	"net/netip"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"uuid"
 
+	"github.com/rs/zerolog/log"
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
+	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -22,12 +25,26 @@ const minPasswordLength = 8
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 type Auth struct {
-	app *app.App
+	app      *app.App
+	accounts *limiter
+	sources  *limiter
 }
 
 func NewAuth(a *app.App) *Auth {
-	return &Auth{app: a}
+	return &Auth{
+		app:      a,
+		accounts: newLimiter(freeAccountAttempts),
+		sources:  newLimiter(freeSourceAttempts),
+	}
 }
+
+var decoyHash = sync.OnceValue(func() string {
+	hash, err := auth.HashPassword("isane-has-no-account-with-this-handle")
+	if err != nil {
+		log.Error().Err(err).Msg("build login decoy hash")
+	}
+	return hash
+})
 
 type loginRequest struct {
 	Handle   string `json:"handle"`
@@ -40,6 +57,11 @@ type acceptInviteRequest struct {
 	Handle      string `json:"handle"`
 	DisplayName string `json:"display_name"`
 	Password    string `json:"password"`
+}
+
+type profileRequest struct {
+	DisplayName *string    `json:"display_name"`
+	AvatarID    *uuid.UUID `json:"avatar_id"`
 }
 
 type passwordRequest struct {
@@ -58,19 +80,28 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, badRequestf("handle or email and password are required"))
 		return
 	}
+	source, account := requestKey(r), strings.ToLower(ident)
+	if wait := max(h.sources.retryAfter(source), h.accounts.retryAfter(account)); wait > 0 {
+		writeRetryAfter(w, wait, "too many sign-in attempts, try again shortly")
+		return
+	}
 	u, err := h.app.DB.GetUserByLogin(r.Context(), ident)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			WriteError(w, errInvalidLogin())
-			return
-		}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		WriteError(w, fmt.Errorf("login lookup: %w", err))
 		return
 	}
-	if !u.Active() || u.PasswordHash == nil || !auth.VerifyPassword(*u.PasswordHash, req.Password) {
+	stored := decoyHash()
+	if err == nil && u.Active() && u.PasswordHash != nil {
+		stored = *u.PasswordHash
+	}
+	if !auth.VerifyPassword(stored, req.Password) || err != nil || !u.Active() || u.PasswordHash == nil {
+		h.sources.fail(source)
+		h.accounts.fail(account)
 		WriteError(w, errInvalidLogin())
 		return
 	}
+	h.sources.succeed(source)
+	h.accounts.succeed(account)
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
@@ -80,7 +111,7 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if raw, ok := auth.ReadSession(r); ok {
-		sess, _, err := h.app.DB.SessionByTokenHash(r.Context(), auth.HashToken(raw))
+		sess, _, err := h.app.DB.SessionByTokenHash(r.Context(), auth.HashToken(raw), time.Now().Add(-auth.SessionMaxAge))
 		if err == nil {
 			if err := h.app.DB.DeleteSession(r.Context(), sess.ID); err != nil {
 				h.app.Log.Error().Err(err).Msg("delete session")
@@ -99,14 +130,71 @@ func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, u)
 }
 
+func (h *Auth) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	var req profileRequest
+	if err := ReadJSON(r, &req); err != nil {
+		WriteError(w, err)
+		return
+	}
+	displayName := u.DisplayName
+	if req.DisplayName != nil {
+		name, err := boundedField("display_name", *req.DisplayName, maxNameLength)
+		if err != nil {
+			WriteError(w, err)
+			return
+		}
+		displayName = name
+	}
+	avatarID := req.AvatarID
+	if avatarID != nil {
+		if err := h.ownedAvatar(r, *avatarID, u.ID); err != nil {
+			WriteError(w, err)
+			return
+		}
+	}
+	if err := h.app.DB.UpdateProfile(r.Context(), u.ID, displayName, avatarID); err != nil {
+		WriteError(w, err)
+		return
+	}
+	updated, err := h.app.DB.GetUser(r.Context(), u.ID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, updated.Directory()))
+	WriteJSON(w, http.StatusOK, updated)
+}
+
+func (h *Auth) ownedAvatar(r *http.Request, id, userID uuid.UUID) error {
+	a, err := h.app.DB.GetAttachment(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	if a.UploaderID != userID {
+		return forbiddenf("not the uploader of this attachment")
+	}
+	if a.Kind != store.AttachmentImage || a.State != store.AttachmentReady {
+		return badRequestf("avatar_id must name a processed image")
+	}
+	return nil
+}
+
 func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	var req acceptInviteRequest
 	if err := ReadJSON(r, &req); err != nil {
 		WriteError(w, err)
 		return
 	}
+	source := requestKey(r)
+	if wait := h.sources.retryAfter(source); wait > 0 {
+		writeRetryAfter(w, wait, "too many invite attempts, try again shortly")
+		return
+	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
-	displayName := strings.TrimSpace(req.DisplayName)
 	if req.Token == "" {
 		WriteError(w, badRequestf("token is required"))
 		return
@@ -115,8 +203,9 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
-	if displayName == "" {
-		WriteError(w, badRequestf("display_name is required"))
+	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
+	if err != nil {
+		WriteError(w, err)
 		return
 	}
 	if len(req.Password) < minPasswordLength {
@@ -128,26 +217,23 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, fmt.Errorf("hash password: %w", err))
 		return
 	}
-	count, err := h.app.DB.CountUsers(r.Context())
-	if err != nil {
-		WriteError(w, fmt.Errorf("count users: %w", err))
-		return
-	}
 	u, err := h.app.DB.AcceptInvite(r.Context(), auth.HashToken(req.Token), store.User{
 		Kind:         store.UserHuman,
 		Handle:       handle,
 		DisplayName:  displayName,
 		PasswordHash: &hash,
-		IsAdmin:      count == 0,
 	})
 	if err != nil {
+		h.sources.fail(source)
 		WriteError(w, err)
 		return
 	}
+	h.sources.succeed(source)
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, u.Directory()))
 	WriteJSON(w, http.StatusCreated, u)
 }
 
@@ -178,6 +264,14 @@ func (h *Auth) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	if err := h.app.DB.DeleteSessionsForUser(r.Context(), u.ID); err != nil {
+		WriteError(w, err)
+		return
+	}
+	if err := h.startSession(w, r, u); err != nil {
+		WriteError(w, err)
+		return
+	}
 	writeOK(w)
 }
 
@@ -203,7 +297,7 @@ func (h *Auth) startSession(w http.ResponseWriter, r *http.Request, u store.User
 }
 
 func (h *Auth) secure() bool {
-	return !h.app.Cfg.Server.Insecure
+	return !h.app.Cfg().Server.Insecure
 }
 
 func errInvalidLogin() error {
@@ -215,6 +309,13 @@ func optionalString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func requestKey(r *http.Request) string {
+	if addr := clientIP(r); addr != nil {
+		return "ip:" + addr.String()
+	}
+	return "ip:" + r.RemoteAddr
 }
 
 func clientIP(r *http.Request) *netip.Addr {

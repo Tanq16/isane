@@ -26,14 +26,14 @@ type Presence interface {
 }
 
 type Router struct {
-	cfg      config.Config
+	cfg      *config.Config
 	db       *store.DB
 	presence Presence
 	log      zerolog.Logger
 	client   *vapidClient
 }
 
-func New(cfg config.Config, db *store.DB, presence Presence, log zerolog.Logger) *Router {
+func New(cfg *config.Config, db *store.DB, presence Presence, log zerolog.Logger) *Router {
 	return &Router{
 		cfg:      cfg,
 		db:       db,

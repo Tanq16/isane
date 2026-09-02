@@ -93,6 +93,18 @@ func (db *DB) ListUsers(ctx context.Context) ([]User, error) {
 	return db.queryUsers(ctx, "list users", `select `+userColumns+` from users order by handle`)
 }
 
+func (db *DB) ListDirectory(ctx context.Context) ([]DirectoryUser, error) {
+	users, err := db.queryUsers(ctx, "list directory", `select `+userColumns+` from users order by handle`)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirectoryUser, len(users))
+	for i, u := range users {
+		out[i] = u.Directory()
+	}
+	return out, nil
+}
+
 func (db *DB) ListActiveHumans(ctx context.Context) ([]User, error) {
 	return db.queryUsers(ctx, "list active humans", `select `+userColumns+`
 		from users where kind = 'human' and deactivated_at is null order by handle`)

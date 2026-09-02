@@ -81,6 +81,20 @@ func (h *Hub) ToUsers(userIDs []uuid.UUID, f Frame) {
 	h.ToUsersExcept(userIDs, nil, f)
 }
 
+func (h *Hub) ToAll(f Frame) {
+	h.mu.RLock()
+	targets := make([]*Conn, 0, len(h.conns))
+	for _, set := range h.conns {
+		for c := range set {
+			targets = append(targets, c)
+		}
+	}
+	h.mu.RUnlock()
+	for _, c := range targets {
+		c.Send(f)
+	}
+}
+
 func (h *Hub) ToUsersExcept(userIDs []uuid.UUID, except *Conn, f Frame) {
 	h.mu.RLock()
 	targets := make([]*Conn, 0, len(userIDs))

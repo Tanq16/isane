@@ -19,7 +19,14 @@ const (
 	agentHandleHeader    = "X-Isane-Agent"
 	bearerPrefix         = "Bearer "
 	sessionTouchInterval = time.Hour
+
+	contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: https:; connect-src 'self' ws: wss:; frame-ancestors 'none'; " +
+		"base-uri 'none'; object-src 'none'"
+	strictTransport = "max-age=31536000; includeSubDomains"
 )
+
+var originExempt = []string{"/api/agent/", "/api/livekit/webhook"}
 
 type ctxKey int
 
@@ -36,6 +43,54 @@ func requestID(next http.Handler) http.Handler {
 func requestIDFrom(ctx context.Context) string {
 	id, _ := ctx.Value(ctxRequestID).(string)
 	return id
+}
+
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		if !s.app.Cfg().Server.Insecure {
+			h.Set("Strict-Transport-Security", strictTransport)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) sameOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !originChecked(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		want := strings.TrimSuffix(s.app.Cfg().Server.PublicURL, "/")
+		if r.Header.Get("Origin") != want {
+			s.log.Warn().
+				Str("request_id", requestIDFrom(r.Context())).
+				Str("origin", r.Header.Get("Origin")).
+				Str("path", r.URL.Path).
+				Msg("rejected a cross-origin request")
+			handlers.WriteError(w, fmt.Errorf("%w: this request must come from %s", handlers.ErrForbidden, want))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func originChecked(r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return false
+	}
+	if !strings.HasPrefix(r.URL.Path, "/api/") {
+		return false
+	}
+	for _, prefix := range originExempt {
+		if strings.HasPrefix(r.URL.Path, prefix) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) recovery(next http.Handler) http.Handler {
@@ -78,12 +133,19 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		event.
 			Str("request_id", requestIDFrom(r.Context())).
 			Str("method", r.Method).
-			Str("path", r.URL.Path).
+			Str("path", redactPath(r.URL.Path)).
 			Int("status", rec.status).
 			Int64("bytes", rec.bytes).
 			Dur("duration", time.Since(start)).
 			Msg("request")
 	})
+}
+
+func redactPath(path string) string {
+	if rest, ok := strings.CutPrefix(path, "/invite/"); ok && rest != "" {
+		return "/invite/[redacted]"
+	}
+	return path
 }
 
 func (s *Server) session(next http.Handler) http.Handler {
@@ -93,7 +155,7 @@ func (s *Server) session(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		sess, u, err := s.app.DB.SessionByTokenHash(r.Context(), auth.HashToken(raw))
+		sess, u, err := s.app.DB.SessionByTokenHash(r.Context(), auth.HashToken(raw), time.Now().Add(-auth.SessionMaxAge))
 		if err != nil {
 			if !errors.Is(err, store.ErrNotFound) {
 				s.log.Error().Err(err).Str("request_id", requestIDFrom(r.Context())).Msg("load session")

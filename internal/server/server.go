@@ -34,7 +34,10 @@ func New(a *app.App) (*Server, error) {
 	s := &Server{app: a, static: static, log: a.Log}
 	mux := http.NewServeMux()
 	s.routes(mux)
-	s.handler = requestID(s.recovery(s.accessLog(mux)))
+	s.handler = requestID(s.recovery(s.accessLog(s.securityHeaders(s.sameOrigin(mux)))))
+	if a.Cfg().Server.Insecure {
+		a.Log.Warn().Msg("server.insecure is set, so session cookies drop the Secure flag, HSTS is not sent, and push is disabled")
+	}
 	return s, nil
 }
 
@@ -44,7 +47,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	srv := &http.Server{
-		Addr:              s.app.Cfg.Server.Bind,
+		Addr:              s.app.Cfg().Server.Bind,
 		Handler:           s.handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
@@ -71,5 +74,5 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 }
 
 func (s *Server) secureCookies() bool {
-	return !s.app.Cfg.Server.Insecure
+	return !s.app.Cfg().Server.Insecure
 }

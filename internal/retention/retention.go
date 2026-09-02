@@ -19,13 +19,13 @@ import (
 const lastRunKey = "retention_last_run"
 
 type Sweeper struct {
-	cfg   config.Config
+	cfg   *config.Config
 	db    *store.DB
 	media *media.Service
 	log   zerolog.Logger
 }
 
-func New(cfg config.Config, db *store.DB, media *media.Service, log zerolog.Logger) *Sweeper {
+func New(cfg *config.Config, db *store.DB, media *media.Service, log zerolog.Logger) *Sweeper {
 	return &Sweeper{cfg: cfg, db: db, media: media, log: log}
 }
 

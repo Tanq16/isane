@@ -251,7 +251,8 @@ func (db *DB) FinishAgentJob(ctx context.Context, id uuid.UUID, state AgentJobSt
 func (db *DB) ExpireStaleJobs(ctx context.Context, timeout time.Duration) ([]AgentJob, error) {
 	return db.queryAgentJobs(ctx, "expire stale jobs", `update agent_jobs
 		set state = 'timeout', finished_at = now(), error = coalesce(error, 'job timed out')
-		where state = 'dispatched' and dispatched_at < $1
+		where (state = 'dispatched' and dispatched_at < $1)
+		   or (state = 'queued' and created_at < $1)
 		returning `+agentJobColumns, time.Now().Add(-timeout))
 }
 

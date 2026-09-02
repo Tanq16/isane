@@ -83,7 +83,8 @@ func (db *DB) InsertMessage(ctx context.Context, m NewMessage) (Message, error) 
 
 		if len(m.AttachmentIDs) > 0 {
 			if _, err := tx.Exec(ctx, `update attachments set message_id = $1
-				where id = any($2::uuid[]) and message_id is null`, inserted.ID, m.AttachmentIDs); err != nil {
+				where id = any($2::uuid[]) and message_id is null and uploader_id = $3`,
+				inserted.ID, m.AttachmentIDs, m.AuthorID); err != nil {
 				return mapErr(err)
 			}
 		}
@@ -155,13 +156,28 @@ func (db *DB) EditMessage(ctx context.Context, id uuid.UUID, body string, mentio
 }
 
 func (db *DB) DeleteMessage(ctx context.Context, id uuid.UUID) (Message, error) {
-	m, err := scanMessage(db.Pool.QueryRow(ctx, `update messages
-		set body = '', deleted_at = coalesce(deleted_at, now())
-		where id = $1 returning `+messageCols, id))
+	var out Message
+	err := db.Tx(ctx, func(tx pgx.Tx) error {
+		m, err := scanMessage(tx.QueryRow(ctx, `update messages
+			set body = '', deleted_at = coalesce(deleted_at, now())
+			where id = $1 and deleted_at is null returning `+messageCols, id))
+		if err != nil {
+			return mapErr(err)
+		}
+		if m.ThreadRootID != nil {
+			if _, err := tx.Exec(ctx, `update messages
+				set thread_reply_count = greatest(thread_reply_count - 1, 0)
+				where id = $1`, *m.ThreadRootID); err != nil {
+				return mapErr(err)
+			}
+		}
+		out = m
+		return nil
+	})
 	if err != nil {
-		return Message{}, fmt.Errorf("delete message: %w", mapErr(err))
+		return Message{}, fmt.Errorf("delete message: %w", err)
 	}
-	return m, nil
+	return out, nil
 }
 
 func (db *DB) TimelineLatest(ctx context.Context, containerID uuid.UUID, limit int) ([]Message, error) {
@@ -189,15 +205,15 @@ func (db *DB) TimelineAfter(ctx context.Context, containerID uuid.UUID, afterSeq
 
 func (db *DB) TimelineAround(ctx context.Context, containerID uuid.UUID, seq int64, limit int) ([]Message, error) {
 	n := pageLimit(limit)
-	above := n / 2
+	below := n / 2
 	rows, err := db.Pool.Query(ctx, `select * from (
 		(select `+messageCols+` from messages
-			where container_id = $1 and thread_root_id is null and seq <= $2
+			where container_id = $1 and thread_root_id is null and seq < $2
 			order by seq desc limit $3)
 		union all
 		(select `+messageCols+` from messages
-			where container_id = $1 and thread_root_id is null and seq > $2
-			order by seq limit $4)) w order by seq`, containerID, seq, n-above, above)
+			where container_id = $1 and thread_root_id is null and seq >= $2
+			order by seq limit $4)) w order by seq`, containerID, seq, below, n-below)
 	return db.timeline(ctx, rows, err, "timeline around")
 }
 

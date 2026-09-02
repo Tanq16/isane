@@ -16,7 +16,7 @@ func (db *DB) CreateSession(ctx context.Context, s Session) error {
 	return nil
 }
 
-func (db *DB) SessionByTokenHash(ctx context.Context, hash []byte) (Session, User, error) {
+func (db *DB) SessionByTokenHash(ctx context.Context, hash []byte, notBefore time.Time) (Session, User, error) {
 	var s Session
 	var u User
 	err := db.Pool.QueryRow(ctx, `select s.id, s.token_hash, s.user_id, s.created_at, s.last_seen_at,
@@ -24,7 +24,7 @@ func (db *DB) SessionByTokenHash(ctx context.Context, hash []byte) (Session, Use
 			u.id, u.kind, u.handle, u.display_name, u.avatar_id, u.email, u.password_hash,
 			u.is_admin, u.created_at, u.deactivated_at
 		from sessions s join users u on u.id = s.user_id
-		where s.token_hash = $1 and s.expires_at > now()`, hash).
+		where s.token_hash = $1 and s.expires_at > now() and s.created_at > $2`, hash, notBefore).
 		Scan(&s.ID, &s.TokenHash, &s.UserID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.UserAgent, &s.IP,
 			&u.ID, &u.Kind, &u.Handle, &u.DisplayName, &u.AvatarID, &u.Email, &u.PasswordHash,
 			&u.IsAdmin, &u.CreatedAt, &u.DeactivatedAt)

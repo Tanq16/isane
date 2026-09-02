@@ -129,7 +129,7 @@ func (h *Agents) Result(w http.ResponseWriter, r *http.Request) {
 	if err := h.answer(r.Context(), a, job); err != nil {
 		h.app.Log.Error().Err(err).Str("job", job.ID.String()).Msg("post agent answer")
 	}
-	broadcastTo(r.Context(), h.app, job.ContainerID,
+	h.app.Broadcast(r.Context(), job.ContainerID,
 		socket.NewFrame(socket.TypeAgentDone, socket.AgentDonePayload{JobID: job.ID}))
 	WriteJSON(w, http.StatusOK, job)
 }
