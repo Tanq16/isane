@@ -121,13 +121,15 @@ export function createComposer(options) {
   }
 
   function renderTyping() {
-    const id = target().containerId
-    const map = id ? state.typing.get(id) : null
+    const t = target()
+    const map = t.containerId ? state.typing.get(t.containerId) : null
+    const rootId = t.threadRootId || null
     const now = Date.now()
     const names = []
     if (map) {
-      for (const [userId, expiry] of map) {
-        if (expiry < now) continue
+      for (const [userId, entry] of map) {
+        if (entry.expiry < now) continue
+        if ((entry.threadRootId || null) !== rootId) continue
         if (state.me && userId === state.me.id) continue
         names.push(user(userId).display_name)
       }
@@ -269,12 +271,12 @@ export function createComposer(options) {
   }
 
   function maybeTyping() {
-    const id = target().containerId
-    if (!id) return
+    const t = target()
+    if (!t.containerId) return
     const now = Date.now()
     if (now - lastTyping < TYPING_INTERVAL) return
     lastTyping = now
-    socket.send('typing', { container_id: id })
+    socket.send('typing', { container_id: t.containerId, thread_root_id: t.threadRootId || null })
   }
 
   async function submit() {
@@ -312,6 +314,7 @@ export function createComposer(options) {
 
     textarea.value = ''
     attachments = []
+    lastTyping = 0
     if (options.replyTo) state.current.replyToId = null
     writeDraft(draftKey(), '')
     renderChips()
