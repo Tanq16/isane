@@ -2,7 +2,7 @@ import * as socket from '../socket.js'
 import { state, user, findMessage } from '../store.js'
 import { renderInto, plainText } from '../render.js'
 import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode } from './dom.js'
-import { confirmModal, openModal } from './modal.js'
+import { confirmModal } from './modal.js'
 
 export const GROUP_WINDOW = 7 * 60 * 1000
 
@@ -50,6 +50,10 @@ function attachmentNode(a) {
     video.preload = 'metadata'
     video.poster = href + '/thumb'
     video.src = href
+    if (a.width && a.height) {
+      video.width = a.width
+      video.height = a.height
+    }
     return video
   }
 
@@ -178,10 +182,9 @@ function actionsNode(m, ctx) {
   const actions = messageActions(m, ctx)
   if (!actions.length) return null
 
-  const fragment = document.createDocumentFragment()
-  const bar = el('div', 'absolute -top-3 right-4 z-10 hidden items-center gap-0.5 rounded-lg bg-base p-0.5 shadow-pop group-hover/msg:flex group-focus-within/msg:flex')
+  const bar = el('div', 'absolute -top-5 right-4 z-10 hidden items-center gap-0.5 rounded-lg bg-base p-0.5 shadow-pop group-hover/msg:flex group-focus-within/msg:flex md:-top-3')
   for (const action of actions) {
-    const button = el('button', 'grid h-7 w-7 place-items-center rounded-md text-overlay1 transition-colors hover:bg-surface0 hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve ' + (action.tone || ''))
+    const button = el('button', 'grid h-11 w-11 place-items-center rounded-md text-overlay1 transition-colors hover:bg-surface0 hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve md:h-7 md:w-7 ' + (action.tone || ''))
     button.type = 'button'
     button.title = action.label
     button.setAttribute('aria-label', action.label)
@@ -189,38 +192,25 @@ function actionsNode(m, ctx) {
     button.addEventListener('click', action.run)
     bar.appendChild(button)
   }
+  return bar
+}
 
-  const sheet = el('button', 'absolute right-2 top-1 z-10 grid h-7 w-7 place-items-center rounded-md text-overlay1 transition-colors hover:bg-surface0 hover:text-text md:hidden')
-  sheet.type = 'button'
-  sheet.title = 'Message actions'
-  sheet.setAttribute('aria-label', 'Message actions')
-  sheet.appendChild(icon('ellipsis', 'h-4 w-4'))
-  sheet.addEventListener('click', () => {
-    openModal({
-      title: 'Message actions',
-      icon: 'ellipsis',
-      build(body, handle) {
-        for (const action of actions) {
-          const row = el('button', 'flex h-11 w-full items-center gap-3 rounded-md px-2 text-left text-sm text-subtext0 transition-colors hover:bg-surface0 hover:text-text')
-          row.type = 'button'
-          row.appendChild(icon(action.icon, 'h-4 w-4 shrink-0'))
-          row.appendChild(el('span', '', action.label))
-          row.addEventListener('click', () => {
-            handle.close()
-            action.run()
-          })
-          body.appendChild(row)
-        }
-      },
-    })
-  })
-
-  fragment.append(bar, sheet)
-  return fragment
+function liveCallOf(m) {
+  if (!m.call_id) return null
+  const call = state.calls.get(m.container_id)
+  return call && call.id === m.call_id ? call : null
 }
 
 function systemNode(m) {
-  return el('article', 'px-4 py-1 text-center text-xs text-overlay1', plainText(m.body || ''))
+  const article = el('article', 'flex flex-wrap items-center justify-center gap-2 px-4 py-1 text-center text-xs text-overlay1')
+  article.appendChild(el('span', '', plainText(m.body || '')))
+  if (!liveCallOf(m)) return article
+  const join = el('button', 'rounded-full bg-mauve px-2.5 py-0.5 text-xs font-semibold text-crust transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve', 'Join')
+  join.type = 'button'
+  join.addEventListener('click', () =>
+    window.dispatchEvent(new CustomEvent('isane:call-start', { detail: { containerId: m.container_id } })))
+  article.appendChild(join)
+  return article
 }
 
 export function messageNode(view, ctx) {
@@ -311,6 +301,7 @@ export function messageSignature(view, ctx) {
     m.is_system,
     ctx.isEditing(m.id),
     mentionsMe(m),
+    Boolean(liveCallOf(m)),
     (m.attachments || []).map((a) => a.id + ':' + a.state).join(','),
   ].join('|')
 }

@@ -47,6 +47,16 @@ function flush() {
   }
 }
 
+export function unreadTotal() {
+  let total = 0
+  for (const c of state.containers.values()) {
+    const mentions = c.mentions || 0
+    if (mentions > 0) total += mentions
+    else if (c.kind === 'conversation') total += c.unread || 0
+  }
+  return total
+}
+
 export function user(id) {
   const found = id ? state.users.get(id) : null
   if (found) return found

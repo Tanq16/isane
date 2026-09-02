@@ -1,5 +1,7 @@
 import { get, post } from './api.js'
 
+const endpointListeners = new Set()
+
 let registration = null
 let endpoint = null
 let vapidKey = null
@@ -21,6 +23,15 @@ export function pushSupported() {
 
 export function currentEndpoint() {
   return endpoint
+}
+
+export function currentRegistration() {
+  return registration
+}
+
+export function onEndpoint(fn) {
+  endpointListeners.add(fn)
+  return () => endpointListeners.delete(fn)
 }
 
 function decodeKey(base64) {
@@ -48,6 +59,13 @@ async function upsert(subscription) {
     })
   } catch (err) {
     console.error('push subscription upsert failed', err)
+  }
+  for (const fn of Array.from(endpointListeners)) {
+    try {
+      fn(endpoint)
+    } catch (err) {
+      console.error('push endpoint listener failed', err)
+    }
   }
 }
 
