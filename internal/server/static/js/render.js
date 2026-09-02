@@ -52,8 +52,9 @@ const CALLOUT_ICONS = {
 }
 
 const nodeCache = new WeakMap()
+const diagrams = new Set()
 let markedReady = false
-let mermaidReady = false
+let mermaidTheme = ''
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -120,8 +121,10 @@ function paletteReader() {
 }
 
 function initMermaid() {
-  if (mermaidReady || typeof mermaid === 'undefined') return
-  mermaidReady = true
+  if (typeof mermaid === 'undefined') return
+  const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+  if (mermaidTheme === theme) return
+  mermaidTheme = theme
   const c = paletteReader()
   mermaid.initialize({
     startOnLoad: false,
@@ -129,7 +132,7 @@ function initMermaid() {
     theme: 'base',
     fontFamily: 'Inter',
     themeVariables: {
-      darkMode: true,
+      darkMode: theme === 'dark',
       background: c('base'),
       mainBkg: c('base'),
 
@@ -331,22 +334,65 @@ function decorate(root) {
   drawIcons(root)
 }
 
+function scrubDiagram(node) {
+  for (const child of Array.from(node.querySelectorAll('*'))) {
+    if (child.tagName.toLowerCase() === 'script') {
+      child.remove()
+      continue
+    }
+    for (const attr of Array.from(child.attributes)) {
+      const name = attr.name.toLowerCase()
+      if (name.startsWith('on')) {
+        child.removeAttribute(attr.name)
+        continue
+      }
+      if (name !== 'href' && name !== 'xlink:href') continue
+      if (safeUrl(attr.value) === null) child.removeAttribute(attr.name)
+    }
+  }
+}
+
 function runDiagrams(root) {
   if (typeof mermaid === 'undefined') return
   const nodes = Array.from(root.querySelectorAll('.mermaid')).filter((n) => !n.dataset.diagram)
   if (!nodes.length) return
-  for (const n of nodes) n.dataset.diagram = '1'
+  for (const n of nodes) {
+    n.dataset.diagram = '1'
+    n.dataset.source = n.textContent
+    diagrams.add(n)
+  }
   initMermaid()
-  Promise.resolve(mermaid.run({ nodes })).catch((err) => {
-    console.error('mermaid render failed', err)
-  })
+  Promise.resolve(mermaid.run({ nodes }))
+    .then(() => {
+      for (const n of nodes) scrubDiagram(n)
+    })
+    .catch((err) => {
+      console.error('mermaid render failed', err)
+    })
 }
+
+function redrawDiagrams() {
+  const mounted = []
+  for (const node of Array.from(diagrams)) {
+    if (!node.isConnected) {
+      diagrams.delete(node)
+      continue
+    }
+    node.removeAttribute('data-processed')
+    delete node.dataset.diagram
+    node.textContent = node.dataset.source || ''
+    mounted.push(node)
+  }
+  if (!mounted.length) return
+  runDiagrams(document.body)
+}
+
+window.addEventListener('isane:theme', redrawDiagrams)
 
 export function renderMarkdown(src) {
   initMarked()
   const text = String(src ?? '')
   const host = document.createElement('div')
-  host.className = 'markdown-body'
   const html = typeof marked === 'undefined' ? `<p>${escapeHtml(text)}</p>` : marked.parse(text)
   sanitizeInto(host, html)
   decorate(host)

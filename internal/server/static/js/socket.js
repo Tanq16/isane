@@ -1,3 +1,4 @@
+import { get } from './api.js'
 import { state, notify, upsertContainer, upsertMessage, findMessage, loadMessages } from './store.js'
 import { currentEndpoint } from './push.js'
 
@@ -52,10 +53,23 @@ export function connect() {
   clearTimeout(reconnectTimer)
   reconnectTimer = null
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${scheme}//${location.host}/ws`)
-  ws.onopen = onOpen
-  ws.onmessage = onFrame
-  ws.onclose = onClose
+  const socket = new WebSocket(`${scheme}//${location.host}/ws`)
+  ws = socket
+  socket.onopen = onOpen
+  socket.onmessage = onFrame
+  socket.onerror = () => {
+    if (ws === socket && socket.readyState !== WebSocket.OPEN) get('/auth/me').catch(() => {})
+  }
+  socket.onclose = () => onClose(socket)
+}
+
+export function stop() {
+  started = false
+  clearTimeout(reconnectTimer)
+  reconnectTimer = null
+  stopPing()
+  if (ws) ws.close()
+  ws = null
 }
 
 export function send(type, data) {
@@ -115,7 +129,8 @@ function drain() {
   }
 }
 
-function onClose() {
+function onClose(socket) {
+  if (ws !== socket) return
   ws = null
   stopPing()
   if (!started) return
@@ -218,6 +233,24 @@ function apply(type, d) {
       state.jobs.delete(d.job_id)
       notify('jobs')
       return
+    case 'settings':
+      state.settings = Object.assign({}, state.settings, d)
+      notify('settings')
+      return
+    case 'container':
+      upsertContainer(d)
+      notify('containers')
+      return
+    case 'user':
+      if (d && d.id) state.users.set(d.id, Object.assign({}, state.users.get(d.id) || {}, d))
+      notify('users')
+      return
+    case 'attachment':
+      onAttachment(d)
+      return
+    case 'error':
+      onError(d)
+      return
     case 'pong':
       awaitingPong = false
       return
@@ -232,14 +265,44 @@ function onReady(d) {
     state.users.set(d.user.id, d.user)
   }
   if (Array.isArray(d.users)) {
-    for (const u of d.users) state.users.set(u.id, u)
+    for (const u of d.users) state.users.set(u.id, Object.assign({}, state.users.get(u.id) || {}, u))
   }
   if (Array.isArray(d.containers)) {
     for (const c of d.containers) upsertContainer(c)
   }
+  if (Array.isArray(d.presence)) {
+    state.presence = new Set(d.presence)
+  }
+  if (Array.isArray(d.calls)) {
+    for (const call of d.calls) {
+      if (call && call.container_id && !call.ended_at) state.calls.set(call.container_id, call)
+    }
+  }
+  if (d.settings) state.settings = Object.assign({}, state.settings, d.settings)
   state.quality = d.media_quality ?? d.quality ?? state.quality
-  notify('me', 'users', 'containers', 'quality')
+  notify('me', 'users', 'containers', 'presence', 'calls', 'settings', 'quality')
   if (Array.isArray(d.gaps) && d.gaps.length) backfill(d.gaps)
+}
+
+function onAttachment(a) {
+  if (!a || !a.id || !a.message_id) return
+  const m = findMessage(a.message_id)
+  if (!m) return
+  const list = Array.isArray(m.attachments) ? m.attachments.slice() : []
+  const at = list.findIndex((x) => x.id === a.id)
+  if (at >= 0) list[at] = Object.assign({}, list[at], a)
+  else list.push(a)
+  m.attachments = list
+  notify('messages', 'threads')
+}
+
+function onError(d) {
+  const pending = d.client_id ? state.pending.get(d.client_id) : null
+  if (pending) {
+    pending.pending = false
+    pending.failed = true
+    notify('pending')
+  }
 }
 
 async function backfill(gaps) {
@@ -268,7 +331,7 @@ function onMessage(m) {
   if (container) {
     if ((m.seq ?? 0) > (container.last_seq ?? 0)) container.last_seq = m.seq
     const mine = state.me && m.author_id === state.me.id
-    if (fresh && !mine && state.current.containerId !== m.container_id) {
+    if (fresh && !mine && !m.thread_root_id && state.current.containerId !== m.container_id) {
       container.unread = (container.unread ?? 0) + 1
       if (state.me && Array.isArray(m.mentions) && m.mentions.includes(state.me.id)) {
         container.mentions = (container.mentions ?? 0) + 1

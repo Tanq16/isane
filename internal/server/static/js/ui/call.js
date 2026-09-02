@@ -146,8 +146,8 @@ function ensureTile(identity, source, label) {
   const wrap = el(
     'div',
     source === 'screen'
-      ? 'relative col-span-full aspect-video overflow-hidden rounded-xl border border-surface1 bg-base'
-      : 'relative aspect-video overflow-hidden rounded-xl border border-surface0 bg-base'
+      ? 'relative col-span-full aspect-video overflow-hidden rounded-xl bg-base ring-1 ring-edge'
+      : 'relative aspect-video overflow-hidden rounded-xl bg-base ring-1 ring-edge'
   )
   const video = el('video', 'h-full w-full object-cover')
   video.autoplay = true
@@ -155,7 +155,7 @@ function ensureTile(identity, source, label) {
   video.muted = true
   const placeholder = el('div', 'absolute inset-0 flex items-center justify-center text-2xl font-semibold text-overlay1')
   placeholder.textContent = (label || '?').trim().charAt(0).toUpperCase()
-  const caption = el('div', 'absolute inset-x-0 bottom-0 flex items-center gap-2 bg-crust/80 px-2 py-1 text-xs')
+  const caption = el('div', 'absolute inset-x-0 bottom-0 flex items-center gap-2 bg-scrim px-2 py-1 text-xs')
   const name = el('span', 'truncate text-subtext0', source === 'screen' ? label + ' screen' : label)
   const mutedFlag = el('span', 'hidden shrink-0 text-red', 'muted')
   caption.appendChild(name)
@@ -198,8 +198,7 @@ function detachVideo(identity, source, track) {
 }
 
 function labelOf(participant) {
-  const u = user(participant.identity)
-  if (u && u.display_name) return u.display_name
+  if (state.users.has(participant.identity)) return user(participant.identity).display_name
   return participant.name || participant.identity
 }
 
@@ -405,10 +404,10 @@ async function toggleRecording() {
 
 function controlButton(label, active, fn, danger) {
   const base = danger
-    ? 'rounded-lg bg-red px-3 py-1.5 text-xs font-semibold text-crust'
+    ? 'rounded-lg bg-red px-3 py-1.5 text-xs font-semibold text-crust transition-colors hover:brightness-110'
     : active
-      ? 'rounded-lg bg-mauve px-3 py-1.5 text-xs font-semibold text-crust'
-      : 'rounded-lg border border-surface1 px-3 py-1.5 text-xs text-subtext0 hover:bg-surface0 hover:text-text'
+      ? 'rounded-lg bg-mauve px-3 py-1.5 text-xs font-semibold text-crust transition-colors hover:brightness-110'
+      : 'rounded-lg bg-surface0 px-3 py-1.5 text-xs text-subtext0 transition-colors hover:bg-surface1 hover:text-text'
   const button = el('button', base, label)
   button.type = 'button'
   button.addEventListener('click', fn)
@@ -431,10 +430,10 @@ function renderControls() {
 
 function renderHeader() {
   headerEl.replaceChildren()
-  const bar = el('div', 'flex items-center gap-2 border-b border-surface0 px-3 py-3')
-  bar.appendChild(el('h2', 'flex-1 font-display text-sm font-semibold text-text', 'Call'))
+  const bar = el('div', 'flex h-12 shrink-0 items-center gap-2 px-3')
+  bar.appendChild(el('h2', 'flex-1 text-message font-semibold text-text', 'Call'))
   if (activeCall && activeCall.recording_state === 'recording') {
-    bar.appendChild(el('span', 'rounded bg-red px-1.5 py-0.5 text-xs font-semibold text-crust', 'recording'))
+    bar.appendChild(el('span', 'rounded-full bg-red px-2 py-0.5 text-micro font-semibold uppercase tracking-widest text-crust', 'recording'))
   }
   headerEl.appendChild(bar)
 }
@@ -448,7 +447,7 @@ function renderPrompt(call) {
   promptEl.classList.remove('hidden')
   const starter = user(call.started_by)
   promptEl.appendChild(el('p', 'text-sm text-subtext0', starter.display_name + ' started a call.'))
-  const joinButton = el('button', 'mt-2 rounded-lg bg-mauve px-3 py-1.5 text-xs font-semibold text-crust', 'Join call')
+  const joinButton = el('button', 'mt-2 rounded-lg bg-mauve px-3 py-1.5 text-xs font-semibold text-crust transition-colors hover:brightness-110', 'Join call')
   joinButton.type = 'button'
   joinButton.addEventListener('click', () => start(call.container_id))
   promptEl.appendChild(joinButton)
@@ -456,7 +455,7 @@ function renderPrompt(call) {
 
 function render() {
   const call = liveCall()
-  const visible = joined || connecting || Boolean(call) || Boolean(statusText)
+  const visible = (joined || connecting || Boolean(call) || Boolean(statusText)) && !state.current.threadRootId
   rootEl.classList.toggle('hidden', !visible)
   if (!visible) return
 
@@ -472,13 +471,13 @@ export function mount(root) {
   rootEl = root
   rootEl.classList.add('hidden')
 
-  panelEl = el('div', 'fixed inset-0 z-30 flex flex-col bg-mantle md:relative md:inset-auto md:z-auto md:w-96 md:shrink-0 md:border-l md:border-surface0')
+  panelEl = el('div', 'flex h-full flex-col')
 
   headerEl = el('div')
   panelEl.appendChild(headerEl)
 
-  const body = el('div', 'relative flex-1 overflow-y-auto p-3')
-  promptEl = el('div', 'hidden rounded-xl border border-surface0 bg-base p-3')
+  const body = el('div', 'relative min-h-0 flex-1 overflow-y-auto p-3')
+  promptEl = el('div', 'hidden rounded-xl bg-base p-3')
   body.appendChild(promptEl)
   statusEl = el('button', 'hidden w-full py-2 text-left text-xs text-peach')
   statusEl.type = 'button'
@@ -491,10 +490,10 @@ export function mount(root) {
   body.appendChild(gridEl)
   panelEl.appendChild(body)
 
-  dimEl = el('div', 'absolute inset-0 z-10 hidden bg-crust/90')
+  dimEl = el('div', 'absolute inset-0 z-10 hidden bg-scrim')
   panelEl.appendChild(dimEl)
 
-  controlsEl = el('div', 'flex flex-wrap gap-2 border-t border-surface0 p-3')
+  controlsEl = el('div', 'flex shrink-0 flex-wrap gap-2 p-3')
   panelEl.appendChild(controlsEl)
 
   audioSinkEl = el('div', 'hidden')
@@ -509,7 +508,9 @@ export function mount(root) {
   })
 
   for (const event of ['pointerdown', 'pointermove', 'keydown', 'touchstart']) {
-    window.addEventListener(event, resetIdle, { passive: true })
+    window.addEventListener(event, () => {
+      if (joined) resetIdle()
+    }, { passive: true })
   }
 
   window.addEventListener('pagehide', () => {
