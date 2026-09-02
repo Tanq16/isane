@@ -73,6 +73,11 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 		if expired {
 			return fmt.Errorf("invite expired: %w", ErrConflict)
 		}
+		var existing int64
+		if err := tx.QueryRow(ctx, `select count(*) from users`).Scan(&existing); err != nil {
+			return fmt.Errorf("count users: %w", mapErr(err))
+		}
+		u.IsAdmin = existing == 0
 		created, err = insertUser(ctx, tx.QueryRow, u)
 		if err != nil {
 			return fmt.Errorf("insert user: %w", err)

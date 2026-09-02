@@ -98,19 +98,39 @@ func WriteError(w http.ResponseWriter, err error) {
 	status, message := http.StatusInternalServerError, "internal error"
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		status, message = http.StatusNotFound, err.Error()
+		status, message = http.StatusNotFound, userMessage(err, store.ErrNotFound)
 	case errors.Is(err, store.ErrConflict):
-		status, message = http.StatusConflict, err.Error()
+		status, message = http.StatusConflict, userMessage(err, store.ErrConflict)
 	case errors.Is(err, ErrUnauthorized):
-		status, message = http.StatusUnauthorized, err.Error()
-	case errors.Is(err, ErrForbidden), errors.Is(err, app.ErrForbidden):
-		status, message = http.StatusForbidden, err.Error()
-	case errors.Is(err, ErrBadRequest), errors.Is(err, app.ErrInvalid):
-		status, message = http.StatusBadRequest, err.Error()
+		status, message = http.StatusUnauthorized, userMessage(err, ErrUnauthorized)
+	case errors.Is(err, ErrForbidden):
+		status, message = http.StatusForbidden, userMessage(err, ErrForbidden)
+	case errors.Is(err, app.ErrForbidden):
+		status, message = http.StatusForbidden, userMessage(err, app.ErrForbidden)
+	case errors.Is(err, ErrBadRequest):
+		status, message = http.StatusBadRequest, userMessage(err, ErrBadRequest)
+	case errors.Is(err, app.ErrInvalid):
+		status, message = http.StatusBadRequest, userMessage(err, app.ErrInvalid)
+	case errors.Is(err, store.ErrInvalid):
+		status, message = http.StatusBadRequest, userMessage(err, store.ErrInvalid)
 	default:
 		log.Error().Err(err).Msg("request failed")
 	}
 	WriteJSON(w, status, errorBody{Error: message})
+}
+
+func userMessage(err, sentinel error) string {
+	sentinelText := sentinel.Error()
+	kept := make([]string, 0, 3)
+	for _, part := range strings.Split(err.Error(), ": ") {
+		if part != sentinelText {
+			kept = append(kept, part)
+		}
+	}
+	if len(kept) == 0 {
+		return sentinelText
+	}
+	return kept[len(kept)-1]
 }
 
 func ReadJSON(r *http.Request, v any) error {

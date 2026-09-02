@@ -3,7 +3,6 @@ package handlers
 import (
 	"net/http"
 	"strings"
-	"time"
 	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
@@ -38,18 +37,6 @@ type editMessageRequest struct {
 
 type subscriptionRequest struct {
 	State string `json:"state"`
-}
-
-type editedFrame struct {
-	ID       uuid.UUID  `json:"id"`
-	Body     string     `json:"body"`
-	EditedAt *time.Time `json:"edited_at,omitempty"`
-}
-
-type deletedFrame struct {
-	ID          uuid.UUID `json:"id"`
-	ContainerID uuid.UUID `json:"container_id"`
-	Seq         int64     `json:"seq"`
 }
 
 func (h *Messages) List(w http.ResponseWriter, r *http.Request) {
@@ -161,39 +148,16 @@ func (h *Messages) Edit(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	m, c, err := h.writableMessage(r, id, u)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	if m.AuthorID != u.ID {
-		WriteError(w, forbiddenf("only the author edits a message"))
-		return
-	}
 	var req editMessageRequest
 	if err := ReadJSON(r, &req); err != nil {
 		WriteError(w, err)
 		return
 	}
-	if strings.TrimSpace(req.Body) == "" {
-		WriteError(w, badRequestf("body is required"))
-		return
-	}
-	mentions, err := h.app.ResolveMentions(r.Context(), c.ID, req.Body)
+	edited, err := h.app.EditMessage(r.Context(), u, id, req.Body)
 	if err != nil {
 		WriteError(w, err)
 		return
 	}
-	edited, err := h.app.DB.EditMessage(r.Context(), m.ID, req.Body, mentions)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	h.broadcast(r, c.ID, socket.NewFrame("message_edited", editedFrame{
-		ID:       edited.ID,
-		Body:     edited.Body,
-		EditedAt: edited.EditedAt,
-	}))
 	WriteJSON(w, http.StatusOK, edited)
 }
 
@@ -207,25 +171,10 @@ func (h *Messages) Delete(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	m, c, err := h.writableMessage(r, id, u)
-	if err != nil {
+	if _, err := h.app.DeleteMessage(r.Context(), u, id); err != nil {
 		WriteError(w, err)
 		return
 	}
-	if m.AuthorID != u.ID && !u.IsAdmin {
-		WriteError(w, forbiddenf("only the author or an administrator deletes a message"))
-		return
-	}
-	deleted, err := h.app.DB.DeleteMessage(r.Context(), m.ID)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	h.broadcast(r, c.ID, socket.NewFrame("message_deleted", deletedFrame{
-		ID:          deleted.ID,
-		ContainerID: deleted.ContainerID,
-		Seq:         deleted.Seq,
-	}))
 	writeOK(w)
 }
 
@@ -337,29 +286,3 @@ func (h *Messages) Search(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, nonNil(results))
 }
 
-func (h *Messages) writableMessage(r *http.Request, id uuid.UUID, u store.User) (store.Message, store.Container, error) {
-	m, err := h.app.DB.GetMessage(r.Context(), id)
-	if err != nil {
-		return store.Message{}, store.Container{}, err
-	}
-	if m.DeletedAt != nil {
-		return store.Message{}, store.Container{}, conflictf("this message is deleted")
-	}
-	c, err := containerFor(r.Context(), h.app, m.ContainerID, u.ID)
-	if err != nil {
-		return store.Message{}, store.Container{}, err
-	}
-	if c.ArchivedAt != nil {
-		return store.Message{}, store.Container{}, conflictf("this channel is archived")
-	}
-	return m, c, nil
-}
-
-func (h *Messages) broadcast(r *http.Request, containerID uuid.UUID, f socket.Frame) {
-	ids, err := h.app.DB.MemberIDs(r.Context(), containerID)
-	if err != nil {
-		h.app.Log.Error().Err(err).Msg("resolve members for broadcast")
-		return
-	}
-	h.app.Hub.ToUsers(ids, f)
-}

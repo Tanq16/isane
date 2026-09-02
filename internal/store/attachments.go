@@ -78,14 +78,6 @@ func (db *DB) ListStagedBefore(ctx context.Context, cutoff time.Time) ([]Attachm
 		order by created_at`, cutoff)
 }
 
-func (db *DB) ListOrphanedAttachments(ctx context.Context) ([]Attachment, error) {
-	return db.queryAttachments(ctx, "list orphaned attachments", `select `+attachmentColumns+`
-		from attachments a
-		where a.message_id is not null
-		  and not exists (select 1 from messages m where m.id = a.message_id)
-		order by a.created_at`)
-}
-
 func (db *DB) DeleteAttachment(ctx context.Context, id uuid.UUID) error {
 	if _, err := db.Pool.Exec(ctx, `delete from attachments where id = $1`, id); err != nil {
 		return fmt.Errorf("delete attachment: %w", mapErr(err))

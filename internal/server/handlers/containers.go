@@ -50,11 +50,6 @@ type channelUpdate struct {
 	Topic *string `json:"topic"`
 }
 
-type readFrame struct {
-	ContainerID uuid.UUID `json:"container_id"`
-	Seq         int64     `json:"seq"`
-}
-
 func (h *Containers) CreateChannel(w http.ResponseWriter, r *http.Request) {
 	u, ok := requestUser(w, r)
 	if !ok {
@@ -226,22 +221,17 @@ func (h *Containers) SetRead(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	if _, err := containerFor(r.Context(), h.app, id, u.ID); err != nil {
-		WriteError(w, err)
-		return
-	}
 	var req readRequest
 	if err := ReadJSON(r, &req); err != nil {
 		WriteError(w, err)
 		return
 	}
-	seq, err := h.app.DB.SetReadMarker(r.Context(), u.ID, id, req.Seq)
+	seq, err := h.app.MarkRead(r.Context(), u.ID, id, req.Seq)
 	if err != nil {
 		WriteError(w, err)
 		return
 	}
-	h.app.Hub.ToUser(u.ID, socket.NewFrame("read", readFrame{ContainerID: id, Seq: seq}))
-	WriteJSON(w, http.StatusOK, readFrame{ContainerID: id, Seq: seq})
+	WriteJSON(w, http.StatusOK, socket.ReadPayload{ContainerID: id, Seq: seq})
 }
 
 func (h *Containers) SetNotificationPref(w http.ResponseWriter, r *http.Request) {

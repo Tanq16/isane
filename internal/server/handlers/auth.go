@@ -129,17 +129,11 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, fmt.Errorf("hash password: %w", err))
 		return
 	}
-	count, err := h.app.DB.CountUsers(r.Context())
-	if err != nil {
-		WriteError(w, fmt.Errorf("count users: %w", err))
-		return
-	}
 	u, err := h.app.DB.AcceptInvite(r.Context(), auth.HashToken(req.Token), store.User{
 		Kind:         store.UserHuman,
 		Handle:       handle,
 		DisplayName:  displayName,
 		PasswordHash: &hash,
-		IsAdmin:      count == 0,
 	})
 	if err != nil {
 		WriteError(w, err)

@@ -165,7 +165,7 @@ func (a *App) expireAgentJobs(ctx context.Context) {
 		if _, err := a.PostSystem(ctx, job.ContainerID, agent.ID, root, body); err != nil {
 			a.Log.Error().Err(err).Str("job", job.ID.String()).Msg("post agent timeout")
 		}
-		a.broadcast(ctx, job.ContainerID, socket.NewFrame(socket.TypeAgentDone,
+		a.Broadcast(ctx, job.ContainerID, socket.NewFrame(socket.TypeAgentDone,
 			socket.AgentDonePayload{JobID: job.ID}))
 	}
 }
@@ -208,7 +208,7 @@ func (a *App) reapCalls(ctx context.Context) {
 			continue
 		}
 		a.Log.Info().Str("call", call.ID.String()).Msg("closed abandoned call")
-		a.broadcast(ctx, call.ContainerID, socket.NewFrame(socket.TypeCallEnded,
+		a.Broadcast(ctx, call.ContainerID, socket.NewFrame(socket.TypeCallEnded,
 			socket.CallEndedPayload{CallID: call.ID}))
 	}
 }

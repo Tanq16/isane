@@ -116,7 +116,7 @@ func (a *App) Send(ctx context.Context, c *socket.Conn, p socket.SendPayload) er
 }
 
 func (a *App) Edit(ctx context.Context, c *socket.Conn, p socket.EditPayload) error {
-	if _, err := a.editMessage(ctx, c.User(), p.MessageID, p.Body); err != nil {
+	if _, err := a.EditMessage(ctx, c.User(), p.MessageID, p.Body); err != nil {
 		a.fail(c, "", err)
 		return err
 	}
@@ -124,7 +124,7 @@ func (a *App) Edit(ctx context.Context, c *socket.Conn, p socket.EditPayload) er
 }
 
 func (a *App) Delete(ctx context.Context, c *socket.Conn, p socket.DeletePayload) error {
-	if _, err := a.deleteMessage(ctx, c.User(), p.MessageID); err != nil {
+	if _, err := a.DeleteMessage(ctx, c.User(), p.MessageID); err != nil {
 		a.fail(c, "", err)
 		return err
 	}
@@ -132,7 +132,7 @@ func (a *App) Delete(ctx context.Context, c *socket.Conn, p socket.DeletePayload
 }
 
 func (a *App) Read(ctx context.Context, c *socket.Conn, p socket.ReadPayload) error {
-	if _, err := a.markRead(ctx, c.UserID(), p.ContainerID, p.Seq); err != nil {
+	if _, err := a.MarkRead(ctx, c.UserID(), p.ContainerID, p.Seq); err != nil {
 		a.fail(c, "", err)
 		return err
 	}

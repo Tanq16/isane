@@ -39,10 +39,17 @@ const (
 )
 
 type Service struct {
-	cfg  *config.Config
-	db   *store.DB
-	log  zerolog.Logger
-	root string
+	cfg   *config.Config
+	db    *store.DB
+	log   zerolog.Logger
+	root  string
+	tools Tools
+}
+
+type Tools struct {
+	Magick  bool `json:"magick"`
+	FFmpeg  bool `json:"ffmpeg"`
+	FFprobe bool `json:"ffprobe"`
 }
 
 func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
@@ -55,7 +62,25 @@ func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error)
 			return nil, fmt.Errorf("create media directory: %w", err)
 		}
 	}
-	return &Service{cfg: cfg, db: db, log: log, root: root}, nil
+	return &Service{cfg: cfg, db: db, log: log, root: root, tools: preflight(log)}, nil
+}
+
+func (s *Service) Tools() Tools { return s.tools }
+
+func preflight(log zerolog.Logger) Tools {
+	found := map[string]bool{}
+	for tool, lost := range map[string]string{
+		"magick":  "images are stored unresized and get no thumbnail",
+		"ffmpeg":  "videos get no poster frame",
+		"ffprobe": "videos and audio get no dimensions or duration",
+	} {
+		if _, err := exec.LookPath(tool); err != nil {
+			log.Warn().Str("tool", tool).Msg(lost)
+			continue
+		}
+		found[tool] = true
+	}
+	return Tools{Magick: found["magick"], FFmpeg: found["ffmpeg"], FFprobe: found["ffprobe"]}
 }
 
 func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, r io.Reader) (store.Attachment, error) {

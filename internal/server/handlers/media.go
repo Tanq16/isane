@@ -57,15 +57,19 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 			writeUploadError(w, err)
 			return
 		}
-		go h.process(context.WithoutCancel(r.Context()), a, u.ID)
+		h.app.Spawn("process attachment", func(ctx context.Context) { h.process(ctx, a, u.ID) })
 		WriteJSON(w, http.StatusCreated, a)
 		return
 	}
 }
 
 func (h *Media) Get(w http.ResponseWriter, r *http.Request) {
-	a, ok := h.ready(w, r)
+	a, ok := h.resolve(w, r)
 	if !ok {
+		return
+	}
+	if a.State != store.AttachmentReady && a.State != store.AttachmentFailed {
+		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
 		return
 	}
 	f, err := h.app.Media.Open(a)
@@ -74,12 +78,17 @@ func (h *Media) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", attachmentCache)
-	serveFile(w, r, f, a.OriginalName, a.Mime, a.Kind == store.AttachmentFile)
+	download := a.Kind == store.AttachmentFile || a.State == store.AttachmentFailed
+	serveFile(w, r, f, a.OriginalName, a.Mime, download)
 }
 
 func (h *Media) Thumb(w http.ResponseWriter, r *http.Request) {
-	a, ok := h.ready(w, r)
+	a, ok := h.resolve(w, r)
 	if !ok {
+		return
+	}
+	if a.State != store.AttachmentReady {
+		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
 		return
 	}
 	if !a.HasThumb() {
@@ -95,7 +104,7 @@ func (h *Media) Thumb(w http.ResponseWriter, r *http.Request) {
 	serveFile(w, r, f, filepath.Base(*a.ThumbPath), "", false)
 }
 
-func (h *Media) ready(w http.ResponseWriter, r *http.Request) (store.Attachment, bool) {
+func (h *Media) resolve(w http.ResponseWriter, r *http.Request) (store.Attachment, bool) {
 	if _, ok := requestUser(w, r); !ok {
 		return store.Attachment{}, false
 	}
@@ -107,10 +116,6 @@ func (h *Media) ready(w http.ResponseWriter, r *http.Request) (store.Attachment,
 	a, err := h.app.DB.GetAttachment(r.Context(), id)
 	if err != nil {
 		WriteError(w, err)
-		return store.Attachment{}, false
-	}
-	if a.State != store.AttachmentReady {
-		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, id, a.State))
 		return store.Attachment{}, false
 	}
 	return a, true
@@ -132,7 +137,7 @@ func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid
 		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("load attachment message")
 		return
 	}
-	broadcastTo(ctx, h.app, m.ContainerID, frame)
+	h.app.Broadcast(ctx, m.ContainerID, frame)
 }
 
 func serveFile(w http.ResponseWriter, r *http.Request, f *os.File, name, mimeType string, download bool) {

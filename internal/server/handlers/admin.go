@@ -10,6 +10,7 @@ import (
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
+	"github.com/tanq16/isane/internal/media"
 	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
@@ -66,6 +67,11 @@ type adminAgentReserved struct {
 
 type adminAgentDeleted struct {
 	HandleFreed bool `json:"handle_freed"`
+}
+
+type adminStats struct {
+	store.Stats
+	MediaTools media.Tools `json:"media_tools"`
 }
 
 type adminRetention struct {
@@ -371,7 +377,7 @@ func (h *Admin) Stats(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, stats)
+	WriteJSON(w, http.StatusOK, adminStats{Stats: stats, MediaTools: h.app.Media.Tools()})
 }
 
 func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {

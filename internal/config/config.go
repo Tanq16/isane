@@ -11,6 +11,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+const envPrefix = "ISANE_"
+
 type Config struct {
 	Server       Server       `yaml:"server"`
 	Database     Database     `yaml:"database"`
@@ -186,7 +188,7 @@ func applyEnv(v reflect.Value, path []string) error {
 		default:
 			continue
 		}
-		name := strings.ToUpper(strings.Join(next, "_"))
+		name := envPrefix + strings.ToUpper(strings.Join(next, "_"))
 		raw, ok := os.LookupEnv(name)
 		if !ok {
 			continue

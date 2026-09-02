@@ -90,7 +90,7 @@ The first output is `push.vapid_private_key` and the second is `push.vapid_publi
 
 **3. Fill in the config files.**
 
-`.env` holds the Postgres password, which compose reads into both the database and the application's `DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
+`.env` holds the Postgres password, which compose reads into both the database and the application's `ISANE_DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
 
 ```
 POSTGRES_PASSWORD=<the first generated secret>
@@ -139,7 +139,7 @@ The first start against an empty `users` table prints a one-time invite URL. Ope
 
 ## Configuration
 
-`config.yaml` is read at start. Every scalar value may be overridden by an environment variable named by uppercasing the YAML path and joining the segments with underscores, so `push.vapid_private_key` becomes `PUSH_VAPID_PRIVATE_KEY`. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
+`config.yaml` is read at start. Every scalar value may be overridden by an environment variable named `ISANE_` followed by the YAML path uppercased and joined with underscores, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
 
 | Key | Default | Holds |
 |---|---|---|

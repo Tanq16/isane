@@ -8,7 +8,7 @@ services:
       - ./data/media:/media
       - ./config.yaml:/config.yaml:ro
     environment:
-      DATABASE_URL: postgres://chat:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/chat?sslmode=disable
+      ISANE_DATABASE_URL: postgres://chat:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/chat?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
