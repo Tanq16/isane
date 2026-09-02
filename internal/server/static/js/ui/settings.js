@@ -414,8 +414,7 @@ function soundRow(body) {
 function pushSection(body) {
   body.appendChild(sectionLabel('Notifications'))
   soundRow(body)
-  body.appendChild(el('div', 'mt-2'))
-  body.appendChild(el('p', 'mb-2 text-xs text-overlay1', 'Android decides how loudly a website may notify. To make Isane interrupt you, raise its importance in Android Settings under Chrome, Notifications, Sites.'))
+  body.appendChild(el('p', 'my-2 text-xs text-overlay1', 'Android decides how loudly a website may notify. To make Isane interrupt you, raise its importance in Android Settings under Chrome, Notifications, Sites.'))
   if (!pushSupported()) {
     body.appendChild(el('p', 'text-sm text-subtext0', 'Push notifications are not configured on this server.'))
     return
