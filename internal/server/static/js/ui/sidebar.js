@@ -1,33 +1,33 @@
-import { state, subscribe, notify, user } from '../store.js'
 import * as api from '../api.js'
+import { state, subscribe, notify, user } from '../store.js'
 import { plainText } from '../render.js'
+import { currentTheme, toggleTheme } from '../theme.js'
+import {
+  avatarNode, containerLabel, containerPath, conversationTitle, drawIcons, el, icon,
+  iconButton, navigate, presenceDot,
+} from './dom.js'
+import { openPicker } from './picker.js'
+import { mayManageChannels, openChannelSettings, openCreateChannel, openUserSettings } from './settings.js'
+import { toast } from './toast.js'
+
+const COLLAPSE_KEY = 'isane:sidebar-sections'
 
 let rootEl = null
-let backdropEl = null
 let panelEl = null
-let channelsEl = null
-let archivedEl = null
-let archivedGroupEl = null
-let conversationsEl = null
-let footerEl = null
 let searchInput = null
 let searchResultsEl = null
-let pickerEl = null
-let pickerQuery = ''
-let pickerSelection = new Set()
-let pickerOpen = false
+let footerEl = null
+let themeButton = null
+
+const groups = new Map()
+const rows = new Map()
+const collapsed = new Set()
+
 let searchTimer = 0
 let searchTerm = ''
 let searchResults = []
 let searchBusy = false
 let frame = 0
-
-function el(tag, cls, text) {
-  const node = document.createElement(tag)
-  if (cls) node.className = cls
-  if (text != null) node.textContent = text
-  return node
-}
 
 function scheduleRender() {
   if (frame) return
@@ -37,14 +37,27 @@ function scheduleRender() {
   })
 }
 
-function navigate(path) {
-  if (location.pathname + location.search === path) return
-  history.pushState(null, '', path)
-  window.dispatchEvent(new CustomEvent('isane:navigate', { detail: { path } }))
+function readCollapsed() {
+  try {
+    for (const key of JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')) collapsed.add(key)
+  } catch {}
 }
 
-function containerPath(c) {
-  return c.kind === 'channel' ? '/c/' + c.slug : '/d/' + c.id
+function writeCollapsed() {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(collapsed)))
+  } catch {}
+}
+
+function closeDrawer() {
+  const app = document.getElementById('app')
+  if (app) app.dataset.drawer = 'closed'
+}
+
+function toggleDrawer() {
+  const app = document.getElementById('app')
+  if (!app) return
+  app.dataset.drawer = app.dataset.drawer === 'open' ? 'closed' : 'open'
 }
 
 function openContainer(c) {
@@ -56,16 +69,6 @@ function openContainer(c) {
   closeDrawer()
 }
 
-function closeDrawer() {
-  rootEl.classList.add('-translate-x-full')
-  backdropEl.classList.add('hidden')
-}
-
-function openDrawer() {
-  rootEl.classList.remove('-translate-x-full')
-  backdropEl.classList.remove('hidden')
-}
-
 function containers(kind) {
   const out = []
   for (const c of state.containers.values()) {
@@ -74,174 +77,165 @@ function containers(kind) {
   return out
 }
 
-function conversationTitle(c) {
-  const ids = (c.participants || []).filter((id) => id !== (state.me && state.me.id))
-  if (!ids.length) return c.name || 'Conversation'
-  return ids.map((id) => user(id).display_name).join(', ')
+function group(key, title, trailing) {
+  const wrap = el('section', 'mt-4 first:mt-0')
+  const head = el('div', 'flex h-6 items-center gap-1 px-2')
+  const toggle = el('button', 'flex min-w-0 flex-1 items-center gap-1 text-micro font-bold uppercase tracking-widest text-lavender transition-colors hover:brightness-125 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
+  toggle.type = 'button'
+  const chevron = icon(collapsed.has(key) ? 'chevron-right' : 'chevron-down', 'h-3 w-3 shrink-0')
+  toggle.appendChild(chevron)
+  toggle.appendChild(el('span', 'truncate', title))
+  head.appendChild(toggle)
+  if (trailing) head.appendChild(trailing)
+  wrap.appendChild(head)
+
+  const list = el('div', 'mt-0.5 space-y-0.5')
+  list.id = 'sidebar-group-' + key
+  toggle.setAttribute('aria-controls', list.id)
+  wrap.appendChild(list)
+
+  toggle.addEventListener('click', () => {
+    if (collapsed.has(key)) collapsed.delete(key)
+    else collapsed.add(key)
+    writeCollapsed()
+    render()
+  })
+
+  const entry = { wrap, list, toggle, chevron }
+  groups.set(key, entry)
+  return entry
 }
 
-function conversationOnline(c) {
-  const ids = (c.participants || []).filter((id) => id !== (state.me && state.me.id))
-  return ids.some((id) => state.presence.has(id))
+function smallIconButton(name, title, onClick) {
+  const button = el('button', 'grid h-5 w-5 shrink-0 place-items-center rounded text-overlay1 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
+  button.type = 'button'
+  button.title = title
+  button.setAttribute('aria-label', title)
+  button.appendChild(icon(name, 'h-4 w-4'))
+  button.addEventListener('click', onClick)
+  return button
 }
 
-function badge(count, cls) {
-  const node = el('span', cls)
-  node.textContent = count > 99 ? '99+' : String(count)
-  return node
-}
+function rowFor(c) {
+  let row = rows.get(c.id)
+  if (row) return row
 
-function containerRow(c, label) {
-  const active = state.current.containerId === c.id
-  const row = el(
-    'button',
-    active
-      ? 'flex w-full items-center gap-2 rounded-lg bg-surface0 px-2 py-1.5 text-left text-sm text-text'
-      : 'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-subtext0 hover:bg-surface0'
-  )
-  row.type = 'button'
-
-  if (c.kind === 'channel') {
-    row.appendChild(el('span', 'w-3 shrink-0 text-center text-overlay1', '#'))
-  } else {
-    row.appendChild(
-      el('span', conversationOnline(c) ? 'h-2 w-2 shrink-0 rounded-full bg-green' : 'h-2 w-2 shrink-0 rounded-full bg-overlay0')
-    )
-  }
-
-  const name = el('span', c.unread > 0 ? 'truncate font-semibold text-text' : 'truncate', label)
-  row.appendChild(name)
-
-  if (c.archived_at) {
-    row.appendChild(el('span', 'ml-auto shrink-0 text-xs text-overlay1', 'archived'))
-  } else if (c.mentions > 0) {
-    row.appendChild(badge(c.mentions, 'ml-auto shrink-0 rounded-full bg-red px-1.5 py-0.5 text-xs font-semibold text-crust'))
-  } else if (c.unread > 0) {
-    row.appendChild(badge(c.unread, 'ml-auto shrink-0 rounded-full bg-surface1 px-1.5 py-0.5 text-xs text-subtext1'))
-  }
-
-  row.addEventListener('click', () => openContainer(c))
+  const node = el('button')
+  node.type = 'button'
+  const rail = el('span', 'absolute -left-2 h-2 w-1 rounded-r-full bg-text')
+  const rule = el('span', 'absolute bottom-1 left-0 top-1 w-0.5 rounded-full bg-mauve')
+  const lead = el('span', 'grid h-5 w-5 shrink-0 place-items-center')
+  const label = el('span', 'min-w-0 flex-1 truncate')
+  const trail = el('span', 'ml-auto flex shrink-0 items-center gap-1')
+  node.append(rail, rule, lead, label, trail)
+  node.addEventListener('click', () => openContainer(state.containers.get(c.id) || c))
+  row = { node, rail, rule, lead, label, trail }
+  rows.set(c.id, row)
   return row
 }
 
-function renderChannels() {
-  const list = containers('channel')
-  const live = list.filter((c) => !c.archived_at).sort((a, b) => (a.name || a.slug || '').localeCompare(b.name || b.slug || ''))
-  const archived = list.filter((c) => c.archived_at).sort((a, b) => (a.name || a.slug || '').localeCompare(b.name || b.slug || ''))
+function paintRow(c, text) {
+  const row = rowFor(c)
+  const active = state.current.containerId === c.id
+  const muted = c.level === 'none'
+  const unread = (c.unread || 0) > 0
+  const mentions = c.mentions || 0
 
-  channelsEl.replaceChildren()
-  for (const c of live) channelsEl.appendChild(containerRow(c, c.name || c.slug))
+  row.node.className = 'relative flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-message focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve '
+    + (active ? 'bg-surface0 text-text' : 'text-subtext0 hover:bg-surface0/60 hover:text-text')
+  row.node.setAttribute('aria-current', active ? 'page' : 'false')
+  row.rail.classList.toggle('hidden', active || (!unread && !mentions))
+  row.rule.classList.toggle('hidden', !active)
 
-  archivedEl.replaceChildren()
-  for (const c of archived) archivedEl.appendChild(containerRow(c, c.name || c.slug))
-  archivedGroupEl.classList.toggle('hidden', archived.length === 0)
+  row.label.textContent = text
+  row.label.className = 'min-w-0 flex-1 truncate'
+  if (unread || mentions) row.label.classList.add('font-medium', 'text-text')
+  else if (muted && !active) row.label.classList.add('text-overlay0')
+
+  row.lead.replaceChildren()
+  if (c.kind === 'channel') {
+    row.lead.appendChild(icon('hash', 'h-5 w-5 text-overlay1'))
+  } else {
+    const partner = (c.participants || []).find((id) => id !== (state.me && state.me.id))
+    const stack = el('span', 'relative')
+    stack.appendChild(avatarNode(user(partner), 'h-5 w-5', 'text-micro'))
+    const dot = presenceDot(partner, 'ring-crust')
+    dot.classList.add('absolute', '-bottom-0.5', '-right-0.5', 'h-2', 'w-2')
+    stack.appendChild(dot)
+    row.lead.appendChild(stack)
+  }
+
+  row.trail.replaceChildren()
+  const call = state.calls.get(c.id)
+  if (call && !call.ended_at) row.trail.appendChild(icon('phone-call', 'h-4 w-4 text-teal'))
+  if (c.archived_at) {
+    row.trail.appendChild(el('span', 'text-micro uppercase tracking-widest text-overlay1', 'archived'))
+  } else if (mentions > 0) {
+    row.trail.appendChild(countPill(mentions))
+  } else if (c.kind === 'conversation' && unread) {
+    row.trail.appendChild(countPill(c.unread))
+  }
+
+  drawIcons(row.node)
+  return row.node
 }
 
-function renderConversations() {
-  const list = containers('conversation').sort((a, b) => (b.last_seq || 0) - (a.last_seq || 0))
-  conversationsEl.replaceChildren()
-  for (const c of list) conversationsEl.appendChild(containerRow(c, conversationTitle(c)))
-  if (!list.length) {
-    conversationsEl.appendChild(el('p', 'px-2 py-1 text-xs text-overlay1', 'No direct messages yet.'))
-  }
+function countPill(count) {
+  return el(
+    'span',
+    'grid h-4 min-w-4 place-items-center rounded-full bg-red px-1 text-micro font-bold tabular-nums text-crust',
+    count > 99 ? '99+' : String(count)
+  )
 }
 
-function renderPickerList(listEl, startButton) {
-  listEl.replaceChildren()
-  const q = pickerQuery.trim().toLowerCase()
-  const candidates = []
-  for (const u of state.users.values()) {
-    if (u.kind !== 'human' || u.deactivated_at) continue
-    if (state.me && u.id === state.me.id) continue
-    if (q && !u.handle.toLowerCase().includes(q) && !u.display_name.toLowerCase().includes(q)) continue
-    candidates.push(u)
-  }
-  candidates.sort((a, b) => a.display_name.localeCompare(b.display_name))
+function syncGroup(entry, key, items, textOf) {
+  entry.chevron.dataset.lucide = collapsed.has(key) ? 'chevron-right' : 'chevron-down'
+  entry.toggle.setAttribute('aria-expanded', collapsed.has(key) ? 'false' : 'true')
+  entry.list.classList.toggle('hidden', collapsed.has(key))
 
-  for (const u of candidates) {
-    const row = el('label', 'flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-subtext0 hover:bg-surface0')
-    const box = el('input', 'accent-mauve')
-    box.type = 'checkbox'
-    box.checked = pickerSelection.has(u.id)
-    box.addEventListener('change', () => {
-      if (box.checked) pickerSelection.add(u.id)
-      else pickerSelection.delete(u.id)
-      startButton.disabled = pickerSelection.size === 0
-    })
-    row.appendChild(box)
-    row.appendChild(el('span', 'truncate text-text', u.display_name))
-    row.appendChild(el('span', 'truncate text-xs text-overlay1', '@' + u.handle))
-    listEl.appendChild(row)
-  }
-  if (!candidates.length) listEl.appendChild(el('p', 'px-2 py-1 text-xs text-overlay1', 'No matching people.'))
-}
-
-function renderPicker() {
-  pickerEl.classList.toggle('hidden', !pickerOpen)
-  if (!pickerOpen) {
-    pickerEl.replaceChildren()
-    return
-  }
-
-  const search = el('input', 'w-full rounded-lg border border-surface1 bg-surface0 px-2 py-1.5 text-sm text-text placeholder:text-overlay0')
-  search.type = 'search'
-  search.placeholder = 'Find people'
-  search.value = pickerQuery
-
-  const list = el('div', 'mt-2 max-h-56 space-y-0.5 overflow-y-auto')
-  const error = el('p', 'mt-2 hidden text-xs text-red')
-  const actions = el('div', 'mt-2 flex gap-2')
-
-  const start = el('button', 'rounded-lg bg-mauve px-3 py-1.5 text-sm font-semibold text-crust disabled:opacity-50', 'Start')
-  start.type = 'button'
-  start.disabled = pickerSelection.size === 0
-  start.addEventListener('click', async () => {
-    start.disabled = true
-    error.classList.add('hidden')
-    try {
-      const c = await api.post('/api/conversations', { user_ids: Array.from(pickerSelection) })
-      pickerOpen = false
-      pickerSelection = new Set()
-      pickerQuery = ''
-      const view = state.containers.get(c.id) || c
-      state.containers.set(c.id, view)
-      notify('containers')
-      openContainer(view)
-    } catch (err) {
-      error.textContent = err.message || 'Could not start the conversation.'
-      error.classList.remove('hidden')
-      start.disabled = false
+  let cursor = entry.list.firstChild
+  for (const c of items) {
+    const node = paintRow(c, textOf(c))
+    if (cursor === node) {
+      cursor = cursor.nextSibling
+      continue
     }
-  })
+    entry.list.insertBefore(node, cursor)
+  }
+  while (cursor) {
+    const next = cursor.nextSibling
+    cursor.remove()
+    cursor = next
+  }
+}
 
-  const cancel = el('button', 'rounded-lg border border-surface1 px-3 py-1.5 text-sm text-subtext0 hover:bg-surface0', 'Cancel')
-  cancel.type = 'button'
-  cancel.addEventListener('click', () => {
-    pickerOpen = false
-    pickerSelection = new Set()
-    pickerQuery = ''
-    renderPicker()
-  })
+function byName(a, b) {
+  return (a.name || a.slug || '').localeCompare(b.name || b.slug || '')
+}
 
-  search.addEventListener('input', () => {
-    pickerQuery = search.value
-    renderPickerList(list, start)
-  })
+function renderGroups() {
+  const channels = containers('channel')
+  const live = channels.filter((c) => !c.archived_at).sort(byName)
+  const archived = channels.filter((c) => c.archived_at).sort(byName)
+  const conversations = containers('conversation').sort((a, b) => (b.last_seq || 0) - (a.last_seq || 0))
 
-  actions.appendChild(start)
-  actions.appendChild(cancel)
-  renderPickerList(list, start)
-  pickerEl.replaceChildren(search, list, error, actions)
-  search.focus()
+  syncGroup(groups.get('channels'), 'channels', live, (c) => c.name || c.slug)
+  syncGroup(groups.get('conversations'), 'conversations', conversations, (c) => conversationTitle(c, user))
+  syncGroup(groups.get('archived'), 'archived', archived, (c) => c.name || c.slug)
+
+  groups.get('archived').wrap.classList.toggle('hidden', archived.length === 0)
+  if (!conversations.length && !collapsed.has('conversations')) {
+    groups.get('conversations').list.appendChild(el('p', 'px-2 py-1 text-xs text-overlay1', 'No direct messages yet.'))
+  }
+  const addChannel = document.getElementById('sidebar-add-channel')
+  if (addChannel) addChannel.classList.toggle('hidden', !mayManageChannels())
+  for (const entry of groups.values()) drawIcons(entry.toggle)
 }
 
 function renderSearchResults() {
   searchResultsEl.replaceChildren()
-  if (!searchTerm) {
-    searchResultsEl.classList.add('hidden')
-    return
-  }
-  searchResultsEl.classList.remove('hidden')
+  searchResultsEl.classList.toggle('hidden', !searchTerm)
+  if (!searchTerm) return
 
   if (searchBusy) {
     searchResultsEl.appendChild(el('p', 'px-2 py-2 text-xs text-overlay1', 'Searching'))
@@ -255,11 +249,11 @@ function renderSearchResults() {
   for (const hit of searchResults) {
     const m = hit && hit.message ? hit.message : hit
     const c = state.containers.get(m.container_id)
-    const row = el('button', 'block w-full rounded-lg px-2 py-1.5 text-left hover:bg-surface0')
+    const row = el('button', 'block w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
     row.type = 'button'
     const head = el('div', 'flex items-baseline gap-2')
     head.appendChild(el('span', 'truncate text-xs font-semibold text-text', user(m.author_id).display_name))
-    head.appendChild(el('span', 'truncate text-xs text-overlay1', c ? (c.kind === 'channel' ? '#' + c.slug : conversationTitle(c)) : ''))
+    head.appendChild(el('span', 'truncate text-xs text-overlay1', c ? containerLabel(c, user) : ''))
     row.appendChild(head)
     row.appendChild(el('p', 'line-clamp-2 text-xs text-subtext0', plainText(m.body || '')))
     row.addEventListener('click', () => {
@@ -295,148 +289,115 @@ async function runSearch(q) {
   renderSearchResults()
 }
 
+async function signOut() {
+  try {
+    await api.post('/api/auth/logout', {})
+  } catch {}
+  window.dispatchEvent(new CustomEvent('isane:signed-out'))
+}
+
 function renderFooter() {
   footerEl.replaceChildren()
   const me = state.me
   if (!me) return
 
-  const row = el('div', 'flex items-center gap-2')
-  row.appendChild(avatarNode(me, 'h-8 w-8'))
+  const identity = el('button', 'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-surface0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
+  identity.type = 'button'
+  identity.title = 'Your account'
+  identity.appendChild(avatarNode(me, 'h-8 w-8', 'text-xs'))
   const who = el('div', 'min-w-0 flex-1')
   who.appendChild(el('p', 'truncate text-sm font-semibold text-text', me.display_name))
   who.appendChild(el('p', 'truncate text-xs text-overlay1', '@' + me.handle))
-  row.appendChild(who)
-  footerEl.appendChild(row)
+  identity.appendChild(who)
+  identity.addEventListener('click', () => openUserSettings(signOut))
 
-  const actions = el('div', 'mt-2 flex gap-2')
+  const actions = el('div', 'flex shrink-0 items-center')
+  themeButton = iconButton(currentTheme() === 'dark' ? 'sun' : 'moon', 'Switch theme', () => {
+    const next = toggleTheme()
+    themeButton.replaceChildren(icon(next === 'dark' ? 'sun' : 'moon', 'h-5 w-5'))
+    drawIcons(themeButton)
+  })
+  actions.appendChild(themeButton)
   if (me.is_admin) {
-    const admin = el('button', 'rounded-lg border border-surface1 px-2 py-1 text-xs text-subtext0 hover:bg-surface0', 'Admin')
-    admin.type = 'button'
-    admin.addEventListener('click', () => {
+    actions.appendChild(iconButton('shield', 'Administration', () => {
       navigate('/admin')
       closeDrawer()
-    })
-    actions.appendChild(admin)
+    }))
   }
-  const logout = el('button', 'rounded-lg border border-surface1 px-2 py-1 text-xs text-subtext0 hover:bg-surface0', 'Sign out')
-  logout.type = 'button'
-  logout.addEventListener('click', async () => {
-    logout.disabled = true
-    try {
-      await api.post('/api/auth/logout', {})
-    } catch {
-      logout.disabled = false
-    }
-    location.href = '/login'
-  })
-  actions.appendChild(logout)
-  footerEl.appendChild(actions)
-}
+  actions.appendChild(iconButton('log-out', 'Sign out', signOut))
 
-function avatarNode(u, size) {
-  if (u.avatar_id) {
-    const img = el('img', size + ' shrink-0 rounded-full object-cover')
-    img.src = '/api/attachments/' + u.avatar_id + '/thumb'
-    img.alt = ''
-    return img
-  }
-  const node = el('div', size + ' flex shrink-0 items-center justify-center rounded-full bg-surface1 text-xs font-semibold text-subtext1')
-  node.textContent = (u.display_name || '?').trim().charAt(0).toUpperCase()
-  return node
+  const row = el('div', 'flex items-center gap-1')
+  row.append(identity, actions)
+  footerEl.appendChild(row)
+  drawIcons(footerEl)
 }
 
 function render() {
-  renderChannels()
-  renderConversations()
+  renderGroups()
   renderFooter()
 }
 
 export function mount(root) {
   rootEl = root
-  rootEl.classList.add(
-    'fixed',
-    'inset-y-0',
-    'left-0',
-    'z-40',
-    'w-72',
-    'transform',
-    'transition-transform',
-    'duration-200',
-    '-translate-x-full',
-    'md:static',
-    'md:z-auto',
-    'md:translate-x-0'
-  )
+  readCollapsed()
 
-  backdropEl = el('div', 'fixed inset-0 hidden bg-crust/70 md:hidden')
-  backdropEl.addEventListener('click', closeDrawer)
+  panelEl = el('div', 'flex h-full w-full min-w-60 flex-col px-2 py-2')
 
-  panelEl = el('div', 'relative z-10 flex h-full w-72 flex-col border-r border-surface0 bg-crust')
+  const head = el('div', 'flex h-8 shrink-0 items-center gap-1 px-2')
+  head.appendChild(el('span', 'min-w-0 flex-1 truncate font-display text-lg font-bold text-text', 'Isane'))
+  head.appendChild(iconButton('x', 'Close the channel list', closeDrawer, 'md:hidden'))
+  panelEl.appendChild(head)
 
-  const header = el('div', 'flex items-center justify-between px-3 py-3')
-  header.appendChild(el('span', 'font-display text-lg font-semibold text-text', 'Isane'))
-  const close = el('button', 'rounded-lg px-2 py-1 text-sm text-subtext0 hover:bg-surface0 md:hidden', 'Close')
-  close.type = 'button'
-  close.addEventListener('click', closeDrawer)
-  header.appendChild(close)
-  panelEl.appendChild(header)
-
-  const searchWrap = el('div', 'px-3 pb-2')
-  searchInput = el('input', 'w-full rounded-lg border border-surface1 bg-surface0 px-2 py-1.5 text-sm text-text placeholder:text-overlay0')
+  const searchWrap = el('div', 'relative mt-2 shrink-0')
+  const searchBox = el('div', 'flex h-8 items-center gap-1.5 rounded-lg bg-surface0 px-2 focus-within:ring-1 focus-within:ring-mauve')
+  searchBox.appendChild(icon('search', 'h-4 w-4 shrink-0 text-overlay1'))
+  searchInput = el('input', 'min-w-0 flex-1 bg-transparent text-sm text-text placeholder:text-overlay1 focus:outline-none')
   searchInput.type = 'search'
   searchInput.placeholder = 'Search messages'
+  searchInput.setAttribute('aria-label', 'Search messages')
+  searchBox.appendChild(searchInput)
+  searchWrap.appendChild(searchBox)
+  searchResultsEl = el('div', 'absolute inset-x-0 top-9 z-20 hidden max-h-80 space-y-0.5 overflow-y-auto rounded-lg bg-base p-1 shadow-pop')
+  searchWrap.appendChild(searchResultsEl)
+  panelEl.appendChild(searchWrap)
+
+  const nav = el('nav', 'mt-2 min-h-0 flex-1 overflow-y-auto overflow-x-hidden')
+  nav.setAttribute('aria-label', 'Conversations')
+
+  const addChannel = smallIconButton('plus', 'Create a channel', () => openCreateChannel())
+  addChannel.id = 'sidebar-add-channel'
+  nav.appendChild(group('channels', 'Channels', addChannel).wrap)
+  nav.appendChild(group('conversations', 'Direct messages', smallIconButton('square-pen', 'Start a conversation', () => openPicker())).wrap)
+  nav.appendChild(group('archived', 'Archived').wrap)
+  panelEl.appendChild(nav)
+
+  footerEl = el('div', 'mt-2 shrink-0')
+  panelEl.appendChild(footerEl)
+
+  rootEl.replaceChildren(panelEl)
+  drawIcons(panelEl)
+
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimer)
     const q = searchInput.value.trim()
     searchTimer = setTimeout(() => runSearch(q), 250)
   })
-  searchWrap.appendChild(searchInput)
-  searchResultsEl = el('div', 'mt-2 hidden max-h-64 space-y-0.5 overflow-y-auto rounded-lg border border-surface0 bg-mantle p-1')
-  searchWrap.appendChild(searchResultsEl)
-  panelEl.appendChild(searchWrap)
-
-  const nav = el('nav', 'flex-1 space-y-4 overflow-y-auto px-3 pb-3')
-
-  const channelsGroup = el('div')
-  channelsGroup.appendChild(el('p', 'px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-overlay1', 'Channels'))
-  channelsEl = el('div', 'space-y-0.5')
-  channelsGroup.appendChild(channelsEl)
-  nav.appendChild(channelsGroup)
-
-  const conversationsGroup = el('div')
-  const convHead = el('div', 'flex items-center justify-between px-2 pb-1')
-  convHead.appendChild(el('p', 'text-xs font-semibold uppercase tracking-wide text-overlay1', 'Direct messages'))
-  const newConv = el('button', 'rounded px-1 text-sm text-overlay1 hover:bg-surface0 hover:text-text', '+')
-  newConv.type = 'button'
-  newConv.title = 'New conversation'
-  newConv.addEventListener('click', () => {
-    pickerOpen = !pickerOpen
-    renderPicker()
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return
+    searchInput.value = ''
+    runSearch('')
   })
-  convHead.appendChild(newConv)
-  conversationsGroup.appendChild(convHead)
-  pickerEl = el('div', 'mb-2 hidden rounded-lg border border-surface0 bg-mantle p-2')
-  conversationsGroup.appendChild(pickerEl)
-  conversationsEl = el('div', 'space-y-0.5')
-  conversationsGroup.appendChild(conversationsEl)
-  nav.appendChild(conversationsGroup)
 
-  archivedGroupEl = el('div', 'hidden')
-  archivedGroupEl.appendChild(el('p', 'px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-overlay1', 'Archived'))
-  archivedEl = el('div', 'space-y-0.5')
-  archivedGroupEl.appendChild(archivedEl)
-  nav.appendChild(archivedGroupEl)
-
-  panelEl.appendChild(nav)
-
-  footerEl = el('div', 'border-t border-surface0 px-3 py-3')
-  panelEl.appendChild(footerEl)
-
-  rootEl.replaceChildren(backdropEl, panelEl)
-
-  window.addEventListener('isane:sidebar-toggle', () => {
-    if (rootEl.classList.contains('-translate-x-full')) openDrawer()
-    else closeDrawer()
+  const scrim = document.getElementById('drawer-scrim')
+  if (scrim) scrim.addEventListener('click', closeDrawer)
+  window.addEventListener('isane:sidebar-toggle', toggleDrawer)
+  window.addEventListener('isane:open-channel-settings', () => {
+    const c = state.current.containerId ? state.containers.get(state.current.containerId) : null
+    if (c) openChannelSettings(c)
+  })
+  window.addEventListener('isane:open-picker', () => openPicker())
+  window.addEventListener('isane:settings-restricted', () => {
+    toast('An administrator restricted channel creation', { severity: 'warning' })
   })
 
   subscribe(scheduleRender)

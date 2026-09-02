@@ -8,22 +8,24 @@ import * as composer from './ui/composer.js'
 import * as thread from './ui/thread.js'
 import * as call from './ui/call.js'
 import * as admin from './ui/admin.js'
+import { el, field, textButton } from './ui/dom.js'
+import { closeModal, isModalOpen } from './ui/modal.js'
+import { openPicker } from './ui/picker.js'
+import { toast } from './ui/toast.js'
 
 const LAST_CONTAINER_KEY = 'isane:last-container'
 const INSTALL_HINT_KEY = 'isane:install-hint-seen'
 const PUSH_BANNER_KEY = 'isane:push-banner-seen'
+const SIDEBAR_WIDTH_KEY = 'isane-sidebar-width'
 const PUSH_INIT_TIMEOUT = 3000
-
-const CARD_CLASS = 'flex w-full max-w-sm flex-col gap-3 rounded-xl border border-surface0 bg-mantle p-6'
-const FIELD_CLASS = 'w-full rounded-lg border border-surface0 bg-base px-3 py-2 text-text placeholder:text-overlay0 focus:border-mauve focus:outline-none'
-const ACTION_CLASS = 'rounded-lg bg-mauve px-3 py-2 font-medium text-crust disabled:opacity-60'
-const TOAST_CLASS = 'pointer-events-auto rounded-lg bg-base px-3 py-2 text-sm shadow-pop'
-const TOAST_TONE = { info: 'text-blue', success: 'text-green', error: 'text-red', warning: 'text-yellow' }
+const SIDEBAR_MIN = 200
+const SIDEBAR_MAX = 400
 
 let awaitingContainers = false
 let offlineToast = null
+let started = false
 
-function el(id) {
+function byId(id) {
   return document.getElementById(id)
 }
 
@@ -45,19 +47,6 @@ function writeLocal(key, value) {
   } catch {}
 }
 
-function toast(message, opts = {}) {
-  const root = el('toast-root')
-  if (!root) return () => {}
-  const node = document.createElement('div')
-  node.className = TOAST_CLASS + ' ' + (TOAST_TONE[opts.severity] || TOAST_TONE.info)
-  node.setAttribute('role', 'status')
-  node.textContent = message
-  root.appendChild(node)
-  const dismiss = () => node.remove()
-  if (!opts.sticky) setTimeout(dismiss, opts.duration ?? 4000)
-  return dismiss
-}
-
 function navigate(path, replace = false) {
   if (replace) history.replaceState(null, '', path)
   else history.pushState(null, '', path)
@@ -67,6 +56,11 @@ function navigate(path, replace = false) {
 function wireNavigation() {
   window.addEventListener('popstate', route)
   window.addEventListener('isane:navigate', route)
+  window.addEventListener('isane:signed-out', () => {
+    state.me = null
+    stopSocket()
+    navigate('/login', true)
+  })
   document.addEventListener('click', (e) => {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
     const anchor = e.target instanceof Element ? e.target.closest('a[href]') : null
@@ -75,6 +69,60 @@ function wireNavigation() {
     if (!href || !href.startsWith('/') || href.startsWith('//')) return
     e.preventDefault()
     navigate(href)
+  })
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      if (!state.me) return
+      e.preventDefault()
+      openPicker()
+      return
+    }
+    if (e.key === 'Escape' && !isModalOpen() && state.current.threadRootId) {
+      state.current.threadRootId = null
+      notify('current')
+    }
+  })
+}
+
+function wireSidebarResize() {
+  const handle = byId('sidebar-resize')
+  if (!handle) return
+
+  const apply = (width) => {
+    const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(width)))
+    document.documentElement.style.setProperty('--sidebar-width', clamped + 'px')
+    writeLocal(SIDEBAR_WIDTH_KEY, String(clamped))
+    handle.setAttribute('aria-valuenow', String(clamped))
+  }
+
+  handle.setAttribute('aria-valuemin', String(SIDEBAR_MIN))
+  handle.setAttribute('aria-valuemax', String(SIDEBAR_MAX))
+
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault()
+    handle.setPointerCapture(e.pointerId)
+    const move = (event) => apply(event.clientX)
+    const done = () => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', done)
+      handle.removeEventListener('pointercancel', done)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', done)
+    handle.addEventListener('pointercancel', done)
+  })
+
+  handle.addEventListener('keydown', (e) => {
+    const current = parseInt(readLocal(SIDEBAR_WIDTH_KEY) || '240', 10) || 240
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      apply(current - 16)
+      return
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault()
+      apply(current + 16)
+    }
   })
 }
 
@@ -88,13 +136,9 @@ function mountAll() {
     [admin, 'admin-root'],
   ]
   for (const [module, id] of panes) {
-    const root = el(id)
+    const root = byId(id)
     if (!root) {
       console.error('missing mount point', id)
-      continue
-    }
-    if (typeof module.mount !== 'function') {
-      console.error('module has no mount', id)
       continue
     }
     module.mount(root)
@@ -141,6 +185,7 @@ function pathOf(container) {
 function goHome() {
   if (!state.containers.size) {
     awaitingContainers = true
+    setCurrent(null, null)
     return
   }
   const last = readLocal(LAST_CONTAINER_KEY)
@@ -183,19 +228,21 @@ function route() {
     showLogin()
     return
   }
-  show(el('login-root'), false)
+  closeModal()
+  show(byId('login-root'), false)
   awaitingContainers = false
   if (path === '/admin' || path.startsWith('/admin/')) {
     if (!state.me.is_admin) {
       navigate('/', true)
       return
     }
-    show(el('app'), false)
-    show(el('admin-root'), true)
+    show(byId('app'), false)
+    show(byId('admin-root'), true)
+    window.dispatchEvent(new CustomEvent('isane:admin-route'))
     return
   }
-  show(el('admin-root'), false)
-  show(el('app'), true)
+  show(byId('admin-root'), false)
+  show(byId('app'), true)
   if (path === '/' || path === '') {
     goHome()
     return
@@ -228,7 +275,7 @@ function onStateChange(keys) {
   }
   if (!keys.includes('connection')) return
   if (state.connection === 'down' && !offlineToast) {
-    offlineToast = toast('Reconnecting', { sticky: true })
+    offlineToast = toast('Reconnecting', { sticky: true, severity: 'warning' })
     return
   }
   if (state.connection === 'live' && offlineToast) {
@@ -237,31 +284,32 @@ function onStateChange(keys) {
   }
 }
 
-function form(root, title, fields, submitLabel, onSubmit) {
+function authForm(root, title, subtitle, fields, submitLabel, onSubmit) {
   const card = document.createElement('form')
-  card.className = CARD_CLASS
-  const heading = document.createElement('h1')
-  heading.className = 'text-lg font-semibold text-text'
-  heading.textContent = title
-  card.appendChild(heading)
+  card.className = 'flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-mantle p-6 shadow-pop ring-1 ring-edge'
+  card.appendChild(el('span', 'font-display text-lg font-bold text-text', 'Isane'))
+  card.appendChild(el('h1', 'text-message font-semibold text-text', title))
+  if (subtitle) card.appendChild(el('p', '-mt-3 text-sm text-overlay1', subtitle))
+
   const inputs = new Map()
-  for (const field of fields) {
-    const input = document.createElement('input')
-    input.type = field.type ?? 'text'
-    input.placeholder = field.label
-    input.autocomplete = field.autocomplete ?? 'off'
-    input.required = true
-    input.className = FIELD_CLASS
-    card.appendChild(input)
-    inputs.set(field.name, input)
+  for (const spec of fields) {
+    const built = field(spec.label, {
+      type: spec.type,
+      name: spec.name,
+      autocomplete: spec.autocomplete,
+      placeholder: spec.placeholder,
+    })
+    built.input.required = true
+    card.appendChild(built.wrap)
+    inputs.set(spec.name, built.input)
   }
-  const error = document.createElement('p')
-  error.className = 'min-h-5 text-sm text-red'
-  const button = document.createElement('button')
+
+  const error = el('p', 'min-h-5 text-sm text-red')
+  error.setAttribute('role', 'alert')
+  const button = textButton(submitLabel, null, 'primary')
   button.type = 'submit'
-  button.className = ACTION_CLASS
-  button.textContent = submitLabel
   card.append(error, button)
+
   card.addEventListener('submit', async (e) => {
     e.preventDefault()
     button.disabled = true
@@ -281,17 +329,20 @@ function form(root, title, fields, submitLabel, onSubmit) {
       button.disabled = false
     }
   })
+
   root.replaceChildren(card)
-  show(root, true)
+  root.classList.remove('hidden')
+  root.classList.add('flex')
 }
 
 function showScreen(name) {
-  const root = el('login-root')
+  const root = byId('login-root')
   if (!root) return null
-  show(el('app'), false)
-  show(el('admin-root'), false)
+  show(byId('app'), false)
+  show(byId('admin-root'), false)
   if (root.dataset.screen === name) {
-    show(root, true)
+    root.classList.remove('hidden')
+    root.classList.add('flex')
     return null
   }
   root.dataset.screen = name
@@ -301,8 +352,8 @@ function showScreen(name) {
 function showLogin() {
   const root = showScreen('login')
   if (!root) return
-  form(root, 'Sign in to Isane', [
-    { name: 'identity', label: 'Handle or email', autocomplete: 'username' },
+  authForm(root, 'Sign in', null, [
+    { name: 'identity', label: 'Handle or email', autocomplete: 'username', placeholder: 'tanq' },
     { name: 'password', label: 'Password', type: 'password', autocomplete: 'current-password' },
   ], 'Sign in', (values) => {
     const identity = values.identity.includes('@') ? { email: values.identity } : { handle: values.identity }
@@ -313,8 +364,8 @@ function showLogin() {
 function showInvite(token) {
   const root = showScreen('invite')
   if (!root) return
-  form(root, 'Create your account', [
-    { name: 'handle', label: 'Handle', autocomplete: 'username' },
+  authForm(root, 'Create your account', 'This invite works once.', [
+    { name: 'handle', label: 'Handle', autocomplete: 'username', placeholder: 'lowercase, no spaces' },
     { name: 'display_name', label: 'Display name', autocomplete: 'name' },
     { name: 'password', label: 'Password', type: 'password', autocomplete: 'new-password' },
   ], 'Create account', (values) => post('/auth/accept-invite', {
@@ -326,60 +377,67 @@ function showInvite(token) {
 }
 
 function wirePushBanner() {
-  const banner = el('push-banner')
+  const banner = byId('push-banner')
   if (!banner) return
   const blocked = readLocal(PUSH_BANNER_KEY) === '1'
     || !pushSupported()
     || Notification.permission !== 'default'
   if (blocked) {
-    show(banner, false)
+    banner.classList.add('hidden')
     return
   }
-  const accept = el('push-banner-enable')
-  const dismiss = el('push-banner-dismiss')
+  const accept = byId('push-banner-enable')
+  const dismiss = byId('push-banner-dismiss')
   if (accept) {
     accept.addEventListener('click', async () => {
       accept.disabled = true
       const enabled = await enablePush()
-      show(banner, false)
-      toast(enabled ? 'Notifications are on' : 'Notifications were not enabled')
+      banner.classList.add('hidden')
+      toast(enabled ? 'Notifications are on' : 'Notifications were not enabled', {
+        severity: enabled ? 'success' : 'warning',
+      })
     })
   }
   if (dismiss) {
     dismiss.addEventListener('click', () => {
       writeLocal(PUSH_BANNER_KEY, '1')
-      show(banner, false)
+      banner.classList.add('hidden')
     })
   }
-  show(banner, true)
+  banner.classList.remove('hidden')
+  banner.classList.add('flex')
 }
 
 function wireInstallHint() {
-  const hint = el('install-hint')
+  const hint = byId('install-hint')
   if (!hint) return
   const iosSafari = /iP(hone|ad|od)/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent)
   const standalone = window.navigator.standalone === true
     || window.matchMedia('(display-mode: standalone)').matches
   if (!iosSafari || standalone || readLocal(INSTALL_HINT_KEY) === '1') {
-    show(hint, false)
+    hint.classList.add('hidden')
     return
   }
-  const dismiss = el('install-hint-dismiss')
+  const dismiss = byId('install-hint-dismiss')
   if (dismiss) {
     dismiss.addEventListener('click', () => {
       writeLocal(INSTALL_HINT_KEY, '1')
-      show(hint, false)
+      hint.classList.add('hidden')
     })
   }
-  show(hint, true)
+  hint.classList.remove('hidden')
 }
 
-let started = false
+function errorText(d) {
+  if (!d || d.code === 'internal') return 'Something went wrong. Try again.'
+  return d.message || 'Something went wrong. Try again.'
+}
 
 async function start() {
   if (started) return
   started = true
   mountAll()
+  wireSidebarResize()
   connect()
   loadUsers()
   Promise.race([
@@ -418,11 +476,6 @@ async function boot() {
   state.users.set(me.id, me)
   await start()
   route()
-}
-
-function errorText(d) {
-  if (!d || d.code === 'internal') return 'Something went wrong. Try again.'
-  return d.message || 'Something went wrong. Try again.'
 }
 
 boot().catch((err) => {
