@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
@@ -20,17 +22,51 @@ import (
 const (
 	attachmentCache = "private, max-age=31536000, immutable"
 	attachmentCSP   = "default-src 'none'; sandbox"
+
+	maxConcurrentUploads = 3
 )
 
-type Media struct{ app *app.App }
+type Media struct {
+	app *app.App
 
-func NewMedia(a *app.App) *Media { return &Media{app: a} }
+	mu       sync.Mutex
+	inFlight map[uuid.UUID]int
+}
+
+func NewMedia(a *app.App) *Media {
+	return &Media{app: a, inFlight: make(map[uuid.UUID]int)}
+}
+
+func (h *Media) acquire(userID uuid.UUID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.inFlight[userID] >= maxConcurrentUploads {
+		return false
+	}
+	h.inFlight[userID]++
+	return true
+}
+
+func (h *Media) release(userID uuid.UUID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.inFlight[userID] <= 1 {
+		delete(h.inFlight, userID)
+		return
+	}
+	h.inFlight[userID]--
+}
 
 func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 	u, ok := requestUser(w, r)
 	if !ok {
 		return
 	}
+	if !h.acquire(u.ID) {
+		writeRetryAfter(w, time.Second, "too many uploads in flight, wait for one to finish")
+		return
+	}
+	defer h.release(u.ID)
 	r.Body = http.MaxBytesReader(w, r.Body, h.app.Cfg().Media.MaxUploadBytes)
 	parts, err := r.MultipartReader()
 	if err != nil {
@@ -105,7 +141,8 @@ func (h *Media) Thumb(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Media) resolve(w http.ResponseWriter, r *http.Request) (store.Attachment, bool) {
-	if _, ok := requestUser(w, r); !ok {
+	u, ok := requestUser(w, r)
+	if !ok {
 		return store.Attachment{}, false
 	}
 	id, err := pathUUID(r, "id")
@@ -118,7 +155,26 @@ func (h *Media) resolve(w http.ResponseWriter, r *http.Request) (store.Attachmen
 		WriteError(w, err)
 		return store.Attachment{}, false
 	}
+	if err := h.mayRead(r, a, u); err != nil {
+		WriteError(w, err)
+		return store.Attachment{}, false
+	}
 	return a, true
+}
+
+func (h *Media) mayRead(r *http.Request, a store.Attachment, u store.User) error {
+	if a.MessageID == nil {
+		if a.UploaderID != u.ID {
+			return forbiddenf("not the uploader of this attachment")
+		}
+		return nil
+	}
+	m, err := h.app.DB.GetMessage(r.Context(), *a.MessageID)
+	if err != nil {
+		return err
+	}
+	_, err = containerFor(r.Context(), h.app, m.ContainerID, u.ID)
+	return err
 }
 
 func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid.UUID) {

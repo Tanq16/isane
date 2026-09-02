@@ -29,6 +29,8 @@ const (
 	sniffBytes   = 512
 	maxNameBytes = 200
 	maxErrBytes  = 500
+
+	failureReason = "this file could not be processed"
 	stderrCap    = 4096
 
 	probeTimeout  = 30 * time.Second
@@ -139,7 +141,8 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 
 	res, err := s.derive(ctx, a)
 	if err != nil {
-		text := truncate(err.Error(), maxErrBytes)
+		s.log.Error().Err(err).Str("attachment", id.String()).Msg("derive attachment")
+		text := failureReason
 		if failErr := s.db.SetAttachmentState(ctx, id, store.AttachmentFailed, &text); failErr != nil {
 			s.log.Error().Err(failErr).Str("attachment", id.String()).Msg("mark attachment failed")
 		}

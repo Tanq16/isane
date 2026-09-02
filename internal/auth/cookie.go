@@ -8,6 +8,7 @@ import (
 const (
 	SessionCookie = "isane_session"
 	SessionTTL    = 90 * 24 * time.Hour
+	SessionMaxAge = 90 * 24 * time.Hour
 )
 
 func SetSession(w http.ResponseWriter, raw string, expires time.Time, secure bool) {

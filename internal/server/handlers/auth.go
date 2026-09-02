@@ -9,9 +9,11 @@ import (
 	"net/netip"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"uuid"
 
+	"github.com/rs/zerolog/log"
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
 	"github.com/tanq16/isane/internal/socket"
@@ -23,12 +25,22 @@ const minPasswordLength = 8
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 type Auth struct {
-	app *app.App
+	app     *app.App
+	logins  *limiter
+	invites *limiter
 }
 
 func NewAuth(a *app.App) *Auth {
-	return &Auth{app: a}
+	return &Auth{app: a, logins: newLimiter(), invites: newLimiter()}
 }
+
+var decoyHash = sync.OnceValue(func() string {
+	hash, err := auth.HashPassword("isane-has-no-account-with-this-handle")
+	if err != nil {
+		log.Error().Err(err).Msg("build login decoy hash")
+	}
+	return hash
+})
 
 type loginRequest struct {
 	Handle   string `json:"handle"`
@@ -59,19 +71,26 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, badRequestf("handle or email and password are required"))
 		return
 	}
+	source, account := requestKey(r), "account:"+strings.ToLower(ident)
+	if wait := h.logins.retryAfter(source, account); wait > 0 {
+		writeRetryAfter(w, wait, "too many sign-in attempts, try again shortly")
+		return
+	}
 	u, err := h.app.DB.GetUserByLogin(r.Context(), ident)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			WriteError(w, errInvalidLogin())
-			return
-		}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		WriteError(w, fmt.Errorf("login lookup: %w", err))
 		return
 	}
-	if !u.Active() || u.PasswordHash == nil || !auth.VerifyPassword(*u.PasswordHash, req.Password) {
+	stored := decoyHash()
+	if err == nil && u.Active() && u.PasswordHash != nil {
+		stored = *u.PasswordHash
+	}
+	if !auth.VerifyPassword(stored, req.Password) || err != nil || !u.Active() || u.PasswordHash == nil {
+		h.logins.fail(source, account)
 		WriteError(w, errInvalidLogin())
 		return
 	}
+	h.logins.succeed(source, account)
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
@@ -81,7 +100,7 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 
 func (h *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	if raw, ok := auth.ReadSession(r); ok {
-		sess, _, err := h.app.DB.SessionByTokenHash(r.Context(), auth.HashToken(raw))
+		sess, _, err := h.app.DB.SessionByTokenHash(r.Context(), auth.HashToken(raw), time.Now().Add(-auth.SessionMaxAge))
 		if err == nil {
 			if err := h.app.DB.DeleteSession(r.Context(), sess.ID); err != nil {
 				h.app.Log.Error().Err(err).Msg("delete session")
@@ -104,6 +123,11 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	var req acceptInviteRequest
 	if err := ReadJSON(r, &req); err != nil {
 		WriteError(w, err)
+		return
+	}
+	source := requestKey(r)
+	if wait := h.invites.retryAfter(source); wait > 0 {
+		writeRetryAfter(w, wait, "too many invite attempts, try again shortly")
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
@@ -136,9 +160,11 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		PasswordHash: &hash,
 	})
 	if err != nil {
+		h.invites.fail(source)
 		WriteError(w, err)
 		return
 	}
+	h.invites.succeed(source)
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
@@ -171,6 +197,14 @@ func (h *Auth) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.SetPassword(r.Context(), u.ID, hash); err != nil {
+		WriteError(w, err)
+		return
+	}
+	if err := h.app.DB.DeleteSessionsForUser(r.Context(), u.ID); err != nil {
+		WriteError(w, err)
+		return
+	}
+	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
 	}
@@ -211,6 +245,13 @@ func optionalString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func requestKey(r *http.Request) string {
+	if addr := clientIP(r); addr != nil {
+		return "ip:" + addr.String()
+	}
+	return "ip:" + r.RemoteAddr
 }
 
 func clientIP(r *http.Request) *netip.Addr {

@@ -168,6 +168,10 @@ func (h *Admin) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
+		WriteError(w, err)
+		return
+	}
 	writeOK(w)
 }
 
@@ -190,6 +194,10 @@ func (h *Admin) SetAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.SetAdmin(r.Context(), target.ID, req.IsAdmin); err != nil {
+		WriteError(w, err)
+		return
+	}
+	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
 		WriteError(w, err)
 		return
 	}

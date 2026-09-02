@@ -328,7 +328,7 @@ func (h *Containers) CreateConversation(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Containers) ListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.app.DB.ListUsers(r.Context())
+	users, err := h.app.DB.ListDirectory(r.Context())
 	if err != nil {
 		WriteError(w, err)
 		return

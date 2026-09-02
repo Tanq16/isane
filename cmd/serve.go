@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -76,7 +77,10 @@ func runServe(cmd *cobra.Command, args []string) {
 	log.Info().Msg("shut down")
 }
 
-const bootstrapInviteTTL = 30 * 24 * time.Hour
+const (
+	bootstrapInviteTTL  = 30 * 24 * time.Hour
+	bootstrapInviteFile = "bootstrap-invite.url"
+)
 
 func bootstrapInvite(ctx context.Context, cfg *config.Config, db *store.DB) error {
 	users, err := db.CountUsers(ctx)
@@ -97,7 +101,12 @@ func bootstrapInvite(ctx context.Context, cfg *config.Config, db *store.DB) erro
 	if err != nil {
 		return fmt.Errorf("store bootstrap invite: %w", err)
 	}
-	log.Info().Str("url", strings.TrimSuffix(cfg.Server.PublicURL, "/")+"/invite/"+raw).
-		Msg("no accounts exist, open this once to create the first administrator")
+	url := strings.TrimSuffix(cfg.Server.PublicURL, "/") + "/invite/" + raw
+	path := filepath.Join(cfg.Media.Root, bootstrapInviteFile)
+	if err := os.WriteFile(path, []byte(url+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write bootstrap invite: %w", err)
+	}
+	log.Info().Str("path", path).
+		Msg("no accounts exist, open the url in this file once to create the first administrator")
 	return nil
 }

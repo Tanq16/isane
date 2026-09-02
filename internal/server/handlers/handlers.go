@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -135,6 +136,10 @@ func userMessage(err, sentinel error) string {
 
 func ReadJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
+	kind, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || kind != "application/json" {
+		return badRequestf("Content-Type must be application/json")
+	}
 	if err := json.UnmarshalRead(io.LimitReader(r.Body, maxJSONBody), v); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}

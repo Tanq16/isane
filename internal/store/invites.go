@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"uuid"
 
@@ -64,14 +65,11 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 		var expired bool
 		err := tx.QueryRow(ctx, `select used_by, expires_at <= now() from invites
 			where token_hash = $1 for update`, tokenHash).Scan(&usedBy, &expired)
-		if err != nil {
+		if err != nil && !errors.Is(mapErr(err), ErrNotFound) {
 			return fmt.Errorf("lock invite: %w", mapErr(err))
 		}
-		if usedBy != nil {
-			return fmt.Errorf("invite already used: %w", ErrConflict)
-		}
-		if expired {
-			return fmt.Errorf("invite expired: %w", ErrConflict)
+		if err != nil || usedBy != nil || expired {
+			return errInviteUnusable
 		}
 		var existing int64
 		if err := tx.QueryRow(ctx, `select count(*) from users`).Scan(&existing); err != nil {
@@ -94,6 +92,8 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 	}
 	return created, nil
 }
+
+var errInviteUnusable = fmt.Errorf("this invite link is no longer valid: %w", ErrConflict)
 
 func nullUUID(id uuid.UUID) *uuid.UUID {
 	if id == uuid.Nil() {
