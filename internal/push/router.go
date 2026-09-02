@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	socketWindow = 30 * time.Second
+	socketWindow = 60 * time.Second
 	sendWorkers  = 8
 )
 
