@@ -1,3 +1,5 @@
+import { drawIcons } from './ui/dom.js'
+
 const DROP_TAGS = new Set([
   'script', 'style', 'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
   'link', 'meta', 'base', 'form', 'button', 'select', 'option', 'textarea',
@@ -274,12 +276,6 @@ function sanitizeInto(host, html) {
   const doc = new DOMParser().parseFromString(String(html ?? ''), 'text/html')
   scrub(doc.body)
   while (doc.body.firstChild) host.appendChild(doc.body.firstChild)
-}
-
-function drawIcons(root) {
-  if (typeof lucide === 'undefined') return
-  const nodes = Array.from(root.querySelectorAll('[data-lucide]'))
-  if (nodes.length) lucide.createIcons({ nodes })
 }
 
 function addCopyButtons(root) {

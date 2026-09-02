@@ -22,8 +22,7 @@ export function icon(name, cls) {
 
 export function drawIcons(root) {
   if (typeof lucide === 'undefined' || !root) return
-  const nodes = Array.from(root.querySelectorAll('[data-lucide]'))
-  if (nodes.length) lucide.createIcons({ nodes })
+  lucide.createIcons({ root })
 }
 
 export function iconButton(name, title, onClick, extra) {
