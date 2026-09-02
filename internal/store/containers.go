@@ -31,6 +31,7 @@ with visible as (
 	where c.kind = 'conversation'
 )
 select v.id, v.kind, v.slug, v.name, v.topic, v.last_seq, v.created_by, v.created_at, v.archived_at,
+	coalesce(r.last_read_seq, 0) as last_read_seq,
 	(select count(*) from messages m
 		where m.container_id = v.id
 		  and m.thread_root_id is null
@@ -68,7 +69,7 @@ func scanContainer(row pgx.Row) (Container, error) {
 func scanContainerView(row pgx.Row) (ContainerView, error) {
 	var v ContainerView
 	err := row.Scan(&v.ID, &v.Kind, &v.Slug, &v.Name, &v.Topic, &v.LastSeq, &v.CreatedBy, &v.CreatedAt, &v.ArchivedAt,
-		&v.Unread, &v.Mentions, &v.Level, &v.Participants)
+		&v.LastReadSeq, &v.Unread, &v.Mentions, &v.Level, &v.Participants)
 	return v, err
 }
 

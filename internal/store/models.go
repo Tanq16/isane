@@ -165,6 +165,7 @@ type Container struct {
 
 type ContainerView struct {
 	Container
+	LastReadSeq  int64             `json:"last_read_seq"`
 	Unread       int64             `json:"unread"`
 	Mentions     int64             `json:"mentions"`
 	Level        NotificationLevel `json:"level"`
