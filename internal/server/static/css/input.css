@@ -104,6 +104,7 @@
 
     --ctp-scrim: rgb(17 17 27 / 0.7);
     --ctp-edge: transparent;
+    --ctp-chip: var(--ctp-surface0);
     --ctp-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.45);
 
     --thread-width: 380px;
@@ -144,6 +145,7 @@
 
     --ctp-scrim: rgb(76 79 105 / 0.45);
     --ctp-edge: #bcc0cc;
+    --ctp-chip: #dce0e8;
     --ctp-shadow-pop: 0 8px 24px rgb(76 79 105 / 0.18);
 
     color-scheme: light;
@@ -195,6 +197,8 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--ctp-surface0); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--ctp-surface1); }
+:root:not(.dark) ::-webkit-scrollbar-thumb { background: var(--ctp-surface2); }
+:root:not(.dark) ::-webkit-scrollbar-thumb:hover { background: var(--ctp-overlay0); }
 
 ::selection { background: color-mix(in oklab, var(--ctp-mauve) 30%, transparent); }
 
@@ -280,7 +284,7 @@
 .markdown-body code {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
     color: var(--ctp-peach);
-    background-color: var(--ctp-surface0);
+    background-color: var(--ctp-chip);
     border-radius: 4px;
     padding: 0.1em 0.35em;
     font-size: 0.8125rem;
