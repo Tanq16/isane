@@ -60,7 +60,6 @@ $(STAMP): $(MAKEFILE_LIST)
 	$(call npm_file,marked,$(MARKED_VERSION),lib/marked.umd.js,$(VENDOR_DIR)/marked.min.js)
 	$(call npm_file,mermaid,$(MERMAID_VERSION),dist/mermaid.min.js,$(VENDOR_DIR)/mermaid.min.js)
 	$(call npm_file,@highlightjs/cdn-assets,$(HIGHLIGHTJS_VERSION),highlight.min.js,$(VENDOR_DIR)/highlight.min.js)
-	$(call npm_file,@highlightjs/cdn-assets,$(HIGHLIGHTJS_VERSION),styles/github-dark.min.css,$(VENDOR_DIR)/highlight.css)
 	$(call npm_file,livekit-client,$(LIVEKIT_JS_VERSION),dist/livekit-client.umd.js,$(VENDOR_DIR)/livekit-client.umd.min.js)
 	$(call npm_file,lucide,$(LUCIDE_VERSION),dist/umd/lucide.min.js,$(VENDOR_DIR)/lucide.min.js)
 	@for w in 400 500 600 700; do $(MAKE) --no-print-directory font FAMILY=Inter SLUG=inter WEIGHT=$$w; done
@@ -91,7 +90,7 @@ $(CSS_DIR)/app.css: $(CSS_DIR)/input.css $(TAILWIND_BIN) $(STATIC_DIR)/index.htm
 
 verify-assets: ## Fail early if the embedded tree is missing an asset
 	@test -s $(CSS_DIR)/app.css || { echo "app.css missing, run 'make assets'"; exit 1; }
-	@for f in marked.min.js mermaid.min.js highlight.min.js highlight.css livekit-client.umd.min.js lucide.min.js; do \
+	@for f in marked.min.js mermaid.min.js highlight.min.js livekit-client.umd.min.js lucide.min.js; do \
 	  test -s $(VENDOR_DIR)/$$f || { echo "$$f missing, run 'make assets'"; exit 1; }; \
 	done
 	@for f in inter-400 inter-500 inter-600 inter-700 google-sans-400 google-sans-500 google-sans-600 google-sans-700 jetbrains-mono-400 jetbrains-mono-600; do \
