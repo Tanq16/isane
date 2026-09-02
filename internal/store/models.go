@@ -116,6 +116,12 @@ type Invite struct {
 	CreatedAt time.Time  `json:"created_at"`
 }
 
+type ServerSettings struct {
+	AllowMemberChannels bool       `json:"allow_member_channels"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	UpdatedBy           *uuid.UUID `json:"updated_by,omitempty"`
+}
+
 type Container struct {
 	ID         uuid.UUID     `json:"id"`
 	Kind       ContainerKind `json:"kind"`
