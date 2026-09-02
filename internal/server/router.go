@@ -58,6 +58,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/calls/{id}/me", s.user(calls.Leave))
 	mux.Handle("POST /api/calls/{id}/recording", s.user(calls.Recording))
 	mux.Handle("GET /api/calls/{id}/recordings", s.user(calls.Recordings))
+	mux.Handle("GET /api/recordings/{id}", s.user(calls.Audio))
 	mux.HandleFunc("POST /api/livekit/webhook", calls.Webhook)
 
 	mux.Handle("POST /api/agent/register", s.agent(agents.Register))

@@ -23,6 +23,28 @@ func (db *DB) AttachmentsForMessages(ctx context.Context, messageIDs []uuid.UUID
 	return out, nil
 }
 
+func (db *DB) RecordingsForMessages(ctx context.Context, msgs []*Message) (map[uuid.UUID]CallRecording, error) {
+	ids := make([]uuid.UUID, 0, len(msgs))
+	for _, m := range msgs {
+		if m.RecordingID != nil {
+			ids = append(ids, *m.RecordingID)
+		}
+	}
+	out := make(map[uuid.UUID]CallRecording, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	list, err := db.queryRecordings(ctx, "list message recordings", `select `+recordingColumns+`
+		from call_recordings where id = any($1::uuid[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range list {
+		out[r.ID] = r
+	}
+	return out, nil
+}
+
 func (db *DB) hydrate(ctx context.Context, msgs []Message) error {
 	refs := make([]*Message, len(msgs))
 	for i := range msgs {
@@ -47,9 +69,19 @@ func (db *DB) hydrateRefs(ctx context.Context, msgs []*Message) error {
 	if err != nil {
 		return err
 	}
+	recordings, err := db.RecordingsForMessages(ctx, msgs)
+	if err != nil {
+		return err
+	}
 	for _, m := range msgs {
 		m.Attachments = attachments[m.ID]
 		m.Mentions = mentions[m.ID]
+		if m.RecordingID == nil {
+			continue
+		}
+		if rec, ok := recordings[*m.RecordingID]; ok {
+			m.Recording = &rec
+		}
 	}
 	return nil
 }

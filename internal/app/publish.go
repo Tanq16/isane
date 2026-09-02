@@ -116,6 +116,15 @@ func (a *App) PostCallNotice(ctx context.Context, containerID, authorID, callID 
 	})
 }
 
+func (a *App) PostRecordingNotice(ctx context.Context, containerID, authorID, recordingID uuid.UUID, body string) (store.Message, error) {
+	return a.postSystem(ctx, store.NewMessage{
+		ContainerID: containerID,
+		AuthorID:    authorID,
+		Body:        body,
+		RecordingID: &recordingID,
+	})
+}
+
 func (a *App) postSystem(ctx context.Context, n store.NewMessage) (store.Message, error) {
 	c, err := a.DB.GetContainer(ctx, n.ContainerID)
 	if err != nil {
