@@ -132,6 +132,8 @@ function reconcile(list) {
 }
 
 function close() {
+  const opener = document.querySelector('#timeline article[tabindex]')
+  if (opener) opener.focus()
   state.current.threadRootId = null
   const cid = state.current.containerId
   const c = cid ? state.containers.get(cid) : null
@@ -223,6 +225,7 @@ function render() {
     listEl.replaceChildren()
     renderHeader(rootId)
     load(rootId)
+    queueMicrotask(() => composer.focus())
   }
 
   renderRootBlock(rootId)

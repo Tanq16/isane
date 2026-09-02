@@ -719,7 +719,7 @@ export function mount(root) {
   rootEl = root
   rootEl.classList.add('hidden')
 
-  const page = el('div', 'flex h-full min-h-0 flex-col')
+  const page = el('main', 'flex h-full min-h-0 flex-col')
 
   const header = el('header', 'flex h-12 shrink-0 items-center gap-3 px-4')
   header.appendChild(iconButton('arrow-left', 'Back to chat', () => navigate('/')))

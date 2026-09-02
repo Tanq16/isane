@@ -32,6 +32,7 @@ let seenSeq = 0
 let sentSeq = 0
 let dividerSeq = 0
 let jumpTarget = 0
+let handledJump = ''
 
 const ctx = {
   showThread: true,
@@ -294,9 +295,22 @@ function renderActivity() {
   drawIcons(activityEl)
 }
 
+function urlJump() {
+  return new URLSearchParams(location.search).get('m') || ''
+}
+
+function syncJumpFromUrl() {
+  const raw = urlJump()
+  if (raw === handledJump) return
+  handledJump = raw
+  const seq = Number(raw) || 0
+  if (seq) jumpTo(seq)
+}
+
 function render() {
   const cid = state.current.containerId
   if (cid !== mountedContainer) {
+    handledJump = urlJump()
     mountedContainer = cid
     nodes.clear()
     editing.clear()
@@ -313,6 +327,7 @@ function render() {
 
   renderHeader()
   renderActivity()
+  syncJumpFromUrl()
   const list = visibleMessages()
   const hasRows = list.some((view) => view.kind === 'message')
   emptyEl.textContent = cid ? 'No messages yet. Say something.' : 'Pick a channel to start reading.'
@@ -484,8 +499,8 @@ export function mount(root) {
   })
 
   window.addEventListener('popstate', () => {
-    const seq = Number(new URLSearchParams(location.search).get('m')) || 0
-    if (seq) jumpTo(seq)
+    handledJump = ''
+    syncJumpFromUrl()
   })
 
   socket.on('message', (m) => {
