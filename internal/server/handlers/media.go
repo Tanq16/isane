@@ -164,7 +164,14 @@ func (h *Media) resolve(w http.ResponseWriter, r *http.Request) (store.Attachmen
 
 func (h *Media) mayRead(r *http.Request, a store.Attachment, u store.User) error {
 	if a.MessageID == nil {
-		if a.UploaderID != u.ID {
+		if a.UploaderID == u.ID {
+			return nil
+		}
+		isAvatar, err := h.app.DB.AttachmentIsAvatar(r.Context(), a.ID)
+		if err != nil {
+			return err
+		}
+		if !isAvatar {
 			return forbiddenf("not the uploader of this attachment")
 		}
 		return nil

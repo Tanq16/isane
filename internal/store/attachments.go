@@ -59,6 +59,16 @@ func (db *DB) GetAttachment(ctx context.Context, id uuid.UUID) (Attachment, erro
 	return a, nil
 }
 
+func (db *DB) AttachmentIsAvatar(ctx context.Context, id uuid.UUID) (bool, error) {
+	var isAvatar bool
+	err := db.Pool.QueryRow(ctx,
+		`select exists(select 1 from users where avatar_id = $1)`, id).Scan(&isAvatar)
+	if err != nil {
+		return false, fmt.Errorf("check avatar attachment: %w", err)
+	}
+	return isAvatar, nil
+}
+
 func (db *DB) SetAttachmentState(ctx context.Context, id uuid.UUID, state AttachmentState, errText *string) error {
 	return db.execOne(ctx, "set attachment state",
 		`update attachments set state = $2, error = $3 where id = $1`, id, state, errText)
@@ -75,6 +85,7 @@ func (db *DB) ListStagedBefore(ctx context.Context, cutoff time.Time) ([]Attachm
 	return db.queryAttachments(ctx, "list staged attachments", `select `+attachmentColumns+`
 		from attachments
 		where message_id is null and created_at < $1
+		  and not exists (select 1 from users u where u.avatar_id = attachments.id)
 		order by created_at`, cutoff)
 }
 
