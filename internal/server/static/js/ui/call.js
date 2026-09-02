@@ -2,6 +2,7 @@ import { state, subscribe, notify, user } from '../store.js'
 import * as api from '../api.js'
 import * as socket from '../socket.js'
 import { drawIcons, icon, iconButton } from './dom.js'
+import { toast } from './toast.js'
 
 const IDLE_DIM_MS = 240000
 
@@ -309,7 +310,8 @@ async function join(call) {
   dismissed = false
   const LK = lk()
   if (!LK) {
-    statusText = 'The call client did not load.'
+    statusText = ''
+    toast('The call client did not load.', { severity: 'error' })
     render()
     return
   }
@@ -341,7 +343,8 @@ async function join(call) {
     await acquireWakeLock()
     resetIdle()
   } catch (err) {
-    statusText = err.message || 'Could not join the call.'
+    statusText = ''
+    toast(err.message || 'Could not join the call.', { severity: 'error' })
     if (room) {
       try {
         await room.disconnect()
@@ -375,6 +378,7 @@ async function leave() {
 function teardown() {
   joined = false
   dismissed = false
+  statusText = ''
   expanded = false
   room = null
   activeCall = null
@@ -408,7 +412,8 @@ async function start(containerId) {
     notify('calls')
     await join(call)
   } catch (err) {
-    statusText = err.message || 'Could not start a call.'
+    statusText = ''
+    toast(err.message || 'Could not start a call.', { severity: 'error' })
     render()
   }
 }
@@ -446,7 +451,7 @@ async function toggleRecording() {
     if (updated && updated.container_id) state.calls.set(updated.container_id, updated)
     notify('calls')
   } catch (err) {
-    statusText = err.message || 'Could not change recording.'
+    toast(err.message || 'Could not change recording.', { severity: 'error' })
   }
   render()
 }
@@ -561,12 +566,7 @@ export function mount(root) {
     render()
   })
   body.appendChild(audioButtonEl)
-  statusEl = el('button', 'hidden w-full py-2 text-left text-xs text-peach')
-  statusEl.type = 'button'
-  statusEl.addEventListener('click', () => {
-    statusText = ''
-    render()
-  })
+  statusEl = el('p', 'hidden w-full py-2 text-left text-xs text-peach')
   body.appendChild(statusEl)
   gridEl = el('div', 'grid grid-cols-1 gap-2')
   body.appendChild(gridEl)
