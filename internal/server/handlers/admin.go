@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 	"uuid"
@@ -15,8 +14,6 @@ import (
 )
 
 const defaultInviteTTL = 7 * 24 * time.Hour
-
-var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 type Admin struct {
 	app *app.App
@@ -56,17 +53,6 @@ type adminInvite struct {
 	UsedAt    *time.Time `json:"used_at,omitempty"`
 }
 
-type adminChannelRequest struct {
-	Slug  string  `json:"slug"`
-	Name  string  `json:"name"`
-	Topic *string `json:"topic"`
-}
-
-type adminChannelUpdate struct {
-	Name  string  `json:"name"`
-	Topic *string `json:"topic"`
-}
-
 type adminAgentRequest struct {
 	Handle      string `json:"handle"`
 	DisplayName string `json:"display_name"`
@@ -104,13 +90,13 @@ func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
-	displayName := strings.TrimSpace(req.DisplayName)
 	if !handlePattern.MatchString(handle) {
 		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
-	if displayName == "" {
-		WriteError(w, badRequestf("display_name is required"))
+	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
+	if err != nil {
+		WriteError(w, err)
 		return
 	}
 	created, err := h.app.DB.CreateUser(r.Context(), store.User{
@@ -275,74 +261,6 @@ func (h *Admin) ListChannels(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, nonNil(channels))
 }
 
-func (h *Admin) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	admin, ok := requestUser(w, r)
-	if !ok {
-		return
-	}
-	var req adminChannelRequest
-	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
-		return
-	}
-	slug := strings.ToLower(strings.TrimSpace(req.Slug))
-	name := strings.TrimSpace(req.Name)
-	if !slugPattern.MatchString(slug) {
-		WriteError(w, badRequestf("slug must match ^[a-z0-9][a-z0-9-]{0,63}$"))
-		return
-	}
-	if name == "" {
-		WriteError(w, badRequestf("name is required"))
-		return
-	}
-	c, err := h.app.DB.CreateChannel(r.Context(), slug, name, trimTopic(req.Topic), admin.ID)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	WriteJSON(w, http.StatusCreated, c)
-}
-
-func (h *Admin) UpdateChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := pathUUID(r, "id")
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	var req adminChannelUpdate
-	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
-		return
-	}
-	c, err := h.app.DB.GetContainer(r.Context(), id)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		if c.Name == nil {
-			WriteError(w, badRequestf("name is required"))
-			return
-		}
-		name = *c.Name
-	}
-	topic := c.Topic
-	if req.Topic != nil {
-		topic = trimTopic(req.Topic)
-	}
-	if err := h.app.DB.UpdateChannel(r.Context(), id, name, topic); err != nil {
-		WriteError(w, err)
-		return
-	}
-	c, err = h.app.DB.GetContainer(r.Context(), id)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	WriteJSON(w, http.StatusOK, c)
-}
-
 func (h *Admin) ArchiveChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := pathUUID(r, "id")
 	if err != nil {
@@ -385,13 +303,13 @@ func (h *Admin) ReserveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
-	displayName := strings.TrimSpace(req.DisplayName)
 	if !handlePattern.MatchString(handle) {
 		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
-	if displayName == "" {
-		WriteError(w, badRequestf("display_name is required"))
+	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
+	if err != nil {
+		WriteError(w, err)
 		return
 	}
 	raw, hash, err := auth.NewToken()
@@ -499,11 +417,4 @@ func inviteView(inv store.Invite) adminInvite {
 		UsedBy:    inv.UsedBy,
 		UsedAt:    inv.UsedAt,
 	}
-}
-
-func trimTopic(topic *string) *string {
-	if topic == nil {
-		return nil
-	}
-	return optionalString(strings.TrimSpace(*topic))
 }

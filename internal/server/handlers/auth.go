@@ -106,7 +106,6 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
-	displayName := strings.TrimSpace(req.DisplayName)
 	if req.Token == "" {
 		WriteError(w, badRequestf("token is required"))
 		return
@@ -115,8 +114,9 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
-	if displayName == "" {
-		WriteError(w, badRequestf("display_name is required"))
+	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
+	if err != nil {
+		WriteError(w, err)
 		return
 	}
 	if len(req.Password) < minPasswordLength {

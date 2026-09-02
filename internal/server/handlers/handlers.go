@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"uuid"
 
 	"github.com/rs/zerolog/log"
@@ -21,7 +22,10 @@ var (
 	ErrBadRequest   = errors.New("bad request")
 )
 
-const maxJSONBody = 1 << 20
+const (
+	maxJSONBody   = 1 << 20
+	maxNameLength = 64
+)
 
 type ctxKey int
 
@@ -146,6 +150,17 @@ func nonNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+func boundedField(field, raw string, limit int) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", badRequestf("%s is required", field)
+	}
+	if len(value) > limit {
+		return "", badRequestf("%s must be at most %d characters", field, limit)
+	}
+	return value, nil
 }
 
 func badRequestf(format string, a ...any) error {
