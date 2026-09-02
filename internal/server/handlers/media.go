@@ -32,7 +32,7 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, h.app.Cfg.Media.MaxUploadBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, h.app.Cfg().Media.MaxUploadBytes)
 	parts, err := r.MultipartReader()
 	if err != nil {
 		WriteError(w, badRequestf("expected a multipart upload"))

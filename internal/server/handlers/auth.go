@@ -203,7 +203,7 @@ func (h *Auth) startSession(w http.ResponseWriter, r *http.Request, u store.User
 }
 
 func (h *Auth) secure() bool {
-	return !h.app.Cfg.Server.Insecure
+	return !h.app.Cfg().Server.Insecure
 }
 
 func errInvalidLogin() error {

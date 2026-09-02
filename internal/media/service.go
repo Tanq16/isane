@@ -39,13 +39,13 @@ const (
 )
 
 type Service struct {
-	cfg  config.Config
+	cfg  *config.Config
 	db   *store.DB
 	log  zerolog.Logger
 	root string
 }
 
-func New(cfg config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
+func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
 	root, err := filepath.Abs(cfg.Media.Root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve media root: %w", err)

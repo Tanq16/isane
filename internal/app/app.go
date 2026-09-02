@@ -33,7 +33,6 @@ const (
 )
 
 type App struct {
-	Cfg       config.Config
 	DB        *store.DB
 	Hub       *socket.Hub
 	Push      *push.Router
@@ -43,6 +42,7 @@ type App struct {
 	Retention *retention.Sweeper
 	Log       zerolog.Logger
 
+	cfg     *config.Config
 	ctx     context.Context
 	cancel  context.CancelFunc
 	mu      sync.Mutex
@@ -50,7 +50,7 @@ type App struct {
 	wg      sync.WaitGroup
 }
 
-func New(ctx context.Context, cfg config.Config, db *store.DB, log zerolog.Logger) (*App, error) {
+func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logger) (*App, error) {
 	mediaSvc, err := media.New(cfg, db, log)
 	if err != nil {
 		return nil, fmt.Errorf("start media service: %w", err)
@@ -58,7 +58,6 @@ func New(ctx context.Context, cfg config.Config, db *store.DB, log zerolog.Logge
 	hub := socket.NewHub(log)
 	base, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a := &App{
-		Cfg:       cfg,
 		DB:        db,
 		Hub:       hub,
 		Push:      push.New(cfg, db, hub, log),
@@ -67,6 +66,7 @@ func New(ctx context.Context, cfg config.Config, db *store.DB, log zerolog.Logge
 		Agents:    agents.New(cfg, db, log),
 		Retention: retention.New(cfg, db, mediaSvc, log),
 		Log:       log,
+		cfg:       cfg,
 		ctx:       base,
 		cancel:    cancel,
 	}
@@ -74,6 +74,8 @@ func New(ctx context.Context, cfg config.Config, db *store.DB, log zerolog.Logge
 	hub.OnPresenceChange(a.presenceChanged)
 	return a, nil
 }
+
+func (a *App) Cfg() *config.Config { return a.cfg }
 
 func (a *App) Start(ctx context.Context) {
 	context.AfterFunc(ctx, a.cancel)
@@ -100,6 +102,10 @@ func (a *App) spawn(fn func()) {
 		return
 	}
 	a.wg.Go(fn)
+}
+
+func (a *App) Spawn(name string, fn func(context.Context)) {
+	a.spawn(func() { a.guard(name, func() { fn(a.ctx) }) })
 }
 
 func (a *App) every(d time.Duration, name string, fn func(context.Context)) {
@@ -232,12 +238,10 @@ func (a *App) requeueProcessingAttachments(ctx context.Context) {
 		return
 	}
 	for _, id := range ids {
-		a.spawn(func() {
-			a.guard("reprocess attachment", func() {
-				if _, err := a.Media.Process(a.ctx, id); err != nil {
-					a.Log.Error().Err(err).Str("attachment", id.String()).Msg("reprocess attachment")
-				}
-			})
+		a.Spawn("reprocess attachment", func(ctx context.Context) {
+			if _, err := a.Media.Process(ctx, id); err != nil {
+				a.Log.Error().Err(err).Str("attachment", id.String()).Msg("reprocess attachment")
+			}
 		})
 	}
 }

@@ -78,7 +78,7 @@ func runServe(cmd *cobra.Command, args []string) {
 
 const bootstrapInviteTTL = 30 * 24 * time.Hour
 
-func bootstrapInvite(ctx context.Context, cfg config.Config, db *store.DB) error {
+func bootstrapInvite(ctx context.Context, cfg *config.Config, db *store.DB) error {
 	users, err := db.CountUsers(ctx)
 	if err != nil {
 		return fmt.Errorf("count users: %w", err)

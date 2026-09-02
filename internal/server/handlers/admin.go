@@ -448,9 +448,9 @@ func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := adminRetention{
-		MessageDays:       h.app.Cfg.Retention.MessageDays,
-		RecordingDays:     h.app.Cfg.Retention.RecordingDays,
-		StagedUploadHours: h.app.Cfg.Retention.StagedUploadHours,
+		MessageDays:       h.app.Cfg().Retention.MessageDays,
+		RecordingDays:     h.app.Cfg().Retention.RecordingDays,
+		StagedUploadHours: h.app.Cfg().Retention.StagedUploadHours,
 	}
 	if !last.IsZero() {
 		out.LastRunAt = &last
@@ -486,7 +486,7 @@ func (h *Admin) agent(w http.ResponseWriter, r *http.Request) (store.AgentInfo, 
 }
 
 func (h *Admin) publicURL(path string) string {
-	return strings.TrimSuffix(h.app.Cfg.Server.PublicURL, "/") + path
+	return strings.TrimSuffix(h.app.Cfg().Server.PublicURL, "/") + path
 }
 
 func inviteView(inv store.Invite) adminInvite {

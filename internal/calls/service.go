@@ -23,7 +23,7 @@ var ErrDisabled = errors.New("livekit is not configured")
 const apiTimeout = 30 * time.Second
 
 type Service struct {
-	lk      config.LiveKit
+	cfg     *config.Config
 	log     zerolog.Logger
 	enabled bool
 	keys    auth.KeyProvider
@@ -31,15 +31,16 @@ type Service struct {
 	egress  livekit.Egress
 }
 
-func New(cfg config.Config, log zerolog.Logger) *Service {
-	s := &Service{lk: cfg.LiveKit, log: log, enabled: cfg.CallsEnabled()}
+func New(cfg *config.Config, log zerolog.Logger) *Service {
+	s := &Service{cfg: cfg, log: log, enabled: cfg.CallsEnabled()}
 	if !s.enabled {
 		return s
 	}
-	apiURL := httpURL(cmp.Or(s.lk.InternalURL, s.lk.PublicURL))
+	lk := cfg.LiveKit
+	apiURL := httpURL(cmp.Or(lk.InternalURL, lk.PublicURL))
 	client := &http.Client{Timeout: apiTimeout}
 	opts := xtwirp.DefaultClientOptions()
-	s.keys = auth.NewSimpleKeyProvider(s.lk.APIKey, s.lk.APISecret)
+	s.keys = auth.NewSimpleKeyProvider(lk.APIKey, lk.APISecret)
 	s.rooms = livekit.NewRoomServiceProtobufClient(apiURL, client, opts...)
 	s.egress = livekit.NewEgressProtobufClient(apiURL, client, opts...)
 	return s
@@ -47,7 +48,7 @@ func New(cfg config.Config, log zerolog.Logger) *Service {
 
 func (s *Service) Enabled() bool { return s.enabled }
 
-func (s *Service) PublicURL() string { return s.lk.PublicURL }
+func (s *Service) PublicURL() string { return s.cfg.LiveKit.PublicURL }
 
 func (s *Service) RoomExists(ctx context.Context, roomName string) (bool, error) {
 	ctx, err := s.authorize(ctx, &auth.VideoGrant{RoomList: true})
@@ -76,7 +77,7 @@ func (s *Service) authorize(ctx context.Context, grant *auth.VideoGrant) (contex
 	if !s.enabled {
 		return nil, ErrDisabled
 	}
-	token, err := auth.NewAccessToken(s.lk.APIKey, s.lk.APISecret).SetVideoGrant(grant).ToJWT()
+	token, err := auth.NewAccessToken(s.cfg.LiveKit.APIKey, s.cfg.LiveKit.APISecret).SetVideoGrant(grant).ToJWT()
 	if err != nil {
 		return nil, fmt.Errorf("sign livekit api token: %w", err)
 	}

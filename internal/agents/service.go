@@ -17,7 +17,7 @@ import (
 var ErrClaim = errors.New("invalid claim token")
 
 type Service struct {
-	cfg config.Config
+	cfg *config.Config
 	db  *store.DB
 	log zerolog.Logger
 
@@ -25,7 +25,7 @@ type Service struct {
 	waiters map[uuid.UUID]map[chan struct{}]struct{}
 }
 
-func New(cfg config.Config, db *store.DB, log zerolog.Logger) *Service {
+func New(cfg *config.Config, db *store.DB, log zerolog.Logger) *Service {
 	return &Service{
 		cfg:     cfg,
 		db:      db,

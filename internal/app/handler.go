@@ -61,10 +61,10 @@ func (a *App) ReadyPayload(ctx context.Context, u store.User, cursors map[uuid.U
 		Containers: views,
 		Gaps:       gaps,
 		MediaQuality: mediaQuality{
-			Video:       a.Cfg.MediaQuality.Video,
-			ScreenShare: a.Cfg.MediaQuality.ScreenShare,
-			Audio:       a.Cfg.MediaQuality.Audio,
-			Codec:       a.Cfg.MediaQuality.Codec,
+			Video:       a.Cfg().MediaQuality.Video,
+			ScreenShare: a.Cfg().MediaQuality.ScreenShare,
+			Audio:       a.Cfg().MediaQuality.Audio,
+			Codec:       a.Cfg().MediaQuality.Codec,
 		},
 	}
 	return ready, inline, nil
