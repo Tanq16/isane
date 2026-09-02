@@ -8,39 +8,36 @@ import (
 	"github.com/livekit/protocol/livekit"
 )
 
-func (s *Service) StartTrackEgress(ctx context.Context, roomName, identity, outPath string) (string, error) {
-	adminCtx, err := s.authorize(ctx, &auth.VideoGrant{RoomAdmin: true, Room: roomName})
-	if err != nil {
-		return "", err
-	}
-	participant, err := s.rooms.GetParticipant(adminCtx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: identity})
-	if err != nil {
-		return "", fmt.Errorf("get livekit participant %s: %w", identity, err)
-	}
-	trackID := audioTrackID(participant)
-	if trackID == "" {
-		return "", fmt.Errorf("participant %s publishes no audio track", identity)
-	}
+const recordingAudioBitrate = 48
+
+func (s *Service) StartRoomEgress(ctx context.Context, roomName, outPath string) (string, error) {
 	recordCtx, err := s.authorize(ctx, &auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return "", err
 	}
-	info, err := s.egress.StartTrackEgress(recordCtx, &livekit.TrackEgressRequest{
-		RoomName: roomName,
-		TrackId:  trackID,
-		Output: &livekit.TrackEgressRequest_File{
-			File: &livekit.DirectFileOutput{Filepath: outPath, DisableManifest: true},
+	info, err := s.egress.StartRoomCompositeEgress(recordCtx, &livekit.RoomCompositeEgressRequest{
+		RoomName:  roomName,
+		AudioOnly: true,
+		FileOutputs: []*livekit.EncodedFileOutput{{
+			FileType:        livekit.EncodedFileType_MP4,
+			Filepath:        outPath,
+			DisableManifest: true,
+		}},
+		Options: &livekit.RoomCompositeEgressRequest_Advanced{
+			Advanced: &livekit.EncodingOptions{
+				AudioCodec:   livekit.AudioCodec_AAC,
+				AudioBitrate: recordingAudioBitrate,
+			},
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("start track egress for %s: %w", identity, err)
+		return "", fmt.Errorf("start room egress for %s: %w", roomName, err)
 	}
 	s.log.Debug().
 		Str("room", roomName).
-		Str("identity", identity).
 		Str("egress_id", info.EgressId).
 		Str("path", outPath).
-		Msg("track egress started")
+		Msg("room egress started")
 	return info.EgressId, nil
 }
 
@@ -69,20 +66,4 @@ func (s *Service) ListEgress(ctx context.Context, roomName string) ([]string, er
 		ids = append(ids, item.EgressId)
 	}
 	return ids, nil
-}
-
-func audioTrackID(p *livekit.ParticipantInfo) string {
-	var fallback string
-	for _, t := range p.Tracks {
-		if t.Type != livekit.TrackType_AUDIO {
-			continue
-		}
-		if t.Source == livekit.TrackSource_MICROPHONE {
-			return t.Sid
-		}
-		if fallback == "" {
-			fallback = t.Sid
-		}
-	}
-	return fallback
 }

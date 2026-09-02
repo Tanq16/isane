@@ -99,9 +99,6 @@ func (s *Sweeper) sweepRecordings(ctx context.Context) (int, error) {
 				s.log.Error().Err(err).Str("recording", r.ID.String()).Msg("remove recording file")
 				continue
 			}
-			if dir := filepath.Dir(path); dir != s.media.RecordingsDir() {
-				_ = os.Remove(dir)
-			}
 		}
 		if err := s.db.DeleteCallRecording(ctx, r.ID); err != nil {
 			s.log.Error().Err(err).Str("recording", r.ID.String()).Msg("delete recording row")

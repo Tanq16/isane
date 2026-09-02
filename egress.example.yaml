@@ -10,8 +10,9 @@ logging:
 
 enable_chrome_sandbox: false
 
-# Costs above the machine's CPU count leave track egress as the only type this node accepts.
+# Costs above the machine's CPU count leave the SDK audio room composite as the only type this node accepts.
 cpu_cost:
+  sdk_audio_room_composite_cpu_cost: 1
   room_composite_cpu_cost: 1000
   audio_room_composite_cpu_cost: 1000
   web_cpu_cost: 1000
