@@ -165,7 +165,7 @@ The first start against an empty `users` table prints a one-time invite URL. Ope
 | `media.image_max_dimension` | `2560` | Longest edge an uploaded image is downscaled to |
 | `retention.message_days` | `0` | Days before a message is hard-deleted, where 0 disables it |
 | `retention.recording_days` | `90` | Days before a call recording is deleted |
-| `retention.staged_upload_hours` | `24` | Hours before an upload that never reached a message is swept |
+| `retention.staged_upload_hours` | `24` | Hours before an upload that never reached a message is swept, unless it is in use as a user's avatar |
 | `agents.job_timeout` | `5m` | How long a dispatched agent job may run before it is failed |
 | `media_quality` | see `config.example.yaml` | Client publish settings, delivered to the browser in the `ready` frame |
 
@@ -195,7 +195,7 @@ gunzip -c backup/db-2026-09-01.sql.gz | docker compose exec -T postgres pg_resto
 
 A daily job runs three sweeps in order:
 
-1. Staged attachments older than `retention.staged_upload_hours` with no message, deleted along with their files.
+1. Staged attachments older than `retention.staged_upload_hours` with no message, deleted along with their files. An attachment in use as a user's avatar is exempt and is swept once it is replaced.
 2. Recordings older than `retention.recording_days`, deleted along with their `call_recordings` rows.
 3. If `retention.message_days` is non-zero, messages older than that are hard-deleted and the attachments orphaned by it are swept.
 
@@ -214,7 +214,7 @@ Run each step in order and stop at the first one that explains the silence. `psq
 
 ## Diagnosing a missing notification
 
-1. **Confirm the user has a `push_subscriptions` row with `enabled = true`.** No row means the browser never subscribed, most often because permission was never requested from a click or keystroke.
+1. **Confirm the user has a `push_subscriptions` row with `enabled = true`.** No row means either that permission was never granted, or that the browser dropped the subscription it had. Reopening the app re-registers it whenever permission is already granted.
 2. **Confirm the device was not looking at the page.** A device whose tab is connected and visible is suppressed by design and renders the notification in the page instead. Suppression is per device, so another device left open never silences this one.
 3. **Run the routing predicate by hand** against the user, the message, and the container. A channel left at its `mentions` default, carrying a message with no mention, is working correctly.
 4. **Check the last send's status.** A 404 or 410 means the subscription is dead and the row should already have been deleted.
