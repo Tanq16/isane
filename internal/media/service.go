@@ -29,8 +29,6 @@ const (
 	sniffBytes   = 512
 	maxNameBytes = 200
 	maxErrBytes  = 500
-
-	failureReason = "this file could not be processed"
 	stderrCap    = 4096
 
 	probeTimeout  = 30 * time.Second
@@ -38,6 +36,8 @@ const (
 	posterTimeout = time.Minute
 
 	waitDelay = 5 * time.Second
+
+	failureReason = "this file could not be processed"
 )
 
 type Service struct {
