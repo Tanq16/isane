@@ -15,9 +15,12 @@ One VPS running Docker, with Caddy on the host as a system binary. Caddy termina
         +--> 127.0.0.1:8080   app       (Go binary, embeds the frontend)
         +--> 127.0.0.1:7880   livekit   (signaling and HTTP API)
 
-  container-internal only:
-        127.0.0.1:5432  postgres
+  compose network:
+        postgres        (no published port, the app reaches it by service name)
         127.0.0.1:6379  redis      (livekit and egress reach each other through it)
+
+  host network:
+        livekit         (binds the host directly, so 7880 is closed by the firewall)
         egress          (no ports, connects out to livekit and redis)
 
   shared volumes:
@@ -26,13 +29,16 @@ One VPS running Docker, with Caddy on the host as a system binary. Caddy termina
         ./data/media/recordings  -> app and egress: call recordings
 ```
 
-Every container port binds to `127.0.0.1` except LiveKit's media, ICE/TCP, and TURN ports, which clients must reach directly.
+LiveKit and egress run on the host network, which is what LiveKit's own documentation asks for. Publishing three hundred UDP ports instead spawns one `docker-proxy` process per port unless the Docker daemon is reconfigured host-wide, and that reconfiguration restarts every other container on the machine.
+
+The consequence is that LiveKit's HTTP API binds `0.0.0.0:7880` whether or not you want it to, exactly as it does under Element's own deployment, and the firewall is the only thing keeping it private. Caddy reaches it over loopback.
+
+Every other container port binds to `127.0.0.1`, except LiveKit's media, ICE/TCP, and TURN ports, which clients must reach directly.
 
 ## Host prerequisites
 
 - Docker Engine with the Compose plugin.
 - Caddy installed as a host binary, with a DNS A record already pointing at the VPS.
-- `"userland-proxy": false` in `/etc/docker/daemon.json`, followed by `systemctl restart docker`. The default spawns one `docker-proxy` process per published port, and this deployment publishes over three hundred UDP ports.
 
 ## Firewall
 
@@ -90,6 +96,8 @@ The first output is `push.vapid_private_key` and the second is `push.vapid_publi
 POSTGRES_PASSWORD=<the first generated secret>
 PUBLIC_IP=<the address your domain resolves to>
 ```
+
+`APP_PORT` is the one other variable compose reads, defaulting to `8080`. Set it when something else on the host already holds that port; the container still listens on 8080 and only the loopback publish moves, so `Caddyfile` is the only other file that changes.
 
 `PUBLIC_IP` is the address LiveKit advertises to clients as its ICE and TURN candidate, so it must be the public address your domain resolves to rather than the host's private interface. Compose refuses to start without it. Setting it is also what keeps the deployment off third-party infrastructure: LiveKit's `use_external_ip` discovers the address by querying `global.stun.twilio.com` and `stun.l.google.com`, and supplying the address directly skips that lookup. `NODE_IP` overrides `rtc.node_ip` in `livekit.yaml`, so either place works and the environment wins.
 

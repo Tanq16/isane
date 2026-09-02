@@ -4,7 +4,7 @@ keys:
   isane: REPLACE_ME_openssl_rand_base64_32
 
 redis:
-  address: redis:6379
+  address: 127.0.0.1:6379
 
 rtc:
   port_range_start: 50000
@@ -15,6 +15,9 @@ rtc:
   use_external_ip: false
   # Compose supplies this as NODE_IP from PUBLIC_IP in .env, which overrides it.
   # node_ip: 203.0.113.10
+  # Egress runs on this same host and cannot reach node_ip where the provider does
+  # not hairpin its own public address, so the private address is offered too.
+  advertise_internal_ip: true
 
 turn:
   enabled: true
@@ -36,7 +39,7 @@ room:
 webhook:
   api_key: isane
   urls:
-    - http://app:8080/api/livekit/webhook
+    - http://127.0.0.1:8080/api/livekit/webhook
 
 logging:
   level: info

@@ -13,7 +13,7 @@ push:
 
 livekit:
   public_url: wss://chat.example.com/livekit
-  internal_url: http://livekit:7880
+  internal_url: http://host.docker.internal:7880
   api_key: isane
   api_secret: ...
 
