@@ -58,6 +58,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/calls/{id}/me", s.user(calls.Leave))
 	mux.Handle("POST /api/calls/{id}/recording", s.user(calls.Recording))
 	mux.Handle("GET /api/calls/{id}/recordings", s.user(calls.Recordings))
+	mux.Handle("GET /api/recordings/{id}", s.user(calls.Audio))
 	mux.HandleFunc("POST /api/livekit/webhook", calls.Webhook)
 
 	mux.Handle("POST /api/agent/register", s.agent(agents.Register))
@@ -85,10 +86,11 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/admin/stats", s.adminOnly(admin.Stats))
 	mux.Handle("GET /api/admin/retention", s.adminOnly(admin.Retention))
 	mux.Handle("GET /api/health", http.HandlerFunc(s.health))
+	mux.Handle("GET /api/version", http.HandlerFunc(s.version))
 
 	mux.Handle("GET /ws", s.user(s.handleWS))
 
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(s.static))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", s.revalidated(http.FileServer(http.FS(s.static)))))
 	mux.HandleFunc("GET /sw.js", s.serveWorker)
 	mux.HandleFunc("/", s.serveIndex)
 }

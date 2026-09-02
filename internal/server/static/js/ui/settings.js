@@ -387,28 +387,62 @@ function passwordSection(body, handle) {
   body.appendChild(change)
 }
 
-function soundRow(body) {
+function toggleRow(body, label, isOn, onChange) {
   const row = el('div', 'flex items-center justify-between gap-4 rounded-lg bg-surface0 px-3 py-2')
-  row.appendChild(el('span', 'text-sm text-text', 'Play a sound for a new message'))
+  row.appendChild(el('span', 'text-sm text-text', label))
   const toggle = el('button', 'h-6 w-11 shrink-0 rounded-full transition-colors')
   toggle.type = 'button'
   toggle.setAttribute('role', 'switch')
-  toggle.setAttribute('aria-label', 'Play a sound for a new message')
+  toggle.setAttribute('aria-label', label)
   const knob = el('span', 'block h-5 w-5 rounded-full bg-crust transition-transform')
   toggle.appendChild(knob)
   const paint = () => {
-    const on = !muted()
+    const on = isOn()
     toggle.setAttribute('aria-checked', on ? 'true' : 'false')
     toggle.className = 'h-6 w-11 shrink-0 rounded-full transition-colors ' + (on ? 'bg-green' : 'bg-surface2')
     knob.className = 'block h-5 w-5 rounded-full bg-crust transition-transform ' + (on ? 'translate-x-5' : 'translate-x-0.5')
   }
-  toggle.addEventListener('click', () => {
-    setMuted(!muted())
+  toggle.addEventListener('click', async () => {
+    toggle.disabled = true
+    await onChange(!isOn())
+    toggle.disabled = false
     paint()
   })
   paint()
   row.appendChild(toggle)
   body.appendChild(row)
+}
+
+function soundRow(body) {
+  toggleRow(body, 'Play a sound for a new message', () => !muted(), (next) => setMuted(!next))
+}
+
+function readingSection(body) {
+  body.appendChild(sectionLabel('Reading'))
+  toggleRow(body, 'Mark as read on open', () => !state.me || state.me.mark_read_on_open !== false, async (next) => {
+    try {
+      const updated = await api.patch('/api/auth/me', { mark_read_on_open: next })
+      state.me = updated
+      state.users.set(updated.id, updated)
+      notify('me', 'users')
+    } catch (err) {
+      toast(err.message || 'Could not change how messages are marked read.', { severity: 'error' })
+    }
+  })
+
+  const help = el('p', 'mt-2 hidden text-xs text-overlay1',
+    'Turn this off and you have to click the New badge to mark messages as read.')
+  const explain = el('button', 'mt-2 text-xs text-overlay1 transition-colors hover:text-text', '?')
+  explain.type = 'button'
+  explain.title = 'What this does'
+  explain.setAttribute('aria-label', explain.title)
+  explain.setAttribute('aria-expanded', 'false')
+  explain.addEventListener('click', () => {
+    const shown = !help.classList.toggle('hidden')
+    explain.setAttribute('aria-expanded', shown ? 'true' : 'false')
+  })
+  body.appendChild(explain)
+  body.appendChild(help)
 }
 
 function pushSection(body) {
@@ -481,6 +515,7 @@ export function openUserSettings(onSignOut) {
       profileSection(body, handle)
       passwordSection(body, handle)
       pushSection(body)
+      readingSection(body)
       body.appendChild(sectionLabel('Session'))
       body.appendChild(textButton('Sign out', async () => {
         const ok = await confirmModal({

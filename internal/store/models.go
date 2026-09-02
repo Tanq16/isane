@@ -88,16 +88,17 @@ const (
 )
 
 type User struct {
-	ID            uuid.UUID  `json:"id"`
-	Kind          UserKind   `json:"kind"`
-	Handle        string     `json:"handle"`
-	DisplayName   string     `json:"display_name"`
-	AvatarID      *uuid.UUID `json:"avatar_id,omitempty"`
-	Email         *string    `json:"email,omitempty"`
-	PasswordHash  *string    `json:"-"`
-	IsAdmin       bool       `json:"is_admin"`
-	CreatedAt     time.Time  `json:"created_at"`
-	DeactivatedAt *time.Time `json:"deactivated_at,omitempty"`
+	ID             uuid.UUID  `json:"id"`
+	Kind           UserKind   `json:"kind"`
+	Handle         string     `json:"handle"`
+	DisplayName    string     `json:"display_name"`
+	AvatarID       *uuid.UUID `json:"avatar_id,omitempty"`
+	Email          *string    `json:"email,omitempty"`
+	PasswordHash   *string    `json:"-"`
+	IsAdmin        bool       `json:"is_admin"`
+	MarkReadOnOpen bool       `json:"mark_read_on_open"`
+	CreatedAt      time.Time  `json:"created_at"`
+	DeactivatedAt  *time.Time `json:"deactivated_at,omitempty"`
 }
 
 func (u User) Active() bool { return u.DeactivatedAt == nil }
@@ -173,23 +174,25 @@ type ContainerView struct {
 }
 
 type Message struct {
-	ID                uuid.UUID    `json:"id"`
-	ContainerID       uuid.UUID    `json:"container_id"`
-	Seq               int64        `json:"seq"`
-	AuthorID          uuid.UUID    `json:"author_id"`
-	Body              string       `json:"body"`
-	ReplyToID         *uuid.UUID   `json:"reply_to_id,omitempty"`
-	ThreadRootID      *uuid.UUID   `json:"thread_root_id,omitempty"`
-	ClientID          string       `json:"client_id"`
-	IsSystem          bool         `json:"is_system"`
-	CallID            *uuid.UUID   `json:"call_id,omitempty"`
-	ThreadReplyCount  int          `json:"thread_reply_count"`
-	ThreadLastReplyAt *time.Time   `json:"thread_last_reply_at,omitempty"`
-	CreatedAt         time.Time    `json:"created_at"`
-	EditedAt          *time.Time   `json:"edited_at,omitempty"`
-	DeletedAt         *time.Time   `json:"deleted_at,omitempty"`
-	Attachments       []Attachment `json:"attachments,omitempty"`
-	Mentions          []uuid.UUID  `json:"mentions,omitempty"`
+	ID                uuid.UUID      `json:"id"`
+	ContainerID       uuid.UUID      `json:"container_id"`
+	Seq               int64          `json:"seq"`
+	AuthorID          uuid.UUID      `json:"author_id"`
+	Body              string         `json:"body"`
+	ReplyToID         *uuid.UUID     `json:"reply_to_id,omitempty"`
+	ThreadRootID      *uuid.UUID     `json:"thread_root_id,omitempty"`
+	ClientID          string         `json:"client_id"`
+	IsSystem          bool           `json:"is_system"`
+	CallID            *uuid.UUID     `json:"call_id,omitempty"`
+	RecordingID       *uuid.UUID     `json:"-"`
+	ThreadReplyCount  int            `json:"thread_reply_count"`
+	ThreadLastReplyAt *time.Time     `json:"thread_last_reply_at,omitempty"`
+	CreatedAt         time.Time      `json:"created_at"`
+	EditedAt          *time.Time     `json:"edited_at,omitempty"`
+	DeletedAt         *time.Time     `json:"deleted_at,omitempty"`
+	Attachments       []Attachment   `json:"attachments,omitempty"`
+	Mentions          []uuid.UUID    `json:"mentions,omitempty"`
+	Recording         *CallRecording `json:"recording,omitempty"`
 }
 
 type NewMessage struct {
@@ -201,6 +204,7 @@ type NewMessage struct {
 	ThreadRootID  *uuid.UUID
 	IsSystem      bool
 	CallID        *uuid.UUID
+	RecordingID   *uuid.UUID
 	AttachmentIDs []uuid.UUID
 	MentionIDs    []uuid.UUID
 }
@@ -266,6 +270,7 @@ type CallRecording struct {
 	UserID      *uuid.UUID `json:"user_id,omitempty"`
 	EgressID    *string    `json:"-"`
 	StoragePath string     `json:"-"`
+	Mime        string     `json:"-"`
 	SizeBytes   int64      `json:"size_bytes"`
 	DurationMs  *int       `json:"duration_ms,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`

@@ -35,7 +35,7 @@
     <button id="push-banner-dismiss" type="button" class="shrink-0 rounded-lg px-3 py-1.5 text-sm text-overlay1 transition-colors hover:text-text">Not now</button>
 </div>
 
-<div id="app" class="group flex min-h-0 flex-1" data-drawer="closed" data-sidebar="open">
+<div id="app" class="group flex min-h-0 flex-1" data-drawer="closed" data-sidebar="open" data-thread="closed" data-call="hidden">
     <div id="drawer-scrim" class="fixed inset-0 z-40 hidden bg-scrim backdrop-blur-sm group-data-[drawer=open]:block md:hidden"></div>
 
     <aside id="sidebar" aria-label="Channels and conversations"
@@ -50,11 +50,17 @@
         <div id="composer" class="shrink-0"></div>
     </main>
 
+    <div id="thread-resize" role="separator" aria-orientation="vertical" aria-label="Resize the thread panel" tabindex="0"
+        class="hidden w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none xl:group-data-[thread=open]:block"></div>
+
     <section id="thread-pane" role="dialog" aria-label="Thread"
-        class="hidden fixed inset-0 z-30 overflow-hidden bg-mantle xl:static xl:z-auto xl:w-[380px] xl:shrink-0 xl:border-l xl:border-surface0"></section>
+        class="fixed inset-0 z-30 hidden overflow-hidden bg-mantle group-data-[thread=open]:block xl:static xl:z-auto xl:w-[var(--thread-width)] xl:shrink-0 xl:border-l xl:border-surface0"></section>
+
+    <div id="call-resize" role="separator" aria-orientation="vertical" aria-label="Resize the call panel" tabindex="0"
+        class="hidden w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none xl:group-data-[call=docked]:block"></div>
 
     <section id="call-pane" role="dialog" aria-label="Call"
-        class="hidden fixed inset-0 z-30 overflow-hidden bg-crust xl:static xl:z-auto xl:w-[380px] xl:shrink-0"></section>
+        class="fixed inset-0 z-30 hidden overflow-hidden bg-crust group-data-[call=docked]:block group-data-[call=expanded]:block xl:group-data-[call=docked]:static xl:group-data-[call=docked]:z-auto xl:group-data-[call=docked]:w-[var(--call-width)] xl:group-data-[call=docked]:shrink-0 xl:group-data-[call=docked]:border-l xl:group-data-[call=docked]:border-surface0"></section>
 </div>
 
 <div id="admin-root" class="hidden min-h-0 flex-1 overflow-hidden bg-crust"></div>

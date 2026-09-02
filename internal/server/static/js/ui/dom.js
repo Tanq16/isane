@@ -4,6 +4,11 @@ const AVATAR_HUES = [
   'bg-blue', 'bg-mauve', 'bg-green', 'bg-peach', 'bg-pink', 'bg-teal',
   'bg-lavender', 'bg-maroon', 'bg-sky', 'bg-flamingo', 'bg-yellow', 'bg-sapphire',
 ]
+const ICON_SCRIPT = '/static/vendor/lucide.min.js'
+
+const pendingIcons = new Set()
+
+let iconScript = null
 
 export function el(tag, cls, text) {
   const node = document.createElement(tag)
@@ -20,8 +25,24 @@ export function icon(name, cls) {
   return node
 }
 
+function loadIcons() {
+  if (iconScript) return
+  iconScript = document.createElement('script')
+  iconScript.src = ICON_SCRIPT
+  iconScript.addEventListener('load', () => {
+    for (const root of pendingIcons) drawIcons(root)
+    pendingIcons.clear()
+  })
+  document.head.appendChild(iconScript)
+}
+
 export function drawIcons(root) {
-  if (typeof lucide === 'undefined' || !root) return
+  if (!root) return
+  if (typeof lucide === 'undefined') {
+    pendingIcons.add(root)
+    loadIcons()
+    return
+  }
   lucide.createIcons({ root })
 }
 

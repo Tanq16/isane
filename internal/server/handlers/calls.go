@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"time"
@@ -17,6 +19,7 @@ import (
 
 const (
 	egressOutRoot          = "/out"
+	recordingMime          = "audio/mp4"
 	eventParticipantJoined = "participant_joined"
 	eventParticipantLeft   = "participant_left"
 	eventRoomFinished      = "room_finished"
@@ -112,11 +115,12 @@ func (h *Calls) Leave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Broadcast(r.Context(), call.ContainerID, participantFrame(call.ID, u.ID, false))
+	h.endIfEmpty(r.Context(), call)
 	writeOK(w)
 }
 
 func (h *Calls) Recording(w http.ResponseWriter, r *http.Request) {
-	call, _, ok := h.memberCall(w, r)
+	call, u, ok := h.memberCall(w, r)
 	if !ok || !h.enabled(w) {
 		return
 	}
@@ -131,24 +135,59 @@ func (h *Calls) Recording(w http.ResponseWriter, r *http.Request) {
 	}
 	state := store.RecordingOff
 	if body.On {
-		state = store.RecordingActive
-		participants, err := h.app.DB.LiveCallParticipants(r.Context(), call.ID)
-		if err != nil {
-			WriteError(w, err)
+		if call.RecordingState == store.RecordingActive {
+			WriteError(w, conflictf("call %s is already recording", call.ID))
 			return
 		}
-		for _, userID := range participants {
-			h.startEgress(r.Context(), call, userID)
+		if err := h.startRecording(r.Context(), call, u.ID); err != nil {
+			h.app.Log.Error().Err(err).Str("call_id", call.ID.String()).Msg("start recording")
+			WriteJSON(w, http.StatusServiceUnavailable,
+				errorBody{Error: "the recording could not be started; this host records one call at a time"})
+			return
 		}
-	} else {
-		h.stopEgress(r.Context(), call.RoomName)
+		state = store.RecordingActive
+	} else if h.stopEgress(r.Context(), call.RoomName) > 0 {
+		state = store.RecordingProcessing
 	}
-	if err := h.app.DB.SetRecordingState(r.Context(), call.ID, state); err != nil {
+	if err := h.setRecording(r.Context(), call, state); err != nil {
 		WriteError(w, err)
 		return
 	}
 	call.RecordingState = state
 	WriteJSON(w, http.StatusOK, call)
+}
+
+func (h *Calls) Audio(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := pathUUID(r, "id")
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	rec, err := h.app.DB.GetCallRecording(r.Context(), id)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	call, err := h.app.DB.GetCall(r.Context(), rec.CallID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	if _, err := containerFor(r.Context(), h.app, call.ContainerID, u.ID); err != nil {
+		WriteError(w, err)
+		return
+	}
+	f, err := h.app.Media.OpenRecording(rec)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", attachmentCache)
+	serveFile(w, r, f, filepath.Base(rec.StoragePath), rec.Mime, queryBool(r, "download"))
 }
 
 func (h *Calls) Recordings(w http.ResponseWriter, r *http.Request) {
@@ -187,9 +226,6 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 			return err
 		}
 		h.app.Broadcast(ctx, call.ContainerID, participantFrame(call.ID, userID, true))
-		if call.RecordingState == store.RecordingActive {
-			h.startEgress(ctx, call, userID)
-		}
 	case eventParticipantLeft:
 		call, userID, err := h.eventCall(ctx, e)
 		if err != nil {
@@ -199,6 +235,7 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 			return err
 		}
 		h.app.Broadcast(ctx, call.ContainerID, participantFrame(call.ID, userID, false))
+		h.endIfEmpty(ctx, call)
 	case eventRoomFinished:
 		call, err := h.app.DB.CallByRoom(ctx, e.GetRoom().GetName())
 		if err != nil {
@@ -206,7 +243,7 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 		}
 		h.stopEgress(ctx, call.RoomName)
 		if call.RecordingState == store.RecordingActive {
-			if err := h.app.DB.SetRecordingState(ctx, call.ID, store.RecordingProcessing); err != nil {
+			if err := h.setRecording(ctx, call, store.RecordingProcessing); err != nil {
 				return err
 			}
 		}
@@ -225,40 +262,67 @@ func (h *Calls) finishEgress(ctx context.Context, info *livekit.EgressInfo) erro
 	if info == nil || info.GetEgressId() == "" {
 		return nil
 	}
-	var duration *int
-	var size int64
-	for _, f := range info.GetFileResults() {
-		size += f.GetSize()
-		if ms := int(f.GetDuration() / int64(time.Millisecond)); ms > 0 {
-			duration = &ms
-		}
+	rec, err := h.app.DB.RecordingByEgressID(ctx, info.GetEgressId())
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
 	}
-	if err := h.app.DB.CompleteCallRecording(ctx, info.GetEgressId(), duration); err != nil {
+	if err != nil {
 		return err
 	}
 	call, err := h.app.DB.CallByRoom(ctx, info.GetRoomName())
 	if err != nil {
 		return err
 	}
-	recordings, err := h.app.DB.ListCallRecordings(ctx, call.ID)
+	files := info.GetFileResults()
+	if info.GetStatus() != livekit.EgressStatus_EGRESS_COMPLETE || len(files) != 1 || files[0].GetSize() == 0 {
+		h.app.Log.Error().Str("egress_id", info.GetEgressId()).Str("status", info.GetStatus().String()).
+			Msg("recording did not complete")
+		return h.setRecording(ctx, call, store.RecordingFailed)
+	}
+	stat, err := os.Stat(rec.StoragePath)
+	if err != nil || stat.Size() == 0 {
+		h.app.Log.Error().Err(err).Str("recording", rec.ID.String()).Msg("recording file is missing or empty")
+		return h.setRecording(ctx, call, store.RecordingFailed)
+	}
+	var duration *int
+	if ms := int(files[0].GetDuration() / int64(time.Millisecond)); ms > 0 {
+		duration = &ms
+	}
+	if err := h.app.DB.FinishCallRecording(ctx, rec.ID, duration, files[0].GetSize()); err != nil {
+		return err
+	}
+	if err := h.postRecordingNotice(ctx, call, rec, duration); err != nil {
+		return err
+	}
+	return h.setRecording(ctx, call, store.RecordingReady)
+}
+
+func (h *Calls) postRecordingNotice(ctx context.Context, call store.Call, rec store.CallRecording, duration *int) error {
+	authorID := call.StartedBy
+	if rec.UserID != nil {
+		authorID = *rec.UserID
+	}
+	author, err := h.app.DB.GetUser(ctx, authorID)
 	if err != nil {
 		return err
 	}
-	for _, rec := range recordings {
-		if rec.EgressID != nil && *rec.EgressID == info.GetEgressId() && size > 0 {
-			if err := h.app.DB.SetRecordingSize(ctx, rec.ID, size); err != nil {
-				return err
-			}
-		}
+	body := "@" + author.Handle + " recorded the call"
+	if duration != nil {
+		body = "@" + author.Handle + " recorded " + recordingLength(*duration) + " of the call"
 	}
-	if call.RecordingState != store.RecordingProcessing {
+	_, err = h.app.PostRecordingNotice(ctx, call.ContainerID, author.ID, rec.ID, body)
+	if errors.Is(err, store.ErrConflict) {
 		return nil
 	}
-	ids, err := h.app.Calls.ListEgress(ctx, call.RoomName)
-	if err != nil || len(ids) > 0 {
-		return err
+	return err
+}
+
+func recordingLength(ms int) string {
+	d := (time.Duration(ms) * time.Millisecond).Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
-	return h.app.DB.SetRecordingState(ctx, call.ID, store.RecordingReady)
+	return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 func (h *Calls) eventCall(ctx context.Context, e *livekit.WebhookEvent) (store.Call, uuid.UUID, error) {
@@ -300,38 +364,77 @@ func (h *Calls) memberCall(w http.ResponseWriter, r *http.Request) (store.Call, 
 	return call, u, true
 }
 
-func (h *Calls) startEgress(ctx context.Context, call store.Call, userID uuid.UUID) {
-	name := userID.String() + ".ogg"
+func (h *Calls) startRecording(ctx context.Context, call store.Call, startedBy uuid.UUID) error {
+	recID := uuid.New()
 	// Egress writes from its own container, which mounts the recordings directory at /out rather than at media.root.
-	egressID, err := h.app.Calls.StartTrackEgress(ctx, call.RoomName, userID.String(),
-		path.Join(egressOutRoot, call.ID.String(), name))
+	egressID, err := h.app.Calls.StartRoomEgress(ctx, call.RoomName,
+		path.Join(egressOutRoot, h.app.Media.RecordingName(call.ID, recID)))
 	if err != nil {
-		h.app.Log.Error().Err(err).Str("call_id", call.ID.String()).
-			Str("user_id", userID.String()).Msg("start track egress")
-		return
+		return err
 	}
 	_, err = h.app.DB.CreateCallRecording(ctx, store.CallRecording{
+		ID:          recID,
 		CallID:      call.ID,
-		UserID:      &userID,
+		UserID:      &startedBy,
 		EgressID:    &egressID,
-		StoragePath: filepath.Join(h.app.Media.RecordingsDir(), call.ID.String(), name),
+		StoragePath: h.app.Media.RecordingPath(call.ID, recID),
+		Mime:        recordingMime,
 	})
 	if err != nil {
-		h.app.Log.Error().Err(err).Str("egress_id", egressID).Msg("record track egress")
+		if stopErr := h.app.Calls.StopEgress(ctx, egressID); stopErr != nil {
+			h.app.Log.Error().Err(stopErr).Str("egress_id", egressID).Msg("stop orphaned egress")
+		}
+		return err
 	}
+	return nil
 }
 
-func (h *Calls) stopEgress(ctx context.Context, roomName string) {
+func (h *Calls) setRecording(ctx context.Context, call store.Call, state store.RecordingState) error {
+	if err := h.app.DB.SetRecordingState(ctx, call.ID, state); err != nil {
+		return err
+	}
+	h.app.Broadcast(ctx, call.ContainerID, socket.NewFrame(socket.TypeCallRecording,
+		socket.CallRecordingPayload{CallID: call.ID, State: state}))
+	return nil
+}
+
+func (h *Calls) endIfEmpty(ctx context.Context, call store.Call) {
+	ended, err := h.app.DB.EndCallIfEmpty(ctx, call.ID)
+	if err != nil {
+		h.app.Log.Error().Err(err).Str("call_id", call.ID.String()).Msg("end empty call")
+		return
+	}
+	if !ended {
+		return
+	}
+	h.stopEgress(ctx, call.RoomName)
+	if call.RecordingState == store.RecordingActive {
+		if err := h.setRecording(ctx, call, store.RecordingProcessing); err != nil {
+			h.app.Log.Error().Err(err).Str("call_id", call.ID.String()).Msg("mark recording processing")
+		}
+	}
+	if err := h.app.Calls.DeleteRoom(ctx, call.RoomName); err != nil {
+		h.app.Log.Error().Err(err).Str("room", call.RoomName).Msg("delete livekit room")
+	}
+	h.app.Broadcast(ctx, call.ContainerID,
+		socket.NewFrame(socket.TypeCallEnded, socket.CallEndedPayload{CallID: call.ID}))
+}
+
+func (h *Calls) stopEgress(ctx context.Context, roomName string) int {
 	ids, err := h.app.Calls.ListEgress(ctx, roomName)
 	if err != nil {
 		h.app.Log.Error().Err(err).Str("room", roomName).Msg("list egress")
-		return
+		return 0
 	}
+	stopped := 0
 	for _, id := range ids {
 		if err := h.app.Calls.StopEgress(ctx, id); err != nil {
 			h.app.Log.Error().Err(err).Str("egress_id", id).Msg("stop egress")
+			continue
 		}
+		stopped++
 	}
+	return stopped
 }
 
 func (h *Calls) enabled(w http.ResponseWriter) bool {

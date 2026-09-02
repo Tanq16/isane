@@ -28,6 +28,7 @@ const (
 	TypePresence        = "presence"
 	TypeCallStarted     = "call_started"
 	TypeCallParticipant = "call_participant"
+	TypeCallRecording   = "call_recording"
 	TypeCallEnded       = "call_ended"
 	TypeAgentWorking    = "agent_working"
 	TypeAgentDone       = "agent_done"
@@ -98,7 +99,8 @@ type ReadPayload struct {
 }
 
 type TypingPayload struct {
-	ContainerID uuid.UUID `json:"container_id"`
+	ContainerID  uuid.UUID  `json:"container_id"`
+	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
 type ThreadSubPayload struct {
@@ -107,8 +109,9 @@ type ThreadSubPayload struct {
 }
 
 type TypingEventPayload struct {
-	ContainerID uuid.UUID `json:"container_id"`
-	UserID      uuid.UUID `json:"user_id"`
+	ContainerID  uuid.UUID  `json:"container_id"`
+	UserID       uuid.UUID  `json:"user_id"`
+	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
 type MessageEditedPayload struct {
@@ -132,6 +135,11 @@ type CallParticipantPayload struct {
 	CallID uuid.UUID `json:"call_id"`
 	UserID uuid.UUID `json:"user_id"`
 	Joined bool      `json:"joined"`
+}
+
+type CallRecordingPayload struct {
+	CallID uuid.UUID            `json:"call_id"`
+	State  store.RecordingState `json:"recording_state"`
 }
 
 type CallEndedPayload struct {

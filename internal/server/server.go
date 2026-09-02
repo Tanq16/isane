@@ -22,6 +22,8 @@ const (
 type Server struct {
 	app     *app.App
 	static  fs.FS
+	etags   map[string]string
+	build   string
 	log     zerolog.Logger
 	handler http.Handler
 }
@@ -31,7 +33,11 @@ func New(a *app.App) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mount embedded static tree: %w", err)
 	}
-	s := &Server{app: a, static: static, log: a.Log}
+	etags, build, err := fingerprint(static)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint embedded static tree: %w", err)
+	}
+	s := &Server{app: a, static: static, etags: etags, build: build, log: a.Log}
 	mux := http.NewServeMux()
 	s.routes(mux)
 	s.handler = requestID(s.recovery(s.accessLog(s.securityHeaders(s.sameOrigin(mux)))))

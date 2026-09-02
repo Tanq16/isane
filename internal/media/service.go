@@ -219,6 +219,22 @@ func (s *Service) Delete(ctx context.Context, a store.Attachment) error {
 
 func (s *Service) RecordingsDir() string { return filepath.Join(s.root, recordingsDir) }
 
+func (s *Service) RecordingName(callID, recordingID uuid.UUID) string {
+	return callID.String() + "-" + recordingID.String() + ".mp4"
+}
+
+func (s *Service) RecordingPath(callID, recordingID uuid.UUID) string {
+	return filepath.Join(s.RecordingsDir(), s.RecordingName(callID, recordingID))
+}
+
+func (s *Service) OpenRecording(r store.CallRecording) (*os.File, error) {
+	f, err := os.Open(s.abs(r.StoragePath))
+	if err != nil {
+		return nil, fmt.Errorf("open recording %s: %w", r.ID, err)
+	}
+	return f, nil
+}
+
 func (s *Service) RecordingBytes() (int64, error) {
 	var total int64
 	err := filepath.WalkDir(s.RecordingsDir(), func(_ string, d fs.DirEntry, err error) error {

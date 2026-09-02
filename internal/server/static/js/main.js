@@ -1,7 +1,7 @@
 import { get, post, onUnauthorized, ApiError } from './api.js'
 import { state, subscribe, notify, findMessage, loadThread } from './store.js'
 import { connect, stop as stopSocket, on as onSocket } from './socket.js'
-import { initPush, enablePush, pushSupported } from './push.js'
+import { initPush, enablePush, pushSupported, currentRegistration } from './push.js'
 import * as badge from './badge.js'
 import * as sidebar from './ui/sidebar.js'
 import * as timeline from './ui/timeline.js'
@@ -12,19 +12,33 @@ import * as admin from './ui/admin.js'
 import { el, field, textButton } from './ui/dom.js'
 import { closeModal, isModalOpen } from './ui/modal.js'
 import { openPicker } from './ui/picker.js'
+import { wireResize } from './ui/resize.js'
 import { toast } from './ui/toast.js'
 
 const LAST_CONTAINER_KEY = 'isane:last-container'
 const INSTALL_HINT_KEY = 'isane:install-hint-seen'
 const PUSH_BANNER_KEY = 'isane:push-banner-seen'
 const SIDEBAR_WIDTH_KEY = 'isane-sidebar-width'
+const THREAD_WIDTH_KEY = 'isane-thread-width'
+const CALL_WIDTH_KEY = 'isane-call-width'
 const PUSH_INIT_TIMEOUT = 3000
 const SIDEBAR_MIN = 200
 const SIDEBAR_MAX = 400
+const SIDEBAR_FALLBACK = 240
+const PANE_MIN = 280
+const PANE_MAX = 560
+const PANE_FALLBACK = 380
+const HANDLE_WIDTH = 4
+const COLUMN_MIN = 400
 
 let awaitingContainers = false
 let offlineToast = null
 let started = false
+let threadPane = null
+let callPane = null
+let fitFrame = 0
+let buildId = null
+let updateToast = null
 
 function byId(id) {
   return document.getElementById(id)
@@ -85,46 +99,65 @@ function wireNavigation() {
   })
 }
 
-function wireSidebarResize() {
-  const handle = byId('sidebar-resize')
-  if (!handle) return
+function paneCap() {
+  const panel = call.panelState()
+  const open = (state.current.threadRootId ? 1 : 0) + (!panel.hidden && !panel.expanded ? 1 : 0)
+  const sidebar = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10) || 0
+  const budget = window.innerWidth - sidebar - (open + 1) * HANDLE_WIDTH - COLUMN_MIN
+  return Math.max(PANE_MIN, Math.min(PANE_MAX, budget / Math.max(open, 1)))
+}
 
-  const apply = (width) => {
-    const clamped = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Math.round(width)))
-    document.documentElement.style.setProperty('--sidebar-width', clamped + 'px')
-    writeLocal(SIDEBAR_WIDTH_KEY, String(clamped))
-    handle.setAttribute('aria-valuenow', String(clamped))
-  }
+function fitPanes() {
+  if (threadPane) threadPane.apply(threadPane.read(), false)
+  if (callPane) callPane.apply(callPane.read(), false)
+}
 
-  handle.setAttribute('aria-valuemin', String(SIDEBAR_MIN))
-  handle.setAttribute('aria-valuemax', String(SIDEBAR_MAX))
+function scheduleFit() {
+  if (fitFrame) return
+  fitFrame = requestAnimationFrame(() => {
+    fitFrame = 0
+    fitPanes()
+  })
+}
 
-  handle.addEventListener('pointerdown', (e) => {
-    e.preventDefault()
-    handle.setPointerCapture(e.pointerId)
-    const move = (event) => apply(event.clientX)
-    const done = () => {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', done)
-      handle.removeEventListener('pointercancel', done)
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', done)
-    handle.addEventListener('pointercancel', done)
+function wirePanes() {
+  const sidebarPane = wireResize({
+    handle: byId('sidebar-resize'),
+    pane: byId('sidebar'),
+    edge: 'left',
+    prop: '--sidebar-width',
+    key: SIDEBAR_WIDTH_KEY,
+    min: SIDEBAR_MIN,
+    max: SIDEBAR_MAX,
+    fallback: SIDEBAR_FALLBACK,
+    onChange: scheduleFit,
+  })
+  timeline.setSidebarWidth(sidebarPane.read)
+
+  threadPane = wireResize({
+    handle: byId('thread-resize'),
+    pane: byId('thread-pane'),
+    edge: 'right',
+    prop: '--thread-width',
+    key: THREAD_WIDTH_KEY,
+    min: PANE_MIN,
+    max: paneCap,
+    fallback: PANE_FALLBACK,
   })
 
-  handle.addEventListener('keydown', (e) => {
-    const current = parseInt(readLocal(SIDEBAR_WIDTH_KEY) || '240', 10) || 240
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault()
-      apply(current - 16)
-      return
-    }
-    if (e.key === 'ArrowRight') {
-      e.preventDefault()
-      apply(current + 16)
-    }
+  callPane = wireResize({
+    handle: byId('call-resize'),
+    pane: byId('call-pane'),
+    edge: 'right',
+    prop: '--call-width',
+    key: CALL_WIDTH_KEY,
+    min: PANE_MIN,
+    max: paneCap,
+    fallback: PANE_FALLBACK,
   })
+
+  window.addEventListener('resize', scheduleFit)
+  fitPanes()
 }
 
 function mountAll() {
@@ -274,6 +307,7 @@ function onStateChange(keys) {
     awaitingContainers = false
     route()
   }
+  if (keys.includes('current') || keys.includes('calls')) fitPanes()
   if (!keys.includes('connection')) return
   if (state.connection === 'down' && !offlineToast) {
     offlineToast = toast('Reconnecting', { sticky: true, severity: 'warning' })
@@ -429,6 +463,37 @@ function wireInstallHint() {
   hint.classList.remove('hidden')
 }
 
+async function checkBuild() {
+  let build = null
+  try {
+    const res = await get('/version')
+    build = res && res.build ? String(res.build) : null
+  } catch (err) {
+    console.error('build check failed', err)
+    return
+  }
+  if (!build) return
+  if (!buildId) {
+    buildId = build
+    return
+  }
+  if (build === buildId || updateToast) return
+  updateToast = toast('A new version is ready. Tap to reload.', {
+    sticky: true,
+    severity: 'info',
+    onClick: () => location.reload(),
+  })
+}
+
+function wireResume() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return
+    checkBuild()
+    const registration = currentRegistration()
+    if (registration) registration.update().catch((err) => console.error('worker update check failed', err))
+  })
+}
+
 function errorText(d) {
   if (!d || d.code === 'internal') return 'Something went wrong. Try again.'
   return d.message || 'Something went wrong. Try again.'
@@ -438,10 +503,12 @@ async function start() {
   if (started) return
   started = true
   mountAll()
-  wireSidebarResize()
+  wirePanes()
   badge.mount()
   connect()
   loadUsers()
+  checkBuild()
+  wireResume()
   Promise.race([
     initPush().catch((err) => console.error('push init failed', err)),
     new Promise((resolve) => setTimeout(resolve, PUSH_INIT_TIMEOUT)),

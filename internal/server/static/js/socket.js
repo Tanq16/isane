@@ -25,6 +25,7 @@ let offlineTimer = null
 let awaitingPong = false
 let outbox = []
 let helloEndpoint = null
+let hiddenAt = 0
 
 export function isLive() {
   return Boolean(ws) && ws.readyState === WebSocket.OPEN
@@ -192,7 +193,16 @@ function revive() {
 
 document.addEventListener('visibilitychange', () => {
   if (isLive()) write('visibility', { visible: pageVisible() })
-  if (pageVisible()) revive()
+  if (!pageVisible()) {
+    hiddenAt = Date.now()
+    return
+  }
+  if (isLive() && hiddenAt && Date.now() - hiddenAt > PING_INTERVAL) {
+    attempt = 0
+    ws.close()
+    return
+  }
+  revive()
 })
 window.addEventListener('online', revive)
 
@@ -237,6 +247,9 @@ function apply(type, d) {
       return
     case 'call_participant':
       onCallParticipant(d)
+      return
+    case 'call_recording':
+      onCallRecording(d)
       return
     case 'call_ended':
       onCallEnded(d)
@@ -290,9 +303,11 @@ function onReady(d) {
     state.presence = new Set(d.presence)
   }
   if (Array.isArray(d.calls)) {
+    const live = new Map()
     for (const call of d.calls) {
-      if (call && call.container_id && !call.ended_at) state.calls.set(call.container_id, call)
+      if (call && call.container_id && !call.ended_at) live.set(call.container_id, call)
     }
+    state.calls = live
   }
   if (d.settings) state.settings = Object.assign({}, state.settings, d.settings)
   state.quality = d.media_quality ?? d.quality ?? state.quality
@@ -361,6 +376,11 @@ function onMessage(m) {
       root.thread_last_reply_at = m.created_at
     }
   }
+  const typists = state.typing.get(m.container_id)
+  if (typists && typists.delete(m.author_id)) {
+    if (!typists.size) state.typing.delete(m.container_id)
+    notify('typing')
+  }
   if (fresh) announce(m, container)
   notify('messages', 'containers')
 }
@@ -395,11 +415,12 @@ function announcePath(container, m) {
 }
 
 function announce(m, container) {
-  if (!container || !pageVisible()) return
+  if (!container) return
   if (state.me && m.author_id === state.me.id) return
-  if (state.current.containerId === m.container_id) return
+  if (pageVisible() && state.current.containerId === m.container_id) return
   if (!shouldAnnounce(container, m)) return
   play()
+  if (!pageVisible()) return
   const registration = currentRegistration()
   if (!registration || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   const { title, body } = announcement(container, m)
@@ -447,7 +468,7 @@ function onTyping(d) {
     byUser = new Map()
     state.typing.set(d.container_id, byUser)
   }
-  byUser.set(d.user_id, Date.now() + TYPING_TTL)
+  byUser.set(d.user_id, { expiry: Date.now() + TYPING_TTL, threadRootId: d.thread_root_id || null })
   notify('typing')
   setTimeout(pruneTyping, TYPING_TTL + 100)
 }
@@ -456,8 +477,8 @@ function pruneTyping() {
   const now = Date.now()
   let changed = false
   for (const [containerId, byUser] of state.typing) {
-    for (const [userId, expiry] of byUser) {
-      if (expiry > now) continue
+    for (const [userId, entry] of byUser) {
+      if (entry.expiry > now) continue
       byUser.delete(userId)
       changed = true
     }
@@ -486,6 +507,14 @@ function onCallParticipant(d) {
     if (d.joined && at < 0) participants.push(d.user_id)
     if (!d.joined && at >= 0) participants.splice(at, 1)
     call.participants = participants
+  }
+  notify('calls')
+}
+
+function onCallRecording(d) {
+  for (const call of state.calls.values()) {
+    if (call.id !== d.call_id) continue
+    call.recording_state = d.recording_state
   }
   notify('calls')
 }

@@ -1,6 +1,7 @@
 import * as socket from '../socket.js'
 import { state, user, findMessage } from '../store.js'
 import { renderInto, plainText } from '../render.js'
+import { recordingPlayer } from './audio.js'
 import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode } from './dom.js'
 import { confirmModal } from './modal.js'
 
@@ -202,8 +203,10 @@ function liveCallOf(m) {
 }
 
 function systemNode(m) {
-  const article = el('article', 'flex flex-wrap items-center justify-center gap-2 px-4 py-1 text-center text-xs text-overlay1')
+  const article = el('article', 'flex flex-wrap items-center justify-center gap-2 px-4 py-1 text-center text-xs text-overlay1'
+    + (m.recording ? ' flex-col' : ''))
   article.appendChild(el('span', '', plainText(m.body || '')))
+  if (m.recording) article.appendChild(recordingPlayer(m.recording))
   if (!liveCallOf(m)) return article
   const join = el('button', 'rounded-full bg-mauve px-2.5 py-0.5 text-xs font-semibold text-crust transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve', 'Join')
   join.type = 'button'
@@ -302,6 +305,7 @@ export function messageSignature(view, ctx) {
     ctx.isEditing(m.id),
     mentionsMe(m),
     Boolean(liveCallOf(m)),
+    m.recording ? m.recording.id : '',
     (m.attachments || []).map((a) => a.id + ':' + a.state).join(','),
   ].join('|')
 }

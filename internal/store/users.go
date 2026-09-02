@@ -8,7 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const userColumns = `id, kind, handle, display_name, avatar_id, email, password_hash, is_admin, created_at, deactivated_at`
+const userColumns = `id, kind, handle, display_name, avatar_id, email, password_hash, is_admin, mark_read_on_open,
+	created_at, deactivated_at`
 
 const insertUserSQL = `insert into users (id, kind, handle, display_name, avatar_id, email, password_hash, is_admin)
 	values ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -17,7 +18,7 @@ const insertUserSQL = `insert into users (id, kind, handle, display_name, avatar
 func scanUser(row pgx.Row) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Kind, &u.Handle, &u.DisplayName, &u.AvatarID, &u.Email,
-		&u.PasswordHash, &u.IsAdmin, &u.CreatedAt, &u.DeactivatedAt)
+		&u.PasswordHash, &u.IsAdmin, &u.MarkReadOnOpen, &u.CreatedAt, &u.DeactivatedAt)
 	return u, err
 }
 
@@ -134,6 +135,11 @@ func (db *DB) SetAdmin(ctx context.Context, id uuid.UUID, isAdmin bool) error {
 func (db *DB) UpdateProfile(ctx context.Context, id uuid.UUID, displayName string, avatarID *uuid.UUID) error {
 	return db.execOne(ctx, "update profile",
 		`update users set display_name = $2, avatar_id = $3 where id = $1`, id, displayName, avatarID)
+}
+
+func (db *DB) SetMarkReadOnOpen(ctx context.Context, id uuid.UUID, on bool) error {
+	return db.execOne(ctx, "set mark read on open",
+		`update users set mark_read_on_open = $2 where id = $1`, id, on)
 }
 
 func (db *DB) DeleteUser(ctx context.Context, id uuid.UUID) error {

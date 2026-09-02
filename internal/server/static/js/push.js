@@ -52,14 +52,10 @@ async function upsert(subscription) {
   const json = subscription.toJSON()
   endpoint = json.endpoint || subscription.endpoint || null
   if (!endpoint || !json.keys || !json.keys.p256dh || !json.keys.auth) return
-  try {
-    await post('/push/subscribe', {
-      endpoint,
-      keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
-    })
-  } catch (err) {
-    console.error('push subscription upsert failed', err)
-  }
+  await post('/push/subscribe', {
+    endpoint,
+    keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+  })
   for (const fn of Array.from(endpointListeners)) {
     try {
       fn(endpoint)
@@ -67,6 +63,19 @@ async function upsert(subscription) {
       console.error('push endpoint listener failed', err)
     }
   }
+}
+
+async function ensureSubscription() {
+  let subscription = await registration.pushManager.getSubscription()
+  if (!subscription) {
+    if (Notification.permission !== 'granted') return false
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: decodeKey(vapidKey),
+    })
+  }
+  await upsert(subscription)
+  return true
 }
 
 export async function initPush() {
@@ -92,8 +101,11 @@ export async function initPush() {
     return false
   }
   serverEnabled = true
-  const existing = await registration.pushManager.getSubscription()
-  if (existing) await upsert(existing)
+  try {
+    await ensureSubscription()
+  } catch (err) {
+    console.error('push subscription refresh failed', err)
+  }
   return true
 }
 
@@ -104,15 +116,7 @@ export async function enablePush() {
   if (permission === 'default') permission = await Notification.requestPermission()
   if (permission !== 'granted') return false
   try {
-    let subscription = await registration.pushManager.getSubscription()
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: decodeKey(vapidKey),
-      })
-    }
-    await upsert(subscription)
-    return true
+    return await ensureSubscription()
   } catch (err) {
     console.error('push subscribe failed', err)
     return false
