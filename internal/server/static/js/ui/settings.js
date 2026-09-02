@@ -1,6 +1,7 @@
 import * as api from '../api.js'
 import { state, notify, user, upsertContainer } from '../store.js'
 import { currentEndpoint, enablePush, pushSupported } from '../push.js'
+import { muted, setMuted } from '../sound.js'
 import {
   avatarNode, containerPath, dateLabel, drawIcons, el, field, icon,
   navigate, presenceDot, textButton,
@@ -10,8 +11,8 @@ import { toast } from './toast.js'
 
 const LEVELS = [
   ['all', 'All messages', 'Every message raises a notification.', 'bell'],
-  ['mentions', 'Mentions only', 'Only a message naming you or the channel.', 'at-sign'],
-  ['none', 'Nothing', 'No notifications from this channel.', 'bell-off'],
+  ['mentions', 'Mentions only', 'Only a message that names you.', 'at-sign'],
+  ['none', 'Nothing', 'No notifications at all.', 'bell-off'],
 ]
 
 const MIN_PASSWORD = 8
@@ -128,7 +129,6 @@ function archiveSection(body, c, handle) {
 }
 
 function participantsSection(body, c) {
-  body.appendChild(sectionLabel('People'))
   const list = el('div', 'space-y-0.5')
   for (const id of c.participants || []) {
     const u = user(id)
@@ -150,10 +150,11 @@ export function openChannelSettings(c) {
   if (!c) return
   if (c.kind !== 'channel') {
     openModal({
-      title: 'Conversation',
-      icon: 'users',
+      title: 'Members',
+      icon: 'users-round',
       build(body) {
         participantsSection(body, c)
+        notificationSection(body, c)
       },
     })
     return
@@ -386,8 +387,34 @@ function passwordSection(body, handle) {
   body.appendChild(change)
 }
 
+function soundRow(body) {
+  const row = el('div', 'flex items-center justify-between gap-4 rounded-lg bg-surface0 px-3 py-2')
+  row.appendChild(el('span', 'text-sm text-text', 'Play a sound for a new message'))
+  const toggle = el('button', 'h-6 w-11 shrink-0 rounded-full transition-colors')
+  toggle.type = 'button'
+  toggle.setAttribute('role', 'switch')
+  toggle.setAttribute('aria-label', 'Play a sound for a new message')
+  const knob = el('span', 'block h-5 w-5 rounded-full bg-crust transition-transform')
+  toggle.appendChild(knob)
+  const paint = () => {
+    const on = !muted()
+    toggle.setAttribute('aria-checked', on ? 'true' : 'false')
+    toggle.className = 'h-6 w-11 shrink-0 rounded-full transition-colors ' + (on ? 'bg-green' : 'bg-surface2')
+    knob.className = 'block h-5 w-5 rounded-full bg-crust transition-transform ' + (on ? 'translate-x-5' : 'translate-x-0.5')
+  }
+  toggle.addEventListener('click', () => {
+    setMuted(!muted())
+    paint()
+  })
+  paint()
+  row.appendChild(toggle)
+  body.appendChild(row)
+}
+
 function pushSection(body) {
   body.appendChild(sectionLabel('Notifications'))
+  soundRow(body)
+  body.appendChild(el('p', 'my-2 text-xs text-overlay1', 'Android decides how loudly a website may notify. To make Isane interrupt you, raise its importance in Android Settings under Chrome, Notifications, Sites.'))
   if (!pushSupported()) {
     body.appendChild(el('p', 'text-sm text-subtext0', 'Push notifications are not configured on this server.'))
     return

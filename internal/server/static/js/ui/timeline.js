@@ -9,7 +9,6 @@ import { openChannelSettings } from './settings.js'
 const PAGE = 50
 const NEAR_TOP = 300
 const NEAR_BOTTOM = 120
-const LEVEL_ICON = { all: 'bell', mentions: 'at-sign', none: 'bell-off' }
 
 let scrollEl = null
 let headerEl = null
@@ -30,7 +29,7 @@ let atBottom = true
 let readTimer = 0
 let seenSeq = 0
 let sentSeq = 0
-let dividerSeq = 0
+let dividerSeq = -1
 let jumpTarget = 0
 let handledJump = ''
 
@@ -102,7 +101,11 @@ function dividerNode() {
   wrap.setAttribute('role', 'separator')
   wrap.setAttribute('aria-label', 'New messages')
   wrap.appendChild(el('span', 'h-px flex-1 bg-red'))
-  wrap.appendChild(el('span', 'rounded-full bg-red px-1.5 text-micro font-bold uppercase tracking-widest text-crust', 'New'))
+  const pill = el('button', 'rounded-full bg-red px-1.5 text-micro font-bold uppercase tracking-widest text-crust transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve', 'New')
+  pill.type = 'button'
+  pill.title = 'Mark everything here as read'
+  pill.addEventListener('click', dismissDivider)
+  wrap.appendChild(pill)
   return wrap
 }
 
@@ -146,13 +149,15 @@ function visibleMessages() {
   const out = []
   let previous = null
   let broke = true
+  let dividerDrawn = false
   for (const m of ordered) {
     if (!previous || !sameDay(previous.created_at, m.created_at)) {
       out.push({ kind: 'date', key: 'date:' + new Date(m.created_at).toDateString(), label: dayLabel(m.created_at) })
       broke = true
     }
-    if (dividerSeq && m.seq === dividerSeq) {
+    if (dividerSeq >= 0 && !dividerDrawn && (m.seq || 0) > dividerSeq) {
       out.push({ kind: 'new', key: 'new' })
+      dividerDrawn = true
       broke = true
     }
     const head = Boolean(m.is_system)
@@ -225,11 +230,6 @@ function toggleSidebar(button) {
   drawIcons(button)
 }
 
-function focusSearch() {
-  const input = document.querySelector('#sidebar input[type="search"]')
-  if (input) input.focus()
-}
-
 function renderHeader() {
   if (!headerEl) return
   const c = currentContainer()
@@ -268,11 +268,8 @@ function renderHeader() {
     actions.appendChild(iconButton('phone', 'Start a call', () =>
       window.dispatchEvent(new CustomEvent('isane:call-start', { detail: { containerId: c.id } }))))
   }
-  if (c.kind === 'channel') {
-    actions.appendChild(iconButton(LEVEL_ICON[c.level] || 'at-sign', 'Notifications', () => openChannelSettings(c), 'hidden md:grid'))
-  }
-  actions.appendChild(iconButton('settings', c.kind === 'channel' ? 'Channel settings' : 'Conversation details', () => openChannelSettings(c)))
-  actions.appendChild(iconButton('search', 'Search messages', focusSearch, 'hidden md:grid'))
+  const channel = c.kind === 'channel'
+  actions.appendChild(iconButton(channel ? 'settings' : 'users-round', channel ? 'Channel settings' : 'Members', () => openChannelSettings(c)))
   headerEl.appendChild(actions)
   drawIcons(headerEl)
 }
@@ -318,8 +315,8 @@ function render() {
     atBottom = true
     seenSeq = 0
     const c = cid ? state.containers.get(cid) : null
-    sentSeq = c ? Math.max(0, (c.last_seq || 0) - (c.unread || 0)) : 0
-    dividerSeq = c && (c.unread || 0) > 0 ? sentSeq + 1 : 0
+    sentSeq = c ? (c.last_read_seq || 0) : 0
+    dividerSeq = c && (c.unread || 0) > 0 ? sentSeq : -1
     renderHeader()
     if (cid) openContainer(cid)
     return
@@ -443,18 +440,31 @@ function jumpTo(seq) {
   render()
 }
 
+function markRead(cid, seq) {
+  sentSeq = seq
+  socket.send('read', { container_id: cid, seq })
+  const c = state.containers.get(cid)
+  if (!c) return
+  c.last_read_seq = seq
+  c.unread = Math.max(0, (c.last_seq || 0) - seq)
+  if (c.unread === 0) c.mentions = 0
+  notify('containers')
+}
+
 function flushRead() {
   const cid = state.current.containerId
   if (!cid || seenSeq <= sentSeq) return
   if (document.visibilityState !== 'visible') return
-  sentSeq = seenSeq
-  socket.send('read', { container_id: cid, seq: sentSeq })
+  markRead(cid, seenSeq)
+}
+
+function dismissDivider() {
+  const cid = state.current.containerId
+  if (!cid) return
+  dividerSeq = -1
   const c = state.containers.get(cid)
-  if (c) {
-    c.unread = Math.max(0, (c.last_seq || 0) - sentSeq)
-    if (c.unread === 0) c.mentions = 0
-    notify('containers')
-  }
+  markRead(cid, c ? (c.last_seq || 0) : 0)
+  render()
 }
 
 function scheduleRead() {
@@ -487,6 +497,10 @@ export function mount(root) {
     },
     { root: scrollEl, threshold: 0.5 }
   )
+
+  new ResizeObserver(() => {
+    if (atBottom) scrollEl.scrollTop = scrollEl.scrollHeight
+  }).observe(listEl)
 
   scrollEl.addEventListener('scroll', () => {
     atBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < NEAR_BOTTOM

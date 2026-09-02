@@ -31,13 +31,14 @@ with visible as (
 	where c.kind = 'conversation'
 )
 select v.id, v.kind, v.slug, v.name, v.topic, v.last_seq, v.created_by, v.created_at, v.archived_at,
+	coalesce(r.last_read_seq, 0) as last_read_seq,
 	(select count(*) from messages m
 		where m.container_id = v.id
 		  and m.thread_root_id is null
 		  and m.seq > coalesce(r.last_read_seq, 0)
 		  and m.deleted_at is null) as unread,
 	mc.n as mentions,
-	coalesce(np.level::text, 'mentions') as level,
+	coalesce(np.level::text, case when v.kind = 'conversation' then 'all' else 'mentions' end) as level,
 	coalesce(pp.ids, '{}'::uuid[]) as participants
 from visible v
 left join read_markers r on r.container_id = v.id and r.user_id = $1
@@ -68,7 +69,7 @@ func scanContainer(row pgx.Row) (Container, error) {
 func scanContainerView(row pgx.Row) (ContainerView, error) {
 	var v ContainerView
 	err := row.Scan(&v.ID, &v.Kind, &v.Slug, &v.Name, &v.Topic, &v.LastSeq, &v.CreatedBy, &v.CreatedAt, &v.ArchivedAt,
-		&v.Unread, &v.Mentions, &v.Level, &v.Participants)
+		&v.LastReadSeq, &v.Unread, &v.Mentions, &v.Level, &v.Participants)
 	return v, err
 }
 

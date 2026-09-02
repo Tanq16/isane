@@ -101,7 +101,7 @@ function group(key, title, trailing) {
     render()
   })
 
-  const entry = { wrap, list, toggle, chevron }
+  const entry = { wrap, list, toggle }
   groups.set(key, entry)
   return entry
 }
@@ -189,7 +189,7 @@ function countPill(count) {
 }
 
 function syncGroup(entry, key, items, textOf) {
-  entry.chevron.dataset.lucide = collapsed.has(key) ? 'chevron-right' : 'chevron-down'
+  entry.toggle.firstElementChild.replaceWith(icon(collapsed.has(key) ? 'chevron-right' : 'chevron-down', 'h-3 w-3 shrink-0'))
   entry.toggle.setAttribute('aria-expanded', collapsed.has(key) ? 'false' : 'true')
   entry.list.classList.toggle('hidden', collapsed.has(key))
 

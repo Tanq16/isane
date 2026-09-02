@@ -111,12 +111,6 @@ func (h *Hub) ToUsersExcept(userIDs []uuid.UUID, except *Conn, f Frame) {
 	}
 }
 
-func (h *Hub) Online(userID uuid.UUID) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return len(h.conns[userID]) > 0
-}
-
 func (h *Hub) OnlineUsers() []uuid.UUID {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -129,14 +123,14 @@ func (h *Hub) OnlineUsers() []uuid.UUID {
 	return out
 }
 
-func (h *Hub) EndpointLive(userID uuid.UUID, endpoint string, within time.Duration) bool {
+func (h *Hub) EndpointVisible(userID uuid.UUID, endpoint string, within time.Duration) bool {
 	if endpoint == "" {
 		return false
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.conns[userID] {
-		if c.PushEndpoint() == endpoint && c.seenWithin(within) {
+		if c.PushEndpoint() == endpoint && c.seenWithin(within) && c.Visible() {
 			return true
 		}
 	}
@@ -220,7 +214,13 @@ func (h *Hub) dispatch(c *Conn, f Frame) {
 		var p HelloPayload
 		if err = decode(f, &p); err == nil {
 			c.setPushEndpoint(p.PushEndpoint)
+			c.setVisible(p.Visible)
 			err = handler.Hello(ctx, c, p)
+		}
+	case TypeVisibility:
+		var p VisibilityPayload
+		if err = decode(f, &p); err == nil {
+			c.setVisible(p.Visible)
 		}
 	case TypeSend:
 		err = handle(ctx, c, f, handler.Send)

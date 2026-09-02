@@ -75,7 +75,7 @@ func (h *Calls) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Broadcast(r.Context(), containerID, socket.NewFrame(socket.TypeCallStarted, call))
-	if _, err := h.app.PostSystem(r.Context(), containerID, u.ID, nil, "@"+u.Handle+" started a call"); err != nil {
+	if _, err := h.app.PostCallNotice(r.Context(), containerID, u.ID, call.ID, "@"+u.Handle+" started a call"); err != nil {
 		h.app.Log.Error().Err(err).Str("call_id", call.ID.String()).Msg("post call notice")
 	}
 	WriteJSON(w, http.StatusCreated, call)

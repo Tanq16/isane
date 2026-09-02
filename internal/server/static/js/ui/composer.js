@@ -238,13 +238,16 @@ export function createComposer(options) {
     }, 200)
   }
 
-  function togglePreview() {
-    previewOpen = !previewOpen
-    previewEl.classList.toggle('hidden', !previewOpen)
-    previewButton.setAttribute('aria-pressed', previewOpen ? 'true' : 'false')
-    previewButton.classList.toggle('text-mauve', previewOpen)
-    previewButton.title = previewOpen ? 'Hide the markdown preview' : 'Preview markdown'
-    if (previewOpen) previewEl.replaceChildren(renderMarkdown(textarea.value))
+  function setPreview(open) {
+    previewOpen = open
+    clearTimeout(previewTimer)
+    previewTimer = 0
+    previewEl.classList.toggle('hidden', !open)
+    previewButton.setAttribute('aria-pressed', open ? 'true' : 'false')
+    previewButton.classList.toggle('text-mauve', open)
+    previewButton.title = open ? 'Hide the markdown preview' : 'Preview markdown'
+    if (open) previewEl.replaceChildren(renderMarkdown(textarea.value))
+    else previewEl.replaceChildren()
   }
 
   async function addFiles(files) {
@@ -315,7 +318,7 @@ export function createComposer(options) {
     autosize()
     updateSendState()
     closeMentions()
-    if (previewOpen) previewEl.replaceChildren()
+    setPreview(false)
     notify('pending', 'current')
 
     if (socket.isLive()) {
@@ -338,7 +341,7 @@ export function createComposer(options) {
     const missing = !c
     noticeEl.classList.toggle('hidden', !archived && !missing)
     fieldEl.classList.toggle('hidden', archived || missing)
-    previewEl.classList.toggle('hidden', archived || missing || !previewOpen)
+    if (archived || missing) setPreview(false)
     typingEl.classList.toggle('hidden', archived || missing)
     if (archived) noticeEl.textContent = options.archivedNotice
     else if (missing) noticeEl.textContent = options.emptyNotice
@@ -354,7 +357,7 @@ export function createComposer(options) {
       attachments = []
       closeMentions()
       renderChips()
-      if (previewOpen) previewEl.replaceChildren(renderMarkdown(textarea.value))
+      if (previewOpen) setPreview(true)
     }
     textarea.placeholder = options.placeholder(c)
     renderNotice(c)
@@ -414,7 +417,7 @@ export function createComposer(options) {
     previewButton.setAttribute('aria-label', 'Preview markdown')
     previewButton.setAttribute('aria-pressed', 'false')
     previewButton.appendChild(icon('eye', 'h-5 w-5'))
-    previewButton.addEventListener('click', togglePreview)
+    previewButton.addEventListener('click', () => setPreview(!previewOpen))
     bar.appendChild(previewButton)
 
     sendButton = el('button', 'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mauve transition-colors hover:bg-surface1 disabled:text-overlay0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
@@ -429,7 +432,7 @@ export function createComposer(options) {
     fieldEl.appendChild(bar)
     rootEl.appendChild(fieldEl)
 
-    previewEl = el('div', 'markdown-body mt-2 hidden rounded-xl bg-base p-3 text-message text-subtext0')
+    previewEl = el('div', 'markdown-body mt-2 hidden max-h-64 overflow-y-auto rounded-xl bg-base p-3 text-message text-subtext0')
     rootEl.appendChild(previewEl)
 
     typingEl = el('p', 'h-5 px-2 pt-1 text-xs text-overlay1')

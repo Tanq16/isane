@@ -1,6 +1,8 @@
 import { get } from './api.js'
 import { state, notify, upsertContainer, upsertMessage, findMessage, loadMessages } from './store.js'
-import { currentEndpoint } from './push.js'
+import { currentEndpoint, currentRegistration, onEndpoint } from './push.js'
+import { plainText } from './render.js'
+import { play } from './sound.js'
 
 const RECONNECT_MIN = 1000
 const RECONNECT_MAX = 30000
@@ -9,6 +11,8 @@ const PING_INTERVAL = 30000
 const TYPING_TTL = 5000
 const OUTBOX_LIMIT = 200
 const BACKFILL_PAGES = 40
+const NOTIFICATION_ICON = '/static/icons/icon-192.png'
+const VIBRATE = [200, 100, 200]
 
 const listeners = new Map()
 
@@ -20,6 +24,7 @@ let pingTimer = null
 let offlineTimer = null
 let awaitingPong = false
 let outbox = []
+let helloEndpoint = null
 
 export function isLive() {
   return Boolean(ws) && ws.readyState === WebSocket.OPEN
@@ -100,13 +105,23 @@ function onOpen() {
   startPing()
 }
 
+function pageVisible() {
+  return document.visibilityState === 'visible'
+}
+
 function hello() {
   const cursors = {}
   for (const [id, container] of state.containers) {
     if (typeof container.last_seq === 'number') cursors[id] = container.last_seq
   }
-  write('hello', { cursors, push_endpoint: currentEndpoint() })
+  helloEndpoint = currentEndpoint()
+  write('hello', { cursors, push_endpoint: helloEndpoint, visible: pageVisible() })
 }
+
+onEndpoint((endpoint) => {
+  if (!isLive() || endpoint === helloEndpoint) return
+  hello()
+})
 
 function drain() {
   const queue = outbox
@@ -176,7 +191,8 @@ function revive() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') revive()
+  if (isLive()) write('visibility', { visible: pageVisible() })
+  if (pageVisible()) revive()
 })
 window.addEventListener('online', revive)
 
@@ -345,7 +361,58 @@ function onMessage(m) {
       root.thread_last_reply_at = m.created_at
     }
   }
+  if (fresh) announce(m, container)
   notify('messages', 'containers')
+}
+
+function shouldAnnounce(container, m) {
+  const level = container.level || (container.kind === 'conversation' ? 'all' : 'mentions')
+  if (level === 'none') return false
+  const mentioned = Boolean(state.me && Array.isArray(m.mentions) && m.mentions.includes(state.me.id))
+  if (m.thread_root_id) {
+    const sub = state.threadSubs.get(m.thread_root_id)
+    if (sub === 'muted') return false
+    return mentioned || sub === 'subscribed' || level === 'all'
+  }
+  return level === 'all' || mentioned
+}
+
+function announcement(container, m) {
+  const author = state.users.get(m.author_id)
+  const name = (author && author.display_name) || 'Someone'
+  const text = plainText(m.body || '')
+  if (container.kind !== 'channel') return { title: name, body: text }
+  const title = container.slug ? '#' + container.slug : container.name || 'Isane'
+  return { title, body: text ? name + ': ' + text : name }
+}
+
+function announcePath(container, m) {
+  if (m.thread_root_id) return '/t/' + m.thread_root_id
+  const path = container.kind === 'channel' && container.slug
+    ? '/c/' + encodeURIComponent(container.slug)
+    : '/d/' + container.id
+  return path + '?m=' + (m.seq ?? 0)
+}
+
+function announce(m, container) {
+  if (!container || !pageVisible()) return
+  if (state.me && m.author_id === state.me.id) return
+  if (state.current.containerId === m.container_id) return
+  if (!shouldAnnounce(container, m)) return
+  play()
+  const registration = currentRegistration()
+  if (!registration || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const { title, body } = announcement(container, m)
+  registration.showNotification(title, {
+    body,
+    icon: NOTIFICATION_ICON,
+    badge: NOTIFICATION_ICON,
+    tag: m.container_id,
+    renotify: true,
+    silent: false,
+    vibrate: VIBRATE,
+    data: { navigate: announcePath(container, m), container_id: m.container_id, message_id: m.id, seq: m.seq },
+  }).catch((err) => console.error('in-page notification failed', err))
 }
 
 function onEdited(d) {
@@ -367,6 +434,7 @@ function onDeleted(d) {
 function onRead(d) {
   const container = state.containers.get(d.container_id)
   if (!container) return
+  container.last_read_seq = d.seq ?? 0
   container.unread = Math.max(0, (container.last_seq ?? 0) - (d.seq ?? 0))
   if ((d.seq ?? 0) >= (container.last_seq ?? 0)) container.mentions = 0
   notify('containers')
