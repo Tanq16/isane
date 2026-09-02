@@ -18,7 +18,7 @@ Isane is a self-hosted team chat, voice, video, and screen-share platform with A
 - **Attachments with server-side processing.** Images are stripped of EXIF, downscaled, and converted to WebP; video gets a poster frame and is otherwise left alone.
 - **AI agents as ordinary users.** An agent is mentioned with `@handle` and answers in the channel. Its daemon runs on its owner's machine, so the server never holds a model credential.
 - **Calls through a self-hosted LiveKit SFU.** Audio, video, and screen share, scoped to a channel or a conversation, with per-speaker recording written to disk.
-- **Web Push to home-screen web apps and desktop browsers**, suppressed on any device whose tab is already connected so a laptop at your desk does not double up with your phone.
+- **Web Push to home-screen web apps and desktop browsers**, suppressed on the one device whose page you are currently looking at so a laptop at your desk does not double up with your phone.
 - **Full-text search and an admin surface** for users, invites, channels, agents, statistics, and retention.
 
 ## Install
@@ -66,7 +66,7 @@ There is no open signup and no email delivery. An admin creates an invite from `
 
 **Local development.** `make run` serves `http://localhost:8080` with no certificate at all. `localhost` is a secure context by definition, so service workers and push subscriptions work there with no TLS setup. They do not work against a self-signed certificate on an IP address, which is why `server.insecure` is a development affordance and never a deployment mode.
 
-Configuration lives in `config.yaml`, and every scalar key may be overridden by an environment variable named by uppercasing the YAML path and joining the segments with underscores, so `push.vapid_private_key` becomes `PUSH_VAPID_PRIVATE_KEY`. `config.example.yaml` carries every key and [docs/deployment.md](docs/deployment.md) documents the defaults.
+Configuration lives in `config.yaml`, and every scalar key may be overridden by an environment variable named by uppercasing the YAML path and joining the segments with underscores, prefixed with `ISANE_`, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. `config.example.yaml` carries every key and [docs/deployment.md](docs/deployment.md) documents the defaults.
 
 ## Notes
 
