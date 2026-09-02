@@ -1,7 +1,7 @@
 import { get, post, onUnauthorized, ApiError } from './api.js'
 import { state, subscribe, notify, findMessage, loadThread } from './store.js'
 import { connect, stop as stopSocket, on as onSocket } from './socket.js'
-import { initPush, enablePush, pushSupported } from './push.js'
+import { initPush, enablePush, pushSupported, currentRegistration } from './push.js'
 import * as badge from './badge.js'
 import * as sidebar from './ui/sidebar.js'
 import * as timeline from './ui/timeline.js'
@@ -37,6 +37,8 @@ let started = false
 let threadPane = null
 let callPane = null
 let fitFrame = 0
+let buildId = null
+let updateToast = null
 
 function byId(id) {
   return document.getElementById(id)
@@ -461,6 +463,37 @@ function wireInstallHint() {
   hint.classList.remove('hidden')
 }
 
+async function checkBuild() {
+  let build = null
+  try {
+    const res = await get('/version')
+    build = res && res.build ? String(res.build) : null
+  } catch (err) {
+    console.error('build check failed', err)
+    return
+  }
+  if (!build) return
+  if (!buildId) {
+    buildId = build
+    return
+  }
+  if (build === buildId || updateToast) return
+  updateToast = toast('A new version is ready. Tap to reload.', {
+    sticky: true,
+    severity: 'info',
+    onClick: () => location.reload(),
+  })
+}
+
+function wireResume() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return
+    checkBuild()
+    const registration = currentRegistration()
+    if (registration) registration.update().catch((err) => console.error('worker update check failed', err))
+  })
+}
+
 function errorText(d) {
   if (!d || d.code === 'internal') return 'Something went wrong. Try again.'
   return d.message || 'Something went wrong. Try again.'
@@ -474,6 +507,8 @@ async function start() {
   badge.mount()
   connect()
   loadUsers()
+  checkBuild()
+  wireResume()
   Promise.race([
     initPush().catch((err) => console.error('push init failed', err)),
     new Promise((resolve) => setTimeout(resolve, PUSH_INIT_TIMEOUT)),

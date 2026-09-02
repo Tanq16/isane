@@ -4,9 +4,15 @@ const TONE = { info: 'text-blue', success: 'text-green', error: 'text-red', warn
 export function toast(message, opts = {}) {
   const root = document.getElementById('toast-root')
   if (!root) return () => {}
-  const node = document.createElement('div')
+  const node = document.createElement(opts.onClick ? 'button' : 'div')
   node.className = SHAPE + ' ' + (TONE[opts.severity] || TONE.info)
-  node.setAttribute('role', 'status')
+  if (opts.onClick) {
+    node.type = 'button'
+    node.classList.add('cursor-pointer', 'text-left')
+    node.addEventListener('click', opts.onClick)
+  } else {
+    node.setAttribute('role', 'status')
+  }
   node.textContent = message
   root.appendChild(node)
   const dismiss = () => node.remove()
