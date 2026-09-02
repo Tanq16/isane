@@ -15,7 +15,7 @@ import (
 func (a *App) PublishMessage(ctx context.Context, m store.Message, c store.Container) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundTimeout)
 	defer cancel()
-	a.broadcast(ctx, c.ID, socket.NewFrame(socket.TypeMessage, m))
+	a.Broadcast(ctx, c.ID, socket.NewFrame(socket.TypeMessage, m))
 	author, err := a.DB.GetUser(ctx, m.AuthorID)
 	if err != nil {
 		a.Log.Error().Err(err).Str("message", m.ID.String()).Msg("load message author")
@@ -32,7 +32,7 @@ func (a *App) PublishMessage(ctx context.Context, m store.Message, c store.Conta
 	})
 }
 
-func (a *App) broadcast(ctx context.Context, containerID uuid.UUID, f socket.Frame) {
+func (a *App) Broadcast(ctx context.Context, containerID uuid.UUID, f socket.Frame) {
 	members, err := a.DB.MemberIDs(ctx, containerID)
 	if err != nil {
 		a.Log.Error().Err(err).Str("container", containerID.String()).Msg("resolve members for broadcast")
@@ -54,19 +54,9 @@ func (a *App) postMessage(ctx context.Context, author store.User, p socket.SendP
 	if body == "" && len(p.AttachmentIDs) == 0 {
 		return store.Message{}, false, fmt.Errorf("post message: %w: the message is empty", ErrInvalid)
 	}
-	c, err := a.DB.GetContainer(ctx, p.ContainerID)
+	c, err := a.writableContainer(ctx, p.ContainerID, author.ID)
 	if err != nil {
 		return store.Message{}, false, fmt.Errorf("post message: %w", err)
-	}
-	if c.ArchivedAt != nil {
-		return store.Message{}, false, fmt.Errorf("post message: %w: the channel is archived", store.ErrConflict)
-	}
-	member, err := a.DB.IsMember(ctx, c.ID, author.ID)
-	if err != nil {
-		return store.Message{}, false, fmt.Errorf("post message: %w", err)
-	}
-	if !member {
-		return store.Message{}, false, fmt.Errorf("post message: %w: not a member of this container", ErrForbidden)
 	}
 
 	clientID := p.ClientID
@@ -84,7 +74,7 @@ func (a *App) postMessage(ctx context.Context, author store.User, p socket.SendP
 	if err := a.sameContainer(ctx, c.ID, p.ReplyToID, "reply target"); err != nil {
 		return store.Message{}, false, fmt.Errorf("post message: %w", err)
 	}
-	if err := a.sameContainer(ctx, c.ID, p.ThreadRootID, "thread root"); err != nil {
+	if err := a.threadRoot(ctx, c.ID, p.ThreadRootID); err != nil {
 		return store.Message{}, false, fmt.Errorf("post message: %w", err)
 	}
 	mentions, err := a.ResolveMentions(ctx, c.ID, body)
@@ -128,16 +118,13 @@ func (a *App) PostSystem(ctx context.Context, containerID uuid.UUID, authorID uu
 	return m, nil
 }
 
-func (a *App) editMessage(ctx context.Context, actor store.User, messageID uuid.UUID, body string) (store.Message, error) {
-	m, err := a.DB.GetMessage(ctx, messageID)
+func (a *App) EditMessage(ctx context.Context, actor store.User, messageID uuid.UUID, body string) (store.Message, error) {
+	m, err := a.writableMessage(ctx, actor, messageID)
 	if err != nil {
 		return store.Message{}, fmt.Errorf("edit message: %w", err)
 	}
 	if m.AuthorID != actor.ID {
-		return store.Message{}, fmt.Errorf("edit message: %w: not the author", ErrForbidden)
-	}
-	if m.DeletedAt != nil {
-		return store.Message{}, fmt.Errorf("edit message: %w: the message is deleted", store.ErrConflict)
+		return store.Message{}, fmt.Errorf("edit message: %w: only the author edits a message", ErrForbidden)
 	}
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -151,29 +138,36 @@ func (a *App) editMessage(ctx context.Context, actor store.User, messageID uuid.
 	if err != nil {
 		return store.Message{}, fmt.Errorf("edit message: %w", err)
 	}
-	a.broadcast(ctx, edited.ContainerID, socket.NewFrame(socket.TypeMessageEdited,
+	a.Broadcast(ctx, edited.ContainerID, socket.NewFrame(socket.TypeMessageEdited,
 		socket.MessageEditedPayload{ID: edited.ID, Body: edited.Body, EditedAt: edited.EditedAt}))
 	return edited, nil
 }
 
-func (a *App) deleteMessage(ctx context.Context, actor store.User, messageID uuid.UUID) (store.Message, error) {
-	m, err := a.DB.GetMessage(ctx, messageID)
+func (a *App) DeleteMessage(ctx context.Context, actor store.User, messageID uuid.UUID) (store.Message, error) {
+	m, err := a.writableMessage(ctx, actor, messageID)
 	if err != nil {
 		return store.Message{}, fmt.Errorf("delete message: %w", err)
 	}
 	if m.AuthorID != actor.ID && !actor.IsAdmin {
-		return store.Message{}, fmt.Errorf("delete message: %w: not the author", ErrForbidden)
+		return store.Message{}, fmt.Errorf("delete message: %w: only the author or an administrator deletes a message", ErrForbidden)
 	}
 	deleted, err := a.DB.DeleteMessage(ctx, messageID)
 	if err != nil {
 		return store.Message{}, fmt.Errorf("delete message: %w", err)
 	}
-	a.broadcast(ctx, deleted.ContainerID, socket.NewFrame(socket.TypeMessageDeleted,
+	a.Broadcast(ctx, deleted.ContainerID, socket.NewFrame(socket.TypeMessageDeleted,
 		socket.MessageDeletedPayload{ID: deleted.ID, ContainerID: deleted.ContainerID, Seq: deleted.Seq}))
 	return deleted, nil
 }
 
-func (a *App) markRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (int64, error) {
+func (a *App) MarkRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (int64, error) {
+	member, err := a.DB.IsMember(ctx, containerID, userID)
+	if err != nil {
+		return 0, fmt.Errorf("mark read: %w", err)
+	}
+	if !member {
+		return 0, fmt.Errorf("mark read: %w: not a member of this container", ErrForbidden)
+	}
 	effective, err := a.DB.SetReadMarker(ctx, userID, containerID, seq)
 	if err != nil {
 		return 0, fmt.Errorf("mark read: %w", err)
@@ -243,7 +237,7 @@ func (a *App) dispatchAgents(ctx context.Context, m store.Message, c store.Conta
 	for _, d := range dispatches {
 		switch {
 		case d.Job != nil:
-			a.broadcast(ctx, c.ID, socket.NewFrame(socket.TypeAgentWorking, socket.AgentWorkingPayload{
+			a.Broadcast(ctx, c.ID, socket.NewFrame(socket.TypeAgentWorking, socket.AgentWorkingPayload{
 				ContainerID: c.ID,
 				AgentID:     d.Agent.User.ID,
 				JobID:       d.Job.ID,
@@ -273,6 +267,55 @@ func (a *App) mentionedAgents(ctx context.Context, ids []uuid.UUID) ([]store.Age
 		out = append(out, store.AgentInfo{User: u, Agent: agent})
 	}
 	return out, nil
+}
+
+func (a *App) writableContainer(ctx context.Context, containerID, userID uuid.UUID) (store.Container, error) {
+	c, err := a.DB.GetContainer(ctx, containerID)
+	if err != nil {
+		return store.Container{}, err
+	}
+	member, err := a.DB.IsMember(ctx, c.ID, userID)
+	if err != nil {
+		return store.Container{}, err
+	}
+	if !member {
+		return store.Container{}, fmt.Errorf("%w: not a member of this container", ErrForbidden)
+	}
+	if c.ArchivedAt != nil {
+		return store.Container{}, fmt.Errorf("%w: the channel is archived", store.ErrConflict)
+	}
+	return c, nil
+}
+
+func (a *App) writableMessage(ctx context.Context, actor store.User, messageID uuid.UUID) (store.Message, error) {
+	m, err := a.DB.GetMessage(ctx, messageID)
+	if err != nil {
+		return store.Message{}, err
+	}
+	if m.DeletedAt != nil {
+		return store.Message{}, fmt.Errorf("%w: the message is deleted", store.ErrConflict)
+	}
+	if _, err := a.writableContainer(ctx, m.ContainerID, actor.ID); err != nil {
+		return store.Message{}, err
+	}
+	return m, nil
+}
+
+func (a *App) threadRoot(ctx context.Context, containerID uuid.UUID, id *uuid.UUID) error {
+	if id == nil {
+		return nil
+	}
+	root, err := a.DB.GetMessage(ctx, *id)
+	if err != nil {
+		return fmt.Errorf("resolve thread root: %w", err)
+	}
+	if root.ContainerID != containerID {
+		return fmt.Errorf("%w: the thread root belongs to another container", ErrInvalid)
+	}
+	if root.ThreadRootID != nil {
+		return fmt.Errorf("%w: the thread root is itself a thread reply", ErrInvalid)
+	}
+	return nil
 }
 
 func (a *App) sameContainer(ctx context.Context, containerID uuid.UUID, id *uuid.UUID, what string) error {

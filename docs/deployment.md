@@ -90,7 +90,7 @@ The first output is `push.vapid_private_key` and the second is `push.vapid_publi
 
 **3. Fill in the config files.**
 
-`.env` holds the Postgres password, which compose reads into both the database and the application's `DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
+`.env` holds the Postgres password, which compose reads into both the database and the application's `ISANE_DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
 
 ```
 POSTGRES_PASSWORD=<the first generated secret>
@@ -139,12 +139,12 @@ The first start against an empty `users` table prints a one-time invite URL. Ope
 
 ## Configuration
 
-`config.yaml` is read at start. Every scalar value may be overridden by an environment variable named by uppercasing the YAML path and joining the segments with underscores, so `push.vapid_private_key` becomes `PUSH_VAPID_PRIVATE_KEY`. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
+`config.yaml` is read at start. Every scalar value may be overridden by an environment variable named `ISANE_` followed by the YAML path uppercased and joined with underscores, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
 
 | Key | Default | Holds |
 |---|---|---|
 | `server.bind` | `0.0.0.0:8080` | Address the HTTP server listens on |
-| `server.public_url` | `http://localhost:8080` | Origin the browser reaches, used in invite and notification URLs |
+| `server.public_url` | `http://localhost:8080` | Origin the browser reaches. Every write is rejected with 403 when the browser's `Origin` does not match it exactly, so an alias hostname or a second port needs its own deployment |
 | `server.insecure` | `false` | Development mode, which disables push because push needs a trusted certificate |
 | `database.url` | required | Postgres connection string |
 | `push.vapid_public_key` | empty | Served to the browser by `GET /api/push/vapid-key` |

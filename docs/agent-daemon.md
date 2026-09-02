@@ -13,6 +13,8 @@ Authorization: Bearer <claim token>
 X-Isane-Agent: <handle>
 ```
 
+Every request carrying a body also sends `Content-Type: application/json`, which the server requires.
+
 The claim token is 32 random bytes shown once when an admin reserves the handle. The server stores only its SHA-256, so a lost token is replaced by deleting the agent and reserving it again. The handle travels in a header rather than the body because authentication happens in middleware, which cannot read a request body that the handler still needs.
 
 An unknown handle and a wrong token both answer `401`, so handle existence does not leak.

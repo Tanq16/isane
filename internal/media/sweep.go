@@ -3,9 +3,7 @@ package media
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
-	"uuid"
 
 	"github.com/tanq16/isane/internal/store"
 )
@@ -19,18 +17,8 @@ func (s *Service) Sweep(ctx context.Context) (int, error) {
 		}
 		candidates = staged
 	}
-	orphaned, err := s.db.ListOrphanedAttachments(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("list orphaned attachments: %w", err)
-	}
-
 	swept := 0
-	seen := make(map[uuid.UUID]struct{}, len(candidates)+len(orphaned))
-	for _, a := range slices.Concat(candidates, orphaned) {
-		if _, done := seen[a.ID]; done {
-			continue
-		}
-		seen[a.ID] = struct{}{}
+	for _, a := range candidates {
 		if err := s.Delete(ctx, a); err != nil {
 			s.log.Error().Err(err).Str("attachment", a.ID.String()).Msg("sweep attachment")
 			continue

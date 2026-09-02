@@ -14,9 +14,13 @@ import (
 
 const inlineGapLimit = 100
 
-type readyPayload struct {
+type ReadyPayload struct {
 	User         store.User            `json:"user"`
 	Containers   []store.ContainerView `json:"containers"`
+	Users        []store.DirectoryUser `json:"users"`
+	Presence     []uuid.UUID           `json:"presence"`
+	Calls        []store.Call          `json:"calls"`
+	Settings     store.ServerSettings  `json:"settings"`
 	Gaps         []gap                 `json:"gaps"`
 	MediaQuality mediaQuality          `json:"media_quality"`
 }
@@ -34,10 +38,22 @@ type mediaQuality struct {
 	Codec       string               `json:"codec"`
 }
 
-func (a *App) ReadyPayload(ctx context.Context, u store.User, cursors map[uuid.UUID]int64) (any, []store.Message, error) {
-	views, err := a.DB.ContainerViews(ctx, u.ID, false)
+func (a *App) Ready(ctx context.Context, u store.User, cursors map[uuid.UUID]int64) (ReadyPayload, []store.Message, error) {
+	views, err := a.DB.ContainerViews(ctx, u.ID, true)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build ready payload: %w", err)
+		return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
+	}
+	directory, err := a.DB.ListDirectory(ctx)
+	if err != nil {
+		return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
+	}
+	calls, err := a.DB.ListLiveCalls(ctx)
+	if err != nil {
+		return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
+	}
+	settings, err := a.DB.ServerSettings(ctx)
+	if err != nil {
+		return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
 	}
 	gaps := make([]gap, 0)
 	var inline []store.Message
@@ -52,26 +68,30 @@ func (a *App) ReadyPayload(ctx context.Context, u store.User, cursors map[uuid.U
 		}
 		msgs, err := a.DB.TimelineAfter(ctx, v.ID, cursor, int(v.LastSeq-cursor))
 		if err != nil {
-			return nil, nil, fmt.Errorf("build ready payload: %w", err)
+			return ReadyPayload{}, nil, fmt.Errorf("build ready payload: %w", err)
 		}
 		inline = append(inline, msgs...)
 	}
-	ready := readyPayload{
+	ready := ReadyPayload{
 		User:       u,
 		Containers: views,
+		Users:      directory,
+		Presence:   a.Hub.OnlineUsers(),
+		Calls:      calls,
+		Settings:   settings,
 		Gaps:       gaps,
 		MediaQuality: mediaQuality{
-			Video:       a.Cfg.MediaQuality.Video,
-			ScreenShare: a.Cfg.MediaQuality.ScreenShare,
-			Audio:       a.Cfg.MediaQuality.Audio,
-			Codec:       a.Cfg.MediaQuality.Codec,
+			Video:       a.Cfg().MediaQuality.Video,
+			ScreenShare: a.Cfg().MediaQuality.ScreenShare,
+			Audio:       a.Cfg().MediaQuality.Audio,
+			Codec:       a.Cfg().MediaQuality.Codec,
 		},
 	}
 	return ready, inline, nil
 }
 
 func (a *App) Hello(ctx context.Context, c *socket.Conn, p socket.HelloPayload) error {
-	ready, inline, err := a.ReadyPayload(ctx, c.User(), p.Cursors)
+	ready, inline, err := a.Ready(ctx, c.User(), p.Cursors)
 	if err != nil {
 		a.fail(c, "", err)
 		return err
@@ -96,7 +116,7 @@ func (a *App) Send(ctx context.Context, c *socket.Conn, p socket.SendPayload) er
 }
 
 func (a *App) Edit(ctx context.Context, c *socket.Conn, p socket.EditPayload) error {
-	if _, err := a.editMessage(ctx, c.User(), p.MessageID, p.Body); err != nil {
+	if _, err := a.EditMessage(ctx, c.User(), p.MessageID, p.Body); err != nil {
 		a.fail(c, "", err)
 		return err
 	}
@@ -104,7 +124,7 @@ func (a *App) Edit(ctx context.Context, c *socket.Conn, p socket.EditPayload) er
 }
 
 func (a *App) Delete(ctx context.Context, c *socket.Conn, p socket.DeletePayload) error {
-	if _, err := a.deleteMessage(ctx, c.User(), p.MessageID); err != nil {
+	if _, err := a.DeleteMessage(ctx, c.User(), p.MessageID); err != nil {
 		a.fail(c, "", err)
 		return err
 	}
@@ -112,7 +132,7 @@ func (a *App) Delete(ctx context.Context, c *socket.Conn, p socket.DeletePayload
 }
 
 func (a *App) Read(ctx context.Context, c *socket.Conn, p socket.ReadPayload) error {
-	if _, err := a.markRead(ctx, c.UserID(), p.ContainerID, p.Seq); err != nil {
+	if _, err := a.MarkRead(ctx, c.UserID(), p.ContainerID, p.Seq); err != nil {
 		a.fail(c, "", err)
 		return err
 	}

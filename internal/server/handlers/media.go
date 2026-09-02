@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
@@ -18,21 +20,54 @@ import (
 )
 
 const (
-	frameAttachment = "attachment"
 	attachmentCache = "private, max-age=31536000, immutable"
 	attachmentCSP   = "default-src 'none'; sandbox"
+
+	maxConcurrentUploads = 3
 )
 
-type Media struct{ app *app.App }
+type Media struct {
+	app *app.App
 
-func NewMedia(a *app.App) *Media { return &Media{app: a} }
+	mu       sync.Mutex
+	inFlight map[uuid.UUID]int
+}
+
+func NewMedia(a *app.App) *Media {
+	return &Media{app: a, inFlight: make(map[uuid.UUID]int)}
+}
+
+func (h *Media) acquire(userID uuid.UUID) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.inFlight[userID] >= maxConcurrentUploads {
+		return false
+	}
+	h.inFlight[userID]++
+	return true
+}
+
+func (h *Media) release(userID uuid.UUID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.inFlight[userID] <= 1 {
+		delete(h.inFlight, userID)
+		return
+	}
+	h.inFlight[userID]--
+}
 
 func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 	u, ok := requestUser(w, r)
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, h.app.Cfg.Media.MaxUploadBytes)
+	if !h.acquire(u.ID) {
+		writeRetryAfter(w, time.Second, "too many uploads in flight, wait for one to finish")
+		return
+	}
+	defer h.release(u.ID)
+	r.Body = http.MaxBytesReader(w, r.Body, h.app.Cfg().Media.MaxUploadBytes)
 	parts, err := r.MultipartReader()
 	if err != nil {
 		WriteError(w, badRequestf("expected a multipart upload"))
@@ -58,15 +93,19 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 			writeUploadError(w, err)
 			return
 		}
-		go h.process(context.WithoutCancel(r.Context()), a, u.ID)
+		h.app.Spawn("process attachment", func(ctx context.Context) { h.process(ctx, a, u.ID) })
 		WriteJSON(w, http.StatusCreated, a)
 		return
 	}
 }
 
 func (h *Media) Get(w http.ResponseWriter, r *http.Request) {
-	a, ok := h.ready(w, r)
+	a, ok := h.resolve(w, r)
 	if !ok {
+		return
+	}
+	if a.State != store.AttachmentReady && a.State != store.AttachmentFailed {
+		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
 		return
 	}
 	f, err := h.app.Media.Open(a)
@@ -75,12 +114,17 @@ func (h *Media) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", attachmentCache)
-	serveFile(w, r, f, a.OriginalName, a.Mime, a.Kind == store.AttachmentFile)
+	download := a.Kind == store.AttachmentFile || a.State == store.AttachmentFailed
+	serveFile(w, r, f, a.OriginalName, a.Mime, download)
 }
 
 func (h *Media) Thumb(w http.ResponseWriter, r *http.Request) {
-	a, ok := h.ready(w, r)
+	a, ok := h.resolve(w, r)
 	if !ok {
+		return
+	}
+	if a.State != store.AttachmentReady {
+		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
 		return
 	}
 	if !a.HasThumb() {
@@ -96,8 +140,9 @@ func (h *Media) Thumb(w http.ResponseWriter, r *http.Request) {
 	serveFile(w, r, f, filepath.Base(*a.ThumbPath), "", false)
 }
 
-func (h *Media) ready(w http.ResponseWriter, r *http.Request) (store.Attachment, bool) {
-	if _, ok := requestUser(w, r); !ok {
+func (h *Media) resolve(w http.ResponseWriter, r *http.Request) (store.Attachment, bool) {
+	u, ok := requestUser(w, r)
+	if !ok {
 		return store.Attachment{}, false
 	}
 	id, err := pathUUID(r, "id")
@@ -110,11 +155,26 @@ func (h *Media) ready(w http.ResponseWriter, r *http.Request) (store.Attachment,
 		WriteError(w, err)
 		return store.Attachment{}, false
 	}
-	if a.State != store.AttachmentReady {
-		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, id, a.State))
+	if err := h.mayRead(r, a, u); err != nil {
+		WriteError(w, err)
 		return store.Attachment{}, false
 	}
 	return a, true
+}
+
+func (h *Media) mayRead(r *http.Request, a store.Attachment, u store.User) error {
+	if a.MessageID == nil {
+		if a.UploaderID != u.ID {
+			return forbiddenf("not the uploader of this attachment")
+		}
+		return nil
+	}
+	m, err := h.app.DB.GetMessage(r.Context(), *a.MessageID)
+	if err != nil {
+		return err
+	}
+	_, err = containerFor(r.Context(), h.app, m.ContainerID, u.ID)
+	return err
 }
 
 func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid.UUID) {
@@ -123,7 +183,7 @@ func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid
 		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("process attachment")
 		return
 	}
-	frame := socket.NewFrame(frameAttachment, done)
+	frame := socket.NewFrame(socket.TypeAttachment, done)
 	if done.MessageID == nil {
 		h.app.Hub.ToUser(uploaderID, frame)
 		return
@@ -133,7 +193,7 @@ func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid
 		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("load attachment message")
 		return
 	}
-	broadcastTo(ctx, h.app, m.ContainerID, frame)
+	h.app.Broadcast(ctx, m.ContainerID, frame)
 }
 
 func serveFile(w http.ResponseWriter, r *http.Request, f *os.File, name, mimeType string, download bool) {

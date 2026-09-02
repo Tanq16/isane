@@ -36,16 +36,25 @@ const (
 	posterTimeout = time.Minute
 
 	waitDelay = 5 * time.Second
+
+	failureReason = "this file could not be processed"
 )
 
 type Service struct {
-	cfg  config.Config
-	db   *store.DB
-	log  zerolog.Logger
-	root string
+	cfg   *config.Config
+	db    *store.DB
+	log   zerolog.Logger
+	root  string
+	tools Tools
 }
 
-func New(cfg config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
+type Tools struct {
+	Magick  bool `json:"magick"`
+	FFmpeg  bool `json:"ffmpeg"`
+	FFprobe bool `json:"ffprobe"`
+}
+
+func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
 	root, err := filepath.Abs(cfg.Media.Root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve media root: %w", err)
@@ -55,7 +64,25 @@ func New(cfg config.Config, db *store.DB, log zerolog.Logger) (*Service, error) 
 			return nil, fmt.Errorf("create media directory: %w", err)
 		}
 	}
-	return &Service{cfg: cfg, db: db, log: log, root: root}, nil
+	return &Service{cfg: cfg, db: db, log: log, root: root, tools: preflight(log)}, nil
+}
+
+func (s *Service) Tools() Tools { return s.tools }
+
+func preflight(log zerolog.Logger) Tools {
+	found := map[string]bool{}
+	for tool, lost := range map[string]string{
+		"magick":  "images are stored unresized and get no thumbnail",
+		"ffmpeg":  "videos get no poster frame",
+		"ffprobe": "videos and audio get no dimensions or duration",
+	} {
+		if _, err := exec.LookPath(tool); err != nil {
+			log.Warn().Str("tool", tool).Msg(lost)
+			continue
+		}
+		found[tool] = true
+	}
+	return Tools{Magick: found["magick"], FFmpeg: found["ffmpeg"], FFprobe: found["ffprobe"]}
 }
 
 func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, r io.Reader) (store.Attachment, error) {
@@ -114,7 +141,8 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 
 	res, err := s.derive(ctx, a)
 	if err != nil {
-		text := truncate(err.Error(), maxErrBytes)
+		s.log.Error().Err(err).Str("attachment", id.String()).Msg("derive attachment")
+		text := failureReason
 		if failErr := s.db.SetAttachmentState(ctx, id, store.AttachmentFailed, &text); failErr != nil {
 			s.log.Error().Err(failErr).Str("attachment", id.String()).Msg("mark attachment failed")
 		}

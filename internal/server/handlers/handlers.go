@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
+	"strings"
 	"uuid"
 
 	"github.com/rs/zerolog/log"
@@ -21,7 +23,10 @@ var (
 	ErrBadRequest   = errors.New("bad request")
 )
 
-const maxJSONBody = 1 << 20
+const (
+	maxJSONBody   = 1 << 20
+	maxNameLength = 64
+)
 
 type ctxKey int
 
@@ -94,23 +99,47 @@ func WriteError(w http.ResponseWriter, err error) {
 	status, message := http.StatusInternalServerError, "internal error"
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		status, message = http.StatusNotFound, err.Error()
+		status, message = http.StatusNotFound, userMessage(err, store.ErrNotFound)
 	case errors.Is(err, store.ErrConflict):
-		status, message = http.StatusConflict, err.Error()
+		status, message = http.StatusConflict, userMessage(err, store.ErrConflict)
 	case errors.Is(err, ErrUnauthorized):
-		status, message = http.StatusUnauthorized, err.Error()
-	case errors.Is(err, ErrForbidden), errors.Is(err, app.ErrForbidden):
-		status, message = http.StatusForbidden, err.Error()
-	case errors.Is(err, ErrBadRequest), errors.Is(err, app.ErrInvalid):
-		status, message = http.StatusBadRequest, err.Error()
+		status, message = http.StatusUnauthorized, userMessage(err, ErrUnauthorized)
+	case errors.Is(err, ErrForbidden):
+		status, message = http.StatusForbidden, userMessage(err, ErrForbidden)
+	case errors.Is(err, app.ErrForbidden):
+		status, message = http.StatusForbidden, userMessage(err, app.ErrForbidden)
+	case errors.Is(err, ErrBadRequest):
+		status, message = http.StatusBadRequest, userMessage(err, ErrBadRequest)
+	case errors.Is(err, app.ErrInvalid):
+		status, message = http.StatusBadRequest, userMessage(err, app.ErrInvalid)
+	case errors.Is(err, store.ErrInvalid):
+		status, message = http.StatusBadRequest, userMessage(err, store.ErrInvalid)
 	default:
 		log.Error().Err(err).Msg("request failed")
 	}
 	WriteJSON(w, status, errorBody{Error: message})
 }
 
+func userMessage(err, sentinel error) string {
+	sentinelText := sentinel.Error()
+	parts := strings.Split(err.Error(), ": ")
+	if parts[len(parts)-1] == sentinelText {
+		return sentinelText
+	}
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != sentinelText {
+			return parts[i]
+		}
+	}
+	return sentinelText
+}
+
 func ReadJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
+	kind, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || kind != "application/json" {
+		return badRequestf("Content-Type must be application/json")
+	}
 	if err := json.UnmarshalRead(io.LimitReader(r.Body, maxJSONBody), v); err != nil {
 		return fmt.Errorf("%w: %v", ErrBadRequest, err)
 	}
@@ -146,6 +175,17 @@ func nonNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+func boundedField(field, raw string, limit int) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", badRequestf("%s is required", field)
+	}
+	if len(value) > limit {
+		return "", badRequestf("%s must be at most %d characters", field, limit)
+	}
+	return value, nil
 }
 
 func badRequestf(format string, a ...any) error {

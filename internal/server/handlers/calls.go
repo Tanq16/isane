@@ -74,7 +74,7 @@ func (h *Calls) Start(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, http.StatusOK, call)
 		return
 	}
-	broadcastTo(r.Context(), h.app, containerID, socket.NewFrame(socket.TypeCallStarted, call))
+	h.app.Broadcast(r.Context(), containerID, socket.NewFrame(socket.TypeCallStarted, call))
 	if _, err := h.app.PostSystem(r.Context(), containerID, u.ID, nil, "@"+u.Handle+" started a call"); err != nil {
 		h.app.Log.Error().Err(err).Str("call_id", call.ID.String()).Msg("post call notice")
 	}
@@ -111,7 +111,7 @@ func (h *Calls) Leave(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	broadcastTo(r.Context(), h.app, call.ContainerID, participantFrame(call.ID, u.ID, false))
+	h.app.Broadcast(r.Context(), call.ContainerID, participantFrame(call.ID, u.ID, false))
 	writeOK(w)
 }
 
@@ -186,7 +186,7 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 		if err := h.app.DB.JoinCall(ctx, call.ID, userID); err != nil {
 			return err
 		}
-		broadcastTo(ctx, h.app, call.ContainerID, participantFrame(call.ID, userID, true))
+		h.app.Broadcast(ctx, call.ContainerID, participantFrame(call.ID, userID, true))
 		if call.RecordingState == store.RecordingActive {
 			h.startEgress(ctx, call, userID)
 		}
@@ -198,7 +198,7 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 		if err := h.app.DB.LeaveCall(ctx, call.ID, userID); err != nil {
 			return err
 		}
-		broadcastTo(ctx, h.app, call.ContainerID, participantFrame(call.ID, userID, false))
+		h.app.Broadcast(ctx, call.ContainerID, participantFrame(call.ID, userID, false))
 	case eventRoomFinished:
 		call, err := h.app.DB.CallByRoom(ctx, e.GetRoom().GetName())
 		if err != nil {
@@ -213,7 +213,7 @@ func (h *Calls) handleEvent(ctx context.Context, e *livekit.WebhookEvent) error 
 		if err := h.app.DB.EndCall(ctx, call.ID); err != nil {
 			return err
 		}
-		broadcastTo(ctx, h.app, call.ContainerID,
+		h.app.Broadcast(ctx, call.ContainerID,
 			socket.NewFrame(socket.TypeCallEnded, socket.CallEndedPayload{CallID: call.ID}))
 	case eventEgressEnded:
 		return h.finishEgress(ctx, e.GetEgressInfo())
@@ -332,15 +332,6 @@ func (h *Calls) stopEgress(ctx context.Context, roomName string) {
 			h.app.Log.Error().Err(err).Str("egress_id", id).Msg("stop egress")
 		}
 	}
-}
-
-func broadcastTo(ctx context.Context, a *app.App, containerID uuid.UUID, f socket.Frame) {
-	members, err := a.DB.MemberIDs(ctx, containerID)
-	if err != nil {
-		a.Log.Error().Err(err).Str("container_id", containerID.String()).Msg("resolve broadcast members")
-		return
-	}
-	a.Hub.ToUsers(members, f)
 }
 
 func (h *Calls) enabled(w http.ResponseWriter) bool {

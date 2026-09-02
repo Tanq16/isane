@@ -12,6 +12,7 @@ export const state = {
   presence: new Set(),
   calls: new Map(),
   jobs: new Map(),
+  settings: { allow_member_channels: true },
   current: { containerId: null, threadRootId: null, replyToId: null },
   quality: null,
   connection: 'live',
@@ -85,6 +86,13 @@ export function upsertMessage(m) {
   return place(list, m)
 }
 
+export function mergeMessage(m) {
+  if (!m || !m.id) return
+  if (m.client_id) state.pending.delete(m.client_id)
+  if (m.thread_root_id) merge(state.threads, m.thread_root_id, [m], false)
+  else merge(state.messages, m.container_id, [m], false)
+}
+
 export function findMessage(id) {
   if (!id) return null
   for (const list of state.messages.values()) {
@@ -131,9 +139,9 @@ export async function loadThread(rootId, opts = {}) {
   if (opts.after != null) params.after = opts.after
   const page = await get(`/threads/${rootId}/messages`, params)
   const msgs = listOf(page && page.messages)
-  if (page && page.root) upsertMessage(page.root)
+  if (page && page.root) merge(state.messages, page.root.container_id, [page.root], false)
   state.threadSubs.set(rootId, (page && page.subscription) || '')
   merge(state.threads, rootId, msgs, false)
-  notify('threads')
-  return msgs
+  notify('messages', 'threads')
+  return { root: (page && page.root) || null, messages: msgs }
 }

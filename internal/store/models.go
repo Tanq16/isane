@@ -95,6 +95,28 @@ type User struct {
 
 func (u User) Active() bool { return u.DeactivatedAt == nil }
 
+type DirectoryUser struct {
+	ID            uuid.UUID  `json:"id"`
+	Kind          UserKind   `json:"kind"`
+	Handle        string     `json:"handle"`
+	DisplayName   string     `json:"display_name"`
+	AvatarID      *uuid.UUID `json:"avatar_id,omitempty"`
+	IsAdmin       bool       `json:"is_admin"`
+	DeactivatedAt *time.Time `json:"deactivated_at,omitempty"`
+}
+
+func (u User) Directory() DirectoryUser {
+	return DirectoryUser{
+		ID:            u.ID,
+		Kind:          u.Kind,
+		Handle:        u.Handle,
+		DisplayName:   u.DisplayName,
+		AvatarID:      u.AvatarID,
+		IsAdmin:       u.IsAdmin,
+		DeactivatedAt: u.DeactivatedAt,
+	}
+}
+
 type Session struct {
 	ID         uuid.UUID
 	TokenHash  []byte
@@ -114,6 +136,12 @@ type Invite struct {
 	UsedBy    *uuid.UUID `json:"used_by,omitempty"`
 	UsedAt    *time.Time `json:"used_at,omitempty"`
 	CreatedAt time.Time  `json:"created_at"`
+}
+
+type ServerSettings struct {
+	AllowMemberChannels bool       `json:"allow_member_channels"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+	UpdatedBy           *uuid.UUID `json:"updated_by,omitempty"`
 }
 
 type Container struct {

@@ -5,7 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +19,7 @@ var migrations embed.FS
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("conflict")
+	ErrInvalid  = errors.New("invalid input")
 )
 
 type DB struct {
@@ -55,7 +56,7 @@ func (db *DB) Migrate(ctx context.Context) error {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	for _, name := range names {
 		var applied bool
 		err := db.Pool.QueryRow(ctx,
@@ -108,8 +109,15 @@ func mapErr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	if IsUniqueViolation(err) {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok {
+		return err
+	}
+	switch pgErr.Code {
+	case "23505":
 		return ErrConflict
+	case "23503", "23514", "22P02":
+		return ErrInvalid
 	}
 	return err
 }

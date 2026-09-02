@@ -29,13 +29,24 @@ function decode(text) {
   try {
     return JSON.parse(text)
   } catch {
-    return text
+    return null
   }
 }
 
 function messageOf(body, fallback) {
   if (body && typeof body === 'object' && typeof body.error === 'string') return body.error
   return fallback
+}
+
+let unauthorized = null
+
+export function onUnauthorized(fn) {
+  unauthorized = fn
+}
+
+function reject(status, parsed, fallback) {
+  if (status === 401 && unauthorized) unauthorized()
+  return new ApiError(status, parsed, messageOf(parsed, fallback))
 }
 
 async function request(method, path, body, params) {
@@ -51,7 +62,7 @@ async function request(method, path, body, params) {
     throw new ApiError(0, null, err && err.message ? err.message : 'network unreachable')
   }
   const parsed = decode(await res.text())
-  if (!res.ok) throw new ApiError(res.status, parsed, messageOf(parsed, res.statusText))
+  if (!res.ok) throw reject(res.status, parsed, `request failed with status ${res.status}`)
   return parsed
 }
 
@@ -76,7 +87,7 @@ export async function del(path, body) {
 }
 
 export async function upload(file, onProgress) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve, fail) => {
     const form = new FormData()
     form.append('file', file, file.name)
     const xhr = new XMLHttpRequest()
@@ -93,10 +104,10 @@ export async function upload(file, onProgress) {
         resolve(parsed)
         return
       }
-      reject(new ApiError(xhr.status, parsed, messageOf(parsed, 'upload failed')))
+      fail(reject(xhr.status, parsed, 'upload failed'))
     }
-    xhr.onerror = () => reject(new ApiError(0, null, 'network unreachable'))
-    xhr.onabort = () => reject(new ApiError(0, null, 'upload cancelled'))
+    xhr.onerror = () => fail(new ApiError(0, null, 'network unreachable'))
+    xhr.onabort = () => fail(new ApiError(0, null, 'upload cancelled'))
     xhr.send(form)
   })
 }

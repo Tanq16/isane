@@ -20,7 +20,7 @@ func (s *Service) Token(roomName string, u store.User) (string, error) {
 	grant.SetCanSubscribe(true)
 	grant.SetCanPublishData(true)
 
-	token, err := auth.NewAccessToken(s.lk.APIKey, s.lk.APISecret).
+	token, err := auth.NewAccessToken(s.cfg.LiveKit.APIKey, s.cfg.LiveKit.APISecret).
 		SetIdentity(u.ID.String()).
 		SetName(u.DisplayName).
 		SetValidFor(tokenValidFor).

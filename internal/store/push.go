@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"uuid"
 
@@ -26,14 +27,17 @@ func (db *DB) UpsertPushSubscription(ctx context.Context, s PushSubscription) (P
 		(id, user_id, endpoint, p256dh, auth, user_agent, enabled)
 		values ($1, $2, $3, $4, $5, $6, true)
 		on conflict (endpoint) do update set
-			user_id = excluded.user_id,
 			p256dh = excluded.p256dh,
 			auth = excluded.auth,
 			user_agent = excluded.user_agent,
 			enabled = true
+		where push_subscriptions.user_id = excluded.user_id
 		returning `+pushColumns,
 		s.ID, s.UserID, s.Endpoint, s.P256dh, s.Auth, s.UserAgent))
 	if err != nil {
+		if errors.Is(mapErr(err), ErrNotFound) {
+			return PushSubscription{}, fmt.Errorf("upsert push subscription: %w: this endpoint is registered to another account", ErrConflict)
+		}
 		return PushSubscription{}, fmt.Errorf("upsert push subscription: %w", mapErr(err))
 	}
 	return out, nil

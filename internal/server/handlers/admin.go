@@ -4,19 +4,18 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
+	"github.com/tanq16/isane/internal/media"
+	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
 
 const defaultInviteTTL = 7 * 24 * time.Hour
-
-var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 type Admin struct {
 	app *app.App
@@ -56,17 +55,6 @@ type adminInvite struct {
 	UsedAt    *time.Time `json:"used_at,omitempty"`
 }
 
-type adminChannelRequest struct {
-	Slug  string  `json:"slug"`
-	Name  string  `json:"name"`
-	Topic *string `json:"topic"`
-}
-
-type adminChannelUpdate struct {
-	Name  string  `json:"name"`
-	Topic *string `json:"topic"`
-}
-
 type adminAgentRequest struct {
 	Handle      string `json:"handle"`
 	DisplayName string `json:"display_name"`
@@ -79,6 +67,11 @@ type adminAgentReserved struct {
 
 type adminAgentDeleted struct {
 	HandleFreed bool `json:"handle_freed"`
+}
+
+type adminStats struct {
+	store.Stats
+	MediaTools media.Tools `json:"media_tools"`
 }
 
 type adminRetention struct {
@@ -104,13 +97,13 @@ func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
-	displayName := strings.TrimSpace(req.DisplayName)
 	if !handlePattern.MatchString(handle) {
 		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
-	if displayName == "" {
-		WriteError(w, badRequestf("display_name is required"))
+	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
+	if err != nil {
+		WriteError(w, err)
 		return
 	}
 	created, err := h.app.DB.CreateUser(r.Context(), store.User{
@@ -123,6 +116,7 @@ func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, created.Directory()))
 	WriteJSON(w, http.StatusCreated, created)
 }
 
@@ -147,6 +141,7 @@ func (h *Admin) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishUser(r, target.ID)
 	writeOK(w)
 }
 
@@ -170,6 +165,10 @@ func (h *Admin) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.SetPassword(r.Context(), target.ID, hash); err != nil {
+		WriteError(w, err)
+		return
+	}
+	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
 		WriteError(w, err)
 		return
 	}
@@ -198,6 +197,11 @@ func (h *Admin) SetAdmin(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
+		WriteError(w, err)
+		return
+	}
+	h.publishUser(r, target.ID)
 	writeOK(w)
 }
 
@@ -275,74 +279,6 @@ func (h *Admin) ListChannels(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, nonNil(channels))
 }
 
-func (h *Admin) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	admin, ok := requestUser(w, r)
-	if !ok {
-		return
-	}
-	var req adminChannelRequest
-	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
-		return
-	}
-	slug := strings.ToLower(strings.TrimSpace(req.Slug))
-	name := strings.TrimSpace(req.Name)
-	if !slugPattern.MatchString(slug) {
-		WriteError(w, badRequestf("slug must match ^[a-z0-9][a-z0-9-]{0,63}$"))
-		return
-	}
-	if name == "" {
-		WriteError(w, badRequestf("name is required"))
-		return
-	}
-	c, err := h.app.DB.CreateChannel(r.Context(), slug, name, trimTopic(req.Topic), admin.ID)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	WriteJSON(w, http.StatusCreated, c)
-}
-
-func (h *Admin) UpdateChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := pathUUID(r, "id")
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	var req adminChannelUpdate
-	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
-		return
-	}
-	c, err := h.app.DB.GetContainer(r.Context(), id)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		if c.Name == nil {
-			WriteError(w, badRequestf("name is required"))
-			return
-		}
-		name = *c.Name
-	}
-	topic := c.Topic
-	if req.Topic != nil {
-		topic = trimTopic(req.Topic)
-	}
-	if err := h.app.DB.UpdateChannel(r.Context(), id, name, topic); err != nil {
-		WriteError(w, err)
-		return
-	}
-	c, err = h.app.DB.GetContainer(r.Context(), id)
-	if err != nil {
-		WriteError(w, err)
-		return
-	}
-	WriteJSON(w, http.StatusOK, c)
-}
-
 func (h *Admin) ArchiveChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := pathUUID(r, "id")
 	if err != nil {
@@ -353,6 +289,7 @@ func (h *Admin) ArchiveChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishChannel(r, id)
 	writeOK(w)
 }
 
@@ -366,6 +303,7 @@ func (h *Admin) UnarchiveChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishChannel(r, id)
 	writeOK(w)
 }
 
@@ -385,13 +323,13 @@ func (h *Admin) ReserveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
-	displayName := strings.TrimSpace(req.DisplayName)
 	if !handlePattern.MatchString(handle) {
 		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
-	if displayName == "" {
-		WriteError(w, badRequestf("display_name is required"))
+	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
+	if err != nil {
+		WriteError(w, err)
 		return
 	}
 	raw, hash, err := auth.NewToken()
@@ -404,6 +342,7 @@ func (h *Admin) ReserveAgent(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, info.User.Directory()))
 	WriteJSON(w, http.StatusCreated, adminAgentReserved{Agent: info, ClaimToken: raw})
 }
 
@@ -429,6 +368,14 @@ func (h *Admin) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	if freed {
+		gone := info.User.Directory()
+		now := time.Now()
+		gone.DeactivatedAt = &now
+		h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, gone))
+	} else {
+		h.publishUser(r, info.User.ID)
+	}
 	WriteJSON(w, http.StatusOK, adminAgentDeleted{HandleFreed: freed})
 }
 
@@ -438,7 +385,7 @@ func (h *Admin) Stats(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, stats)
+	WriteJSON(w, http.StatusOK, adminStats{Stats: stats, MediaTools: h.app.Media.Tools()})
 }
 
 func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
@@ -448,14 +395,32 @@ func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := adminRetention{
-		MessageDays:       h.app.Cfg.Retention.MessageDays,
-		RecordingDays:     h.app.Cfg.Retention.RecordingDays,
-		StagedUploadHours: h.app.Cfg.Retention.StagedUploadHours,
+		MessageDays:       h.app.Cfg().Retention.MessageDays,
+		RecordingDays:     h.app.Cfg().Retention.RecordingDays,
+		StagedUploadHours: h.app.Cfg().Retention.StagedUploadHours,
 	}
 	if !last.IsZero() {
 		out.LastRunAt = &last
 	}
 	WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Admin) publishUser(r *http.Request, id uuid.UUID) {
+	u, err := h.app.DB.GetUser(r.Context(), id)
+	if err != nil {
+		h.app.Log.Error().Err(err).Str("user", id.String()).Msg("reload user for broadcast")
+		return
+	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, u.Directory()))
+}
+
+func (h *Admin) publishChannel(r *http.Request, id uuid.UUID) {
+	c, err := h.app.DB.GetContainer(r.Context(), id)
+	if err != nil {
+		h.app.Log.Error().Err(err).Str("container", id.String()).Msg("reload channel for broadcast")
+		return
+	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, c))
 }
 
 func (h *Admin) human(w http.ResponseWriter, r *http.Request) (store.User, bool) {
@@ -486,7 +451,7 @@ func (h *Admin) agent(w http.ResponseWriter, r *http.Request) (store.AgentInfo, 
 }
 
 func (h *Admin) publicURL(path string) string {
-	return strings.TrimSuffix(h.app.Cfg.Server.PublicURL, "/") + path
+	return strings.TrimSuffix(h.app.Cfg().Server.PublicURL, "/") + path
 }
 
 func inviteView(inv store.Invite) adminInvite {
@@ -499,11 +464,4 @@ func inviteView(inv store.Invite) adminInvite {
 		UsedBy:    inv.UsedBy,
 		UsedAt:    inv.UsedAt,
 	}
-}
-
-func trimTopic(topic *string) *string {
-	if topic == nil {
-		return nil
-	}
-	return optionalString(strings.TrimSpace(*topic))
 }
