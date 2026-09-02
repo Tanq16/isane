@@ -367,6 +367,7 @@ function onDeleted(d) {
 function onRead(d) {
   const container = state.containers.get(d.container_id)
   if (!container) return
+  container.last_read_seq = d.seq ?? 0
   container.unread = Math.max(0, (container.last_seq ?? 0) - (d.seq ?? 0))
   if ((d.seq ?? 0) >= (container.last_seq ?? 0)) container.mentions = 0
   notify('containers')
