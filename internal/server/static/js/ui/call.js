@@ -15,6 +15,15 @@ const TONES = {
   busy: 'bg-surface0 text-overlay0 cursor-not-allowed',
 }
 
+const CALL_ERRORS = {
+  microphone: 'Could not use the microphone.',
+  token: 'Could not get a call token.',
+  connect: 'Could not reach the call server.',
+  publish: 'Could not publish your microphone.',
+}
+
+const MIC_DENIED = 'Isane needs microphone access. Allow it in your device settings, then try again.'
+
 function lk() {
   return globalThis.LivekitClient || globalThis.LiveKit || null
 }
@@ -98,6 +107,14 @@ function livekitUrl(fromServer) {
   return scheme + location.host + '/livekit'
 }
 
+function audioCaptureOptions() {
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  }
+}
+
 function roomOptions() {
   const LK = lk()
   const q = state.quality || {}
@@ -114,11 +131,7 @@ function roomOptions() {
     adaptiveStream: true,
     dynacast: true,
     disconnectOnPageLeave: false,
-    audioCaptureDefaults: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
+    audioCaptureDefaults: audioCaptureOptions(),
     videoCaptureDefaults: {
       resolution: { width: Math.round((height * 16) / 9), height, frameRate: framerate },
     },
@@ -306,31 +319,29 @@ function wire() {
   room.on(E.Disconnected, () => teardown())
 }
 
-async function join(call) {
-  dismissed = false
+function callError(stage, err) {
+  if (stage === 'microphone' && err && err.name === 'NotAllowedError') return MIC_DENIED
+  const detail = err && err.message
+  return detail ? CALL_ERRORS[stage] + ' ' + detail : CALL_ERRORS[stage]
+}
+
+async function join(call, mic) {
   const LK = lk()
-  if (!LK) {
-    statusText = ''
-    toast('The call client did not load.', { severity: 'error' })
-    render()
-    return
-  }
-  if (connecting || joined) {
-    render()
-    return
-  }
   connecting = true
   activeCall = call
   statusText = 'Connecting'
   notify('calls')
   render()
 
+  let stage = 'token'
   try {
     const grant = await api.get('/api/calls/' + call.id + '/token')
+    stage = 'connect'
     room = new LK.Room(roomOptions())
     wire()
     await room.connect(livekitUrl(grant.url), grant.token)
-    await room.localParticipant.setMicrophoneEnabled(true)
+    stage = 'publish'
+    await room.localParticipant.publishTrack(mic)
     ensureTile(room.localParticipant.identity, 'camera', labelOf(room.localParticipant))
     for (const participant of (room.remoteParticipants || room.participants || new Map()).values()) {
       ensureTile(participant.identity, 'camera', labelOf(participant))
@@ -343,8 +354,9 @@ async function join(call) {
     await acquireWakeLock()
     resetIdle()
   } catch (err) {
+    mic.stop()
     statusText = ''
-    toast(err.message || 'Could not join the call.', { severity: 'error' })
+    toast(callError(stage, err), { severity: 'error' })
     if (room) {
       try {
         await room.disconnect()
@@ -399,19 +411,46 @@ function teardown() {
 async function start(containerId) {
   const cid = containerId || state.current.containerId
   if (!cid) return
-  const existing = state.calls.get(cid)
-  if (existing && !existing.ended_at) {
-    join(existing)
+  dismissed = false
+  const LK = lk()
+  if (!LK) {
+    statusText = ''
+    toast('The call client did not load.', { severity: 'error' })
+    render()
     return
   }
-  statusText = 'Starting'
+  if (connecting || joined) {
+    render()
+    return
+  }
+  const existing = state.calls.get(cid)
+  const live = existing && !existing.ended_at ? existing : null
+
+  statusText = live ? 'Connecting' : 'Starting'
   render()
+
+  let mic
+  try {
+    mic = await LK.createLocalAudioTrack(audioCaptureOptions())
+  } catch (err) {
+    statusText = ''
+    toast(callError('microphone', err), { severity: 'error' })
+    render()
+    return
+  }
+
+  if (live) {
+    await join(live, mic)
+    return
+  }
+
   try {
     const call = await api.post('/api/containers/' + cid + '/call', {})
     state.calls.set(cid, call)
     notify('calls')
-    await join(call)
+    await join(call, mic)
   } catch (err) {
+    mic.stop()
     statusText = ''
     toast(err.message || 'Could not start a call.', { severity: 'error' })
     render()
