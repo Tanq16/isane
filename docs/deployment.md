@@ -144,7 +144,7 @@ The first start against an empty `users` table prints a one-time invite URL. Ope
 | Key | Default | Holds |
 |---|---|---|
 | `server.bind` | `0.0.0.0:8080` | Address the HTTP server listens on |
-| `server.public_url` | `http://localhost:8080` | Origin the browser reaches, used in invite and notification URLs |
+| `server.public_url` | `http://localhost:8080` | Origin the browser reaches. Every write is rejected with 403 when the browser's `Origin` does not match it exactly, so an alias hostname or a second port needs its own deployment |
 | `server.insecure` | `false` | Development mode, which disables push because push needs a trusted certificate |
 | `database.url` | required | Postgres connection string |
 | `push.vapid_public_key` | empty | Served to the browser by `GET /api/push/vapid-key` |
