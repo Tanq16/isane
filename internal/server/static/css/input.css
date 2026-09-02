@@ -106,6 +106,9 @@
     --ctp-edge: transparent;
     --ctp-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.45);
 
+    --thread-width: 380px;
+    --call-width: 380px;
+
     color-scheme: dark;
 }
 

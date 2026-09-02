@@ -1,9 +1,18 @@
 import { state, subscribe, notify, user } from '../store.js'
 import * as api from '../api.js'
 import * as socket from '../socket.js'
-import { drawIcons, iconButton } from './dom.js'
+import { drawIcons, icon, iconButton } from './dom.js'
 
 const IDLE_DIM_MS = 240000
+
+const TONES = {
+  on: 'bg-surface0 text-text hover:bg-surface1',
+  off: 'bg-surface0 text-overlay1 hover:bg-surface1 hover:text-text',
+  alert: 'bg-red/15 text-red hover:bg-red/25',
+  accent: 'bg-mauve text-crust hover:brightness-110',
+  danger: 'bg-red text-crust hover:brightness-110',
+  busy: 'bg-surface0 text-overlay0 cursor-not-allowed',
+}
 
 function lk() {
   return globalThis.LivekitClient || globalThis.LiveKit || null
@@ -33,6 +42,7 @@ let idleTimer = 0
 let frame = 0
 let statusText = ''
 let dismissed = false
+let expanded = false
 
 function el(tag, cls, text) {
   const node = document.createElement(tag)
@@ -47,6 +57,34 @@ function scheduleRender() {
     frame = 0
     render()
   })
+}
+
+function liveCall() {
+  if (!activeCall) return null
+  const live = state.calls.get(activeCall.container_id)
+  return live && live.id === activeCall.id ? live : activeCall
+}
+
+function recordingState() {
+  const call = liveCall()
+  return (call && call.recording_state) || 'off'
+}
+
+function visible() {
+  return (joined || connecting || Boolean(statusText)) && !dismissed
+}
+
+export function panelState() {
+  const call = liveCall()
+  return {
+    joined,
+    connecting,
+    hidden: !visible(),
+    expanded,
+    callId: call ? call.id : null,
+    containerId: call ? call.container_id : null,
+    recordingState: recordingState(),
+  }
 }
 
 function screenShareSupported() {
@@ -282,6 +320,7 @@ async function join(call) {
   connecting = true
   activeCall = call
   statusText = 'Connecting'
+  notify('calls')
   render()
 
   try {
@@ -312,6 +351,7 @@ async function join(call) {
     joined = false
   }
   connecting = false
+  notify('calls')
   render()
 }
 
@@ -335,6 +375,7 @@ async function leave() {
 function teardown() {
   joined = false
   dismissed = false
+  expanded = false
   room = null
   activeCall = null
   screenOn = false
@@ -347,6 +388,7 @@ function teardown() {
   clearTimeout(idleTimer)
   dimEl.classList.add('hidden')
   releaseWakeLock()
+  notify('calls')
   render()
 }
 
@@ -397,11 +439,11 @@ async function toggleScreen() {
 }
 
 async function toggleRecording() {
-  if (!activeCall) return
-  const on = activeCall.recording_state !== 'recording'
+  const call = liveCall()
+  if (!call) return
   try {
-    await api.post('/api/calls/' + activeCall.id + '/recording', { on })
-    activeCall.recording_state = on ? 'recording' : 'processing'
+    const updated = await api.post('/api/calls/' + call.id + '/recording', { on: call.recording_state !== 'recording' })
+    if (updated && updated.container_id) state.calls.set(updated.container_id, updated)
     notify('calls')
   } catch (err) {
     statusText = err.message || 'Could not change recording.'
@@ -409,56 +451,91 @@ async function toggleRecording() {
   render()
 }
 
-function controlButton(label, active, fn, danger) {
-  const base = danger
-    ? 'rounded-lg bg-red px-3 py-1.5 text-xs font-semibold text-crust transition-colors hover:brightness-110'
-    : active
-      ? 'rounded-lg bg-mauve px-3 py-1.5 text-xs font-semibold text-crust transition-colors hover:brightness-110'
-      : 'rounded-lg bg-surface0 px-3 py-1.5 text-xs text-subtext0 transition-colors hover:bg-surface1 hover:text-text'
-  const button = el('button', base, label)
+function callButton(name, label, tone, onClick, pressed) {
+  const button = el('button', 'grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve ' + TONES[tone])
   button.type = 'button'
-  button.addEventListener('click', fn)
+  button.title = label
+  button.setAttribute('aria-label', label)
+  if (pressed != null) button.setAttribute('aria-pressed', pressed ? 'true' : 'false')
+  button.appendChild(icon(name, 'h-5 w-5'))
+  if (onClick) button.addEventListener('click', onClick)
   return button
+}
+
+function recordButton() {
+  const recording = recordingState()
+  if (recording === 'processing') {
+    const button = callButton('loader-circle', 'Saving the recording', 'busy', null, true)
+    button.disabled = true
+    button.setAttribute('aria-busy', 'true')
+    button.querySelector('[data-lucide]').classList.add('animate-spin')
+    return button
+  }
+  if (recording === 'recording') return callButton('circle-stop', 'Stop recording', 'alert', toggleRecording, true)
+  return callButton('circle-dot', 'Start recording', 'off', toggleRecording, false)
 }
 
 function renderControls() {
   controlsEl.replaceChildren()
   if (!joined) return
 
-  controlsEl.appendChild(controlButton(micOn ? 'Mute' : 'Unmute', !micOn, toggleMic))
-  controlsEl.appendChild(controlButton(cameraOn ? 'Camera off' : 'Camera on', cameraOn, toggleCamera))
+  controlsEl.appendChild(callButton(micOn ? 'mic' : 'mic-off', micOn ? 'Mute' : 'Unmute', micOn ? 'on' : 'alert', toggleMic, !micOn))
+  controlsEl.appendChild(callButton(cameraOn ? 'video' : 'video-off',
+    cameraOn ? 'Turn the camera off' : 'Turn the camera on', cameraOn ? 'on' : 'off', toggleCamera, cameraOn))
   if (screenShareSupported()) {
-    controlsEl.appendChild(controlButton(screenOn ? 'Stop sharing' : 'Share screen', screenOn, toggleScreen))
+    controlsEl.appendChild(callButton(screenOn ? 'screen-share' : 'screen-share-off',
+      screenOn ? 'Stop sharing' : 'Share your screen', screenOn ? 'accent' : 'off', toggleScreen, screenOn))
   }
-  const recording = activeCall && activeCall.recording_state === 'recording'
-  controlsEl.appendChild(controlButton(recording ? 'Stop recording' : 'Record', recording, toggleRecording))
-  controlsEl.appendChild(controlButton('Leave', false, leave, true))
+  controlsEl.appendChild(recordButton())
+  controlsEl.appendChild(callButton('phone-off', 'Leave the call', 'danger', leave))
+  drawIcons(controlsEl)
 }
 
 function renderHeader() {
   headerEl.replaceChildren()
   const bar = el('div', 'flex h-12 shrink-0 items-center gap-2 px-3')
   bar.appendChild(el('h2', 'flex-1 text-message font-semibold text-text', 'Call'))
-  if (activeCall && activeCall.recording_state === 'recording') {
-    bar.appendChild(el('span', 'rounded-full bg-red px-2 py-0.5 text-micro font-semibold uppercase tracking-widest text-crust', 'recording'))
+  if (recordingState() === 'recording') {
+    const badge = el('span', 'flex shrink-0 items-center gap-1.5 rounded-full bg-red px-2 py-0.5 text-micro font-semibold uppercase tracking-widest text-crust')
+    badge.appendChild(el('span', 'h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-crust'))
+    badge.appendChild(el('span', '', 'recording'))
+    bar.appendChild(badge)
   }
+  bar.appendChild(iconButton(expanded ? 'minimize-2' : 'maximize-2',
+    expanded ? 'Dock the call panel' : 'Expand the call panel', toggleExpand, 'hidden xl:grid'))
   bar.appendChild(iconButton('x', 'Hide the call panel', dismiss))
   headerEl.appendChild(bar)
   drawIcons(headerEl)
 }
 
+function toggleExpand() {
+  expanded = !expanded
+  notify('calls')
+  render()
+}
+
+export function reopen() {
+  if (!joined && !connecting) return
+  dismissed = false
+  notify('calls')
+  render()
+}
+
 function dismiss() {
   dismissed = true
+  notify('calls')
   render()
 }
 
 function render() {
-  const visible = (joined || connecting || Boolean(statusText)) && !state.current.threadRootId && !dismissed
-  rootEl.classList.toggle('hidden', !visible)
-  if (!visible) return
+  const app = document.getElementById('app')
+  const open = visible()
+  if (app) app.dataset.call = !open ? 'hidden' : expanded ? 'expanded' : 'docked'
+  if (!open) return
 
   renderHeader()
   renderControls()
+  gridEl.className = expanded ? 'grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid grid-cols-1 gap-2'
   gridEl.classList.toggle('hidden', !joined)
   audioButtonEl.classList.toggle('hidden', !joined || !room || room.canPlaybackAudio)
   statusEl.textContent = statusText
@@ -467,7 +544,6 @@ function render() {
 
 export function mount(root) {
   rootEl = root
-  rootEl.classList.add('hidden')
 
   panelEl = el('div', 'flex h-full flex-col')
 
@@ -492,14 +568,14 @@ export function mount(root) {
     render()
   })
   body.appendChild(statusEl)
-  gridEl = el('div', 'grid grid-cols-1 gap-2 sm:grid-cols-2')
+  gridEl = el('div', 'grid grid-cols-1 gap-2')
   body.appendChild(gridEl)
   panelEl.appendChild(body)
 
   dimEl = el('div', 'absolute inset-0 z-10 hidden bg-scrim')
   panelEl.appendChild(dimEl)
 
-  controlsEl = el('div', 'flex shrink-0 flex-wrap gap-2 p-3')
+  controlsEl = el('div', 'flex shrink-0 items-center justify-center gap-2 border-t border-surface0 px-3 py-2')
   panelEl.appendChild(controlsEl)
 
   audioSinkEl = el('div', 'hidden')
@@ -510,6 +586,10 @@ export function mount(root) {
   rootEl.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return
     e.preventDefault()
+    if (expanded) {
+      toggleExpand()
+      return
+    }
     dismiss()
   })
 

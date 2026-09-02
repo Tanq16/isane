@@ -219,14 +219,19 @@ async function load(rootId) {
   notify('threads')
 }
 
+function setPane(open) {
+  const app = document.getElementById('app')
+  if (app) app.dataset.thread = open ? 'open' : 'closed'
+}
+
 function render() {
   const rootId = state.current.threadRootId
   if (!rootId) {
     mountedRoot = null
-    rootEl.classList.add('hidden')
+    setPane(false)
     return
   }
-  rootEl.classList.remove('hidden')
+  setPane(true)
 
   if (rootId !== mountedRoot) {
     mountedRoot = rootId
@@ -254,7 +259,7 @@ function render() {
 
 export function mount(root) {
   rootEl = root
-  rootEl.classList.add('hidden')
+  setPane(false)
 
   const panel = el('div', 'flex h-full flex-col')
 

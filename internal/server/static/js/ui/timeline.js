@@ -3,12 +3,14 @@ import { state, subscribe, notify, user, loadMessages } from '../store.js'
 import {
   containerLabel, dayLabel, drawIcons, el, emptyState, icon, iconButton, navigate,
 } from './dom.js'
+import * as call from './call.js'
 import { GROUP_WINDOW, messageNode, messageSignature } from './message.js'
 import { openChannelSettings } from './settings.js'
 
 const PAGE = 50
 const NEAR_TOP = 300
 const NEAR_BOTTOM = 120
+const DIVIDER_LINGER = 4500
 
 let scrollEl = null
 let headerEl = null
@@ -30,8 +32,10 @@ let readTimer = 0
 let seenSeq = 0
 let sentSeq = 0
 let dividerSeq = -1
+let dividerTimer = 0
 let jumpTarget = 0
 let handledJump = ''
+let readSidebarWidth = () => 0
 
 const ctx = {
   showThread: true,
@@ -205,17 +209,18 @@ function reconcile(list) {
 
 function headerSignatureOf(c) {
   if (!c) return 'none'
-  const call = state.calls.get(c.id)
-  return [c.id, c.kind, c.slug, c.name, c.topic, c.level, c.archived_at, call ? call.id : '', (c.participants || []).join(',')].join('|')
+  const live = state.calls.get(c.id)
+  const panel = call.panelState()
+  return [
+    c.id, c.kind, c.slug, c.name, c.topic, c.level, c.archived_at,
+    live ? live.id : '', live ? live.recording_state : '',
+    panel.joined, panel.hidden,
+    (c.participants || []).join(','),
+  ].join('|')
 }
 
-function storedWidth() {
-  let width = 0
-  try {
-    width = parseInt(localStorage.getItem('isane-sidebar-width'), 10)
-  } catch {}
-  if (!width || width < 200 || width > 400) width = 240
-  return width
+export function setSidebarWidth(read) {
+  readSidebarWidth = read
 }
 
 function toggleSidebar(button) {
@@ -223,11 +228,26 @@ function toggleSidebar(button) {
   if (!app) return
   const open = app.dataset.sidebar !== 'closed'
   app.dataset.sidebar = open ? 'closed' : 'open'
-  document.documentElement.style.setProperty('--sidebar-width', open ? '0px' : storedWidth() + 'px')
+  document.documentElement.style.setProperty('--sidebar-width', open ? '0px' : readSidebarWidth() + 'px')
   button.title = open ? 'Show the channel list' : 'Hide the channel list'
   button.setAttribute('aria-label', button.title)
   button.replaceChildren(icon(open ? 'panel-left-open' : 'panel-left-close', 'h-5 w-5'))
   drawIcons(button)
+}
+
+function callControl(c) {
+  const live = state.calls.get(c.id)
+  if (!live) {
+    return iconButton('phone', 'Start a call', () =>
+      window.dispatchEvent(new CustomEvent('isane:call-start', { detail: { containerId: c.id } })))
+  }
+  const panel = call.panelState()
+  if (panel.joined && panel.containerId === c.id) return iconButton('phone-call', 'Show the call', () => call.reopen())
+  const indicator = iconButton('phone-call', 'A call is live', null)
+  indicator.disabled = true
+  indicator.classList.remove('text-overlay1', 'hover:bg-surface0', 'hover:text-text')
+  indicator.classList.add('text-teal')
+  return indicator
 }
 
 function renderHeader() {
@@ -264,10 +284,7 @@ function renderHeader() {
   }
 
   const actions = el('div', 'ml-auto flex shrink-0 items-center')
-  if (!c.archived_at) {
-    actions.appendChild(iconButton('phone', 'Start a call', () =>
-      window.dispatchEvent(new CustomEvent('isane:call-start', { detail: { containerId: c.id } }))))
-  }
+  if (!c.archived_at) actions.appendChild(callControl(c))
   const channel = c.kind === 'channel'
   actions.appendChild(iconButton(channel ? 'settings' : 'users-round', channel ? 'Channel settings' : 'Members', () => openChannelSettings(c)))
   headerEl.appendChild(actions)
@@ -316,7 +333,10 @@ function render() {
     seenSeq = 0
     const c = cid ? state.containers.get(cid) : null
     sentSeq = c ? (c.last_read_seq || 0) : 0
-    dividerSeq = c && (c.unread || 0) > 0 ? sentSeq : -1
+    clearTimeout(dividerTimer)
+    dividerTimer = 0
+    if (autoRead()) dividerSeq = c && (c.unread || 0) > 0 ? sentSeq : -1
+    else dividerSeq = c ? sentSeq : -1
     renderHeader()
     if (cid) openContainer(cid)
     return
@@ -367,6 +387,7 @@ async function openContainer(cid) {
   if (p.loaded) {
     render()
     scrollEl.scrollTop = scrollEl.scrollHeight
+    markOnOpen(cid)
     return
   }
 
@@ -382,6 +403,7 @@ async function openContainer(cid) {
   atBottom = true
   render()
   scrollEl.scrollTop = scrollEl.scrollHeight
+  markOnOpen(cid)
 }
 
 async function loadOlder() {
@@ -451,7 +473,25 @@ function markRead(cid, seq) {
   notify('containers')
 }
 
+function autoRead() {
+  return !state.me || state.me.mark_read_on_open !== false
+}
+
+function markOnOpen(cid) {
+  if (!autoRead() || dividerSeq < 0 || cid !== state.current.containerId) return
+  const c = state.containers.get(cid)
+  markRead(cid, c ? (c.last_seq || 0) : 0)
+  clearTimeout(dividerTimer)
+  dividerTimer = setTimeout(() => {
+    dividerTimer = 0
+    if (cid !== state.current.containerId) return
+    dividerSeq = -1
+    render()
+  }, DIVIDER_LINGER)
+}
+
 function flushRead() {
+  if (!autoRead()) return
   const cid = state.current.containerId
   if (!cid || seenSeq <= sentSeq) return
   if (document.visibilityState !== 'visible') return
@@ -461,9 +501,9 @@ function flushRead() {
 function dismissDivider() {
   const cid = state.current.containerId
   if (!cid) return
-  dividerSeq = -1
   const c = state.containers.get(cid)
   markRead(cid, c ? (c.last_seq || 0) : 0)
+  dividerSeq = autoRead() ? -1 : sentSeq
   render()
 }
 
