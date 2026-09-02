@@ -1,6 +1,6 @@
-import { get, post, ApiError } from './api.js'
+import { get, post, onUnauthorized, ApiError } from './api.js'
 import { state, subscribe, notify, findMessage, loadThread } from './store.js'
-import { connect } from './socket.js'
+import { connect, stop as stopSocket, on as onSocket } from './socket.js'
 import { initPush, enablePush, pushSupported } from './push.js'
 import * as sidebar from './ui/sidebar.js'
 import * as timeline from './ui/timeline.js'
@@ -17,7 +17,8 @@ const PUSH_INIT_TIMEOUT = 3000
 const CARD_CLASS = 'flex w-full max-w-sm flex-col gap-3 rounded-xl border border-surface0 bg-mantle p-6'
 const FIELD_CLASS = 'w-full rounded-lg border border-surface0 bg-base px-3 py-2 text-text placeholder:text-overlay0 focus:border-mauve focus:outline-none'
 const ACTION_CLASS = 'rounded-lg bg-mauve px-3 py-2 font-medium text-crust disabled:opacity-60'
-const TOAST_CLASS = 'pointer-events-auto rounded-lg border border-surface0 bg-surface0 px-3 py-2 text-sm text-text shadow-lg'
+const TOAST_CLASS = 'pointer-events-auto rounded-lg bg-base px-3 py-2 text-sm shadow-pop'
+const TOAST_TONE = { info: 'text-blue', success: 'text-green', error: 'text-red', warning: 'text-yellow' }
 
 let awaitingContainers = false
 let offlineToast = null
@@ -48,7 +49,8 @@ function toast(message, opts = {}) {
   const root = el('toast-root')
   if (!root) return () => {}
   const node = document.createElement('div')
-  node.className = TOAST_CLASS
+  node.className = TOAST_CLASS + ' ' + (TOAST_TONE[opts.severity] || TOAST_TONE.info)
+  node.setAttribute('role', 'status')
   node.textContent = message
   root.appendChild(node)
   const dismiss = () => node.remove()
@@ -162,11 +164,12 @@ async function openThreadRoute(rootId) {
     return
   }
   try {
-    const msgs = await loadThread(rootId)
-    setCurrent(msgs.length ? msgs[0].container_id : state.current.containerId, rootId)
+    const page = await loadThread(rootId)
+    const owner = page.root || page.messages[0]
+    setCurrent(owner ? owner.container_id : state.current.containerId, rootId)
   } catch (err) {
     console.error('thread load failed', rootId, err)
-    toast('Could not open that thread')
+    toast('Could not open that thread', { severity: 'error' })
   }
 }
 
@@ -182,7 +185,7 @@ function route() {
   }
   show(el('login-root'), false)
   awaitingContainers = false
-  if (path === '/admin') {
+  if (path === '/admin' || path.startsWith('/admin/')) {
     if (!state.me.is_admin) {
       navigate('/', true)
       return
@@ -266,8 +269,13 @@ function form(root, title, fields, submitLabel, onSubmit) {
     const values = {}
     for (const [name, input] of inputs) values[name] = input.value.trim()
     try {
-      await onSubmit(values)
-      location.href = '/'
+      const me = await onSubmit(values)
+      state.me = me
+      state.users.set(me.id, me)
+      root.dataset.screen = ''
+      show(root, false)
+      await start()
+      navigate('/', true)
     } catch (err) {
       error.textContent = err instanceof ApiError ? err.message : 'Something went wrong'
       button.disabled = false
@@ -366,9 +374,36 @@ function wireInstallHint() {
   show(hint, true)
 }
 
+let started = false
+
+async function start() {
+  if (started) return
+  started = true
+  mountAll()
+  connect()
+  loadUsers()
+  Promise.race([
+    initPush().catch((err) => console.error('push init failed', err)),
+    new Promise((resolve) => setTimeout(resolve, PUSH_INIT_TIMEOUT)),
+  ]).then(() => {
+    wirePushBanner()
+    wireInstallHint()
+  })
+}
+
+function onSessionLost() {
+  if (!state.me) return
+  state.me = null
+  stopSocket()
+  toast('Your session ended. Sign in again.', { severity: 'warning' })
+  navigate('/login', true)
+}
+
 async function boot() {
   wireNavigation()
   subscribe(onStateChange)
+  onUnauthorized(onSessionLost)
+  onSocket('error', (d) => toast(errorText(d), { severity: 'error' }))
   let me = null
   try {
     me = await get('/auth/me')
@@ -381,16 +416,16 @@ async function boot() {
   }
   state.me = me
   state.users.set(me.id, me)
-  await loadUsers()
-  mountAll()
-  await Promise.race([
-    initPush().catch((err) => console.error('push init failed', err)),
-    new Promise((resolve) => setTimeout(resolve, PUSH_INIT_TIMEOUT)),
-  ])
-  wirePushBanner()
-  wireInstallHint()
-  connect()
+  await start()
   route()
 }
 
-boot()
+function errorText(d) {
+  if (!d || d.code === 'internal') return 'Something went wrong. Try again.'
+  return d.message || 'Something went wrong. Try again.'
+}
+
+boot().catch((err) => {
+  console.error('boot failed', err)
+  toast('Isane could not start. Reload the page.', { sticky: true, severity: 'error' })
+})

@@ -75,7 +75,7 @@ function field(placeholder, type) {
 }
 
 function card(title, description) {
-  const wrap = el('section', 'rounded-xl border border-surface0 bg-mantle p-4')
+  const wrap = el('section', 'min-w-0 rounded-xl border border-surface0 bg-mantle p-4')
   const head = el('div', 'mb-3')
   head.appendChild(el('h2', 'font-display text-sm font-semibold text-text', title))
   if (description) head.appendChild(el('p', 'text-xs text-overlay1', description))
@@ -105,10 +105,14 @@ function secretBlock(label, value) {
   const copy = button('Copy', async () => {
     try {
       await navigator.clipboard.writeText(value)
-      copy.textContent = 'Copied'
     } catch {
       copy.textContent = 'Select and copy'
+      return
     }
+    copy.textContent = 'Copied'
+    setTimeout(() => {
+      copy.textContent = 'Copy'
+    }, 2000)
   })
   row.appendChild(copy)
   wrap.appendChild(row)
@@ -116,7 +120,7 @@ function secretBlock(label, value) {
 }
 
 function table(headings) {
-  const wrap = el('div', 'overflow-x-auto')
+  const wrap = el('div', 'min-w-0 overflow-x-auto')
   const t = el('table', 'w-full text-left text-xs')
   const thead = el('thead')
   const hrow = el('tr', 'border-b border-surface0')
@@ -132,7 +136,7 @@ function table(headings) {
 function row(values) {
   const tr = el('tr', 'border-b border-surface0/50')
   for (const v of values) {
-    const td = el('td', 'px-2 py-1.5 align-middle')
+    const td = el('td', 'max-w-64 truncate px-2 py-1.5 align-middle')
     if (v instanceof Node) td.appendChild(v)
     else td.appendChild(el('span', 'text-subtext0', v == null ? '' : String(v)))
     tr.appendChild(td)
@@ -143,7 +147,7 @@ function row(values) {
 function buildUsers() {
   const section = card('Users', 'Create accounts, reset a password, or deactivate someone. Handles are never reused.')
 
-  const form = el('div', 'mb-3 grid gap-2 sm:grid-cols-4')
+  const form = el('div', 'mb-3 grid min-w-0 gap-2 sm:grid-cols-4')
   const handle = field('handle')
   const display = field('Display name')
   const email = field('email@example.com', 'email')
@@ -244,10 +248,10 @@ function buildUsers() {
 function buildInvites() {
   const section = card('Invites', 'An invite URL is displayed once. The server keeps only its hash.')
 
-  const form = el('div', 'mb-3 grid gap-2 sm:grid-cols-3')
+  const form = el('div', 'mb-3 grid min-w-0 gap-2 sm:grid-cols-3')
   const note = field('Note, for example new designer')
   const expiry = el('select', 'w-full rounded-lg border border-surface1 bg-surface0 px-2 py-1.5 text-sm text-text')
-  for (const pair of [['24h', 'Expires in 1 day'], ['168h', 'Expires in 7 days'], ['720h', 'Expires in 30 days']]) {
+  for (const pair of [['86400', 'Expires in 1 day'], ['604800', 'Expires in 7 days'], ['2592000', 'Expires in 30 days']]) {
     const option = el('option', null, pair[1])
     option.value = pair[0]
     expiry.appendChild(option)
@@ -260,7 +264,7 @@ function buildInvites() {
       clearError(section)
       create.disabled = true
       try {
-        const invite = await api.post('/api/admin/invites', { note: note.value.trim(), expires_in: expiry.value })
+        const invite = await api.post('/api/admin/invites', { note: note.value.trim(), expires_in: Number(expiry.value) })
         note.value = ''
         secrets.replaceChildren(secretBlock('Invite URL', invite.url))
         await section.load()
@@ -317,7 +321,7 @@ function buildInvites() {
 function buildChannels() {
   const section = card('Channels', 'Every active human is a member of every channel. Archiving keeps history and blocks new messages.')
 
-  const form = el('div', 'mb-3 grid gap-2 sm:grid-cols-4')
+  const form = el('div', 'mb-3 grid min-w-0 gap-2 sm:grid-cols-4')
   const slug = field('slug')
   const name = field('Name')
   const topic = field('Topic')
@@ -419,7 +423,7 @@ function buildChannels() {
 function buildAgents() {
   const section = card('Agents', 'Reserving a handle displays the claim token once. The daemon registers with it from its owner machine.')
 
-  const form = el('div', 'mb-3 grid gap-2 sm:grid-cols-3')
+  const form = el('div', 'mb-3 grid min-w-0 gap-2 sm:grid-cols-3')
   const handle = field('handle')
   const display = field('Display name')
   form.appendChild(handle)
@@ -455,14 +459,16 @@ function buildAgents() {
     try {
       const agents = await api.get('/api/admin/agents')
       const t = table(['Handle', 'Name', 'State', 'Last seen', 'History', 'Argv', ''])
-      for (const a of agents) {
+      for (const info of agents) {
+        const u = info.user || {}
+        const a = info.agent || {}
         const remove = button(
           'Delete',
           async () => {
-            if (!window.confirm('Delete agent @' + a.handle + '?')) return
+            if (!window.confirm('Delete agent @' + u.handle + '?')) return
             clearError(section)
             try {
-              await api.del('/api/admin/agents/' + a.handle)
+              await api.del('/api/admin/agents/' + u.handle)
               await section.load()
             } catch (err) {
               fail(section, err)
@@ -472,8 +478,8 @@ function buildAgents() {
         )
         t.tbody.appendChild(
           row([
-            '@' + a.handle,
-            a.display_name || '',
+            '@' + (u.handle || ''),
+            u.display_name || '',
             a.state || '',
             dateLabel(a.last_seen_at),
             a.allow_history ? 'allowed' : 'denied',
@@ -500,15 +506,7 @@ function buildStats() {
     try {
       const stats = await api.get('/api/admin/stats')
       const grid = el('dl', 'grid gap-3 sm:grid-cols-3')
-      for (const [key, value] of Object.entries(stats)) {
-        if (value && typeof value === 'object') {
-          for (const [inner, innerValue] of Object.entries(value)) {
-            grid.appendChild(statTile(key + '_' + inner, innerValue))
-          }
-          continue
-        }
-        grid.appendChild(statTile(key, value))
-      }
+      for (const [key, value] of flatten(stats)) grid.appendChild(statTile(key, value))
       list.replaceChildren(grid)
     } catch (err) {
       fail(section, err)
@@ -516,6 +514,16 @@ function buildStats() {
   }
 
   return section
+}
+
+function flatten(source, prefix) {
+  const out = []
+  for (const [key, value] of Object.entries(source || {})) {
+    const name = prefix ? prefix + '_' + key : key
+    if (value && typeof value === 'object' && !Array.isArray(value)) out.push(...flatten(value, name))
+    else out.push([name, value])
+  }
+  return out
 }
 
 function statTile(key, value) {
@@ -584,7 +592,7 @@ export function mount(root) {
   page.appendChild(gateEl)
 
   shellEl = el('div', 'hidden')
-  gridEl = el('div', 'grid gap-4 p-4')
+  gridEl = el('div', 'grid min-w-0 gap-4 p-4')
   shellEl.appendChild(gridEl)
   page.appendChild(shellEl)
 

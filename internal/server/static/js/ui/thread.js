@@ -1,5 +1,4 @@
-import { state, subscribe, notify, user, upsertMessage } from '../store.js'
-import * as api from '../api.js'
+import { state, subscribe, notify, user, findMessage, loadThread } from '../store.js'
 import * as socket from '../socket.js'
 import { renderInto } from '../render.js'
 
@@ -21,9 +20,9 @@ let noticeEl = null
 const nodes = new Map()
 const bodyText = new WeakMap()
 const loaded = new Set()
+const loading = new Set()
 
 let mountedRoot = null
-let loading = false
 let frame = 0
 let draftTimer = 0
 
@@ -67,16 +66,6 @@ function sizeLabel(n) {
     i += 1
   }
   return (i === 0 ? value : value.toFixed(1)) + ' ' + units[i]
-}
-
-function findMessage(id) {
-  for (const list of state.messages.values()) {
-    for (const m of list) if (m.id === id) return m
-  }
-  for (const list of state.threads.values()) {
-    for (const m of list) if (m.id === id) return m
-  }
-  return null
 }
 
 function avatarNode(u) {
@@ -296,22 +285,20 @@ function renderHeader(rootId) {
 }
 
 async function load(rootId) {
-  if (loading || loaded.has(rootId)) return
-  loading = true
+  if (loading.has(rootId) || loaded.has(rootId)) return
+  loading.add(rootId)
   let after = 0
   try {
     for (;;) {
-      const page = await api.get('/api/threads/' + rootId + '/messages', { after, limit: PAGE })
-      const msgs = (page && page.messages) || []
-      if (page && page.root) upsertMessage(page.root)
-      state.threadSubs.set(rootId, (page && page.subscription) || '')
-      for (const m of msgs) upsertMessage(m)
-      if (msgs.length < PAGE) break
-      after = msgs[msgs.length - 1].seq
+      const page = await loadThread(rootId, { after, limit: PAGE })
+      if (page.messages.length < PAGE) break
+      after = page.messages[page.messages.length - 1].seq
     }
     loaded.add(rootId)
-  } catch {}
-  loading = false
+  } catch (err) {
+    console.error('thread load failed', rootId, err)
+  }
+  loading.delete(rootId)
   notify('threads')
 }
 
@@ -448,7 +435,7 @@ export function mount(root) {
     }
   })
 
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('pagehide', () => {
     if (mountedRoot) saveDraft(mountedRoot, textarea.value)
   })
 

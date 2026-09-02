@@ -1,4 +1,4 @@
-import { state, subscribe, notify, user, upsertMessage } from '../store.js'
+import { state, subscribe, notify, user, findMessage, loadMessages } from '../store.js'
 import * as api from '../api.js'
 import * as socket from '../socket.js'
 import { renderInto, plainText } from '../render.js'
@@ -93,7 +93,7 @@ function conversationTitle(c) {
 function pageState(id) {
   let p = paging.get(id)
   if (!p) {
-    p = { loading: false, hasOlder: true, loaded: false }
+    p = { loading: false, hasOlder: true, hasNewer: true, loaded: false }
     paging.set(id, p)
   }
   return p
@@ -171,11 +171,7 @@ function attachmentNode(a) {
 
 function parentOf(m) {
   if (!m.reply_to_id) return null
-  const list = state.messages.get(m.container_id) || []
-  for (const candidate of list) {
-    if (candidate.id === m.reply_to_id) return candidate
-  }
-  return m.reply_to || null
+  return findMessage(m.reply_to_id)
 }
 
 function replyQuoteNode(m) {
@@ -531,13 +527,11 @@ function highlight(seq) {
 async function openContainer(cid) {
   const p = pageState(cid)
   const jump = Number(new URLSearchParams(location.search).get('m')) || 0
-  const existing = state.messages.get(cid) || []
 
   if (jump) {
     p.loading = true
     try {
-      const page = await api.get('/api/containers/' + cid + '/messages', { around: jump, limit: PAGE })
-      state.messages.set(cid, page.slice().sort((a, b) => a.seq - b.seq))
+      const page = await loadMessages(cid, { around: jump, limit: PAGE })
       p.hasOlder = page.length >= PAGE
       p.loaded = true
       jumpTarget = jump
@@ -550,8 +544,7 @@ async function openContainer(cid) {
     return
   }
 
-  if (existing.length) {
-    p.loaded = true
+  if (p.loaded) {
     render()
     scrollEl.scrollTop = scrollEl.scrollHeight
     return
@@ -559,8 +552,7 @@ async function openContainer(cid) {
 
   p.loading = true
   try {
-    const page = await api.get('/api/containers/' + cid + '/messages', { limit: PAGE })
-    for (const m of page) upsertMessage(m)
+    const page = await loadMessages(cid, { limit: PAGE })
     p.hasOlder = page.length >= PAGE
     p.loaded = true
   } catch {
@@ -583,8 +575,7 @@ async function loadOlder() {
   p.loading = true
   const previousHeight = scrollEl.scrollHeight
   try {
-    const page = await api.get('/api/containers/' + cid + '/messages', { before: list[0].seq, limit: PAGE })
-    for (const m of page) upsertMessage(m)
+    const page = await loadMessages(cid, { before: list[0].seq, limit: PAGE })
     p.hasOlder = page.length >= PAGE
   } catch {
     p.hasOlder = false
@@ -603,14 +594,13 @@ async function loadNewer() {
   const newest = list[list.length - 1].seq
   if (newest >= (c.last_seq || 0)) return
   const p = pageState(cid)
-  if (p.loading) return
+  if (p.loading || !p.hasNewer) return
 
   p.loading = true
   try {
-    const page = await api.get('/api/containers/' + cid + '/messages', { after: newest, limit: PAGE })
-    for (const m of page) upsertMessage(m)
+    await loadMessages(cid, { after: newest, limit: PAGE })
   } catch {
-    p.loaded = true
+    p.hasNewer = false
   }
   p.loading = false
   render()

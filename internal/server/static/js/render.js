@@ -346,7 +346,6 @@ export function renderMarkdown(src) {
   initMarked()
   const text = String(src ?? '')
   const host = document.createElement('div')
-  host.className = 'markdown-body'
   const html = typeof marked === 'undefined' ? `<p>${escapeHtml(text)}</p>` : marked.parse(text)
   sanitizeInto(host, html)
   decorate(host)

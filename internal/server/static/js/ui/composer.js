@@ -1,4 +1,4 @@
-import { state, subscribe, notify, user, upsertMessage } from '../store.js'
+import { state, subscribe, notify, user, mergeMessage } from '../store.js'
 import * as api from '../api.js'
 import * as socket from '../socket.js'
 import { renderMarkdown } from '../render.js'
@@ -30,6 +30,7 @@ let mentionStart = 0
 let lastTyping = 0
 let draftTimer = 0
 let previewTimer = 0
+let typingTimer = 0
 let frame = 0
 
 function el(tag, cls, text) {
@@ -72,6 +73,7 @@ function saveDraft(id, value) {
 }
 
 function autosize() {
+  if (!textarea.offsetParent) return
   textarea.style.height = 'auto'
   textarea.style.height = Math.min(textarea.scrollHeight, 320) + 'px'
 }
@@ -130,10 +132,23 @@ function renderTyping() {
       names.push(user(userId).display_name)
     }
   }
-  typingEl.classList.toggle('hidden', names.length === 0)
-  if (!names.length) return
-  const label = names.length === 1 ? names[0] + ' is typing' : names.slice(0, 3).join(', ') + ' are typing'
-  typingEl.textContent = label
+  typingEl.textContent = names.length === 1
+    ? names[0] + ' is typing'
+    : names.length ? names.slice(0, 3).join(', ') + ' are typing' : ''
+  scheduleTypingSweep(names.length > 0)
+}
+
+function scheduleTypingSweep(active) {
+  if (!active) {
+    clearTimeout(typingTimer)
+    typingTimer = 0
+    return
+  }
+  if (typingTimer) return
+  typingTimer = setTimeout(() => {
+    typingTimer = 0
+    renderTyping()
+  }, 1000)
 }
 
 function updateSendState() {
@@ -307,7 +322,7 @@ async function submit() {
   try {
     const saved = await api.post('/api/containers/' + c.id + '/messages', payload)
     state.pending.delete(clientId)
-    upsertMessage(saved)
+    mergeMessage(saved)
     notify('pending', 'messages')
   } catch {
     optimistic.pending = false
@@ -341,6 +356,7 @@ function render() {
     if (previewOpen) previewEl.replaceChildren(renderMarkdown(textarea.value))
   }
   renderNotice(c)
+  autosize()
   renderReply()
   renderTyping()
   updateSendState()
@@ -469,7 +485,7 @@ export function mount(root) {
     if (files.length) addFiles(files)
   })
 
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('pagehide', () => {
     if (currentContainer) saveDraft(currentContainer, textarea.value)
   })
 
@@ -491,8 +507,6 @@ export function mount(root) {
       })
     }
   })
-
-  setInterval(renderTyping, 1000)
 
   subscribe(scheduleRender)
   render()

@@ -2,8 +2,6 @@ import { state, subscribe, notify, user } from '../store.js'
 import * as api from '../api.js'
 import { plainText } from '../render.js'
 
-const LAST_CONTAINER_KEY = 'isane:last-container'
-
 let rootEl = null
 let backdropEl = null
 let panelEl = null
@@ -23,7 +21,6 @@ let searchTerm = ''
 let searchResults = []
 let searchBusy = false
 let frame = 0
-let lastPersisted = null
 
 function el(tag, cls, text) {
   const node = document.createElement(tag)
@@ -255,7 +252,8 @@ function renderSearchResults() {
     return
   }
 
-  for (const m of searchResults) {
+  for (const hit of searchResults) {
+    const m = hit && hit.message ? hit.message : hit
     const c = state.containers.get(m.container_id)
     const row = el('button', 'block w-full rounded-lg px-2 py-1.5 text-left hover:bg-surface0')
     row.type = 'button'
@@ -347,19 +345,7 @@ function avatarNode(u, size) {
   return node
 }
 
-function persistCurrent() {
-  const id = state.current.containerId
-  if (!id || id === lastPersisted) return
-  lastPersisted = id
-  try {
-    localStorage.setItem(LAST_CONTAINER_KEY, id)
-  } catch {
-    lastPersisted = null
-  }
-}
-
 function render() {
-  persistCurrent()
   renderChannels()
   renderConversations()
   renderFooter()

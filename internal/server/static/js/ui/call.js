@@ -198,8 +198,7 @@ function detachVideo(identity, source, track) {
 }
 
 function labelOf(participant) {
-  const u = user(participant.identity)
-  if (u && u.display_name) return u.display_name
+  if (state.users.has(participant.identity)) return user(participant.identity).display_name
   return participant.name || participant.identity
 }
 
@@ -509,7 +508,9 @@ export function mount(root) {
   })
 
   for (const event of ['pointerdown', 'pointermove', 'keydown', 'touchstart']) {
-    window.addEventListener(event, resetIdle, { passive: true })
+    window.addEventListener(event, () => {
+      if (joined) resetIdle()
+    }, { passive: true })
   }
 
   window.addEventListener('pagehide', () => {
