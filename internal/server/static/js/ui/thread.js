@@ -23,6 +23,7 @@ const loading = new Set()
 const editing = new Set()
 
 let mountedRoot = null
+let headerSignature = ''
 let frame = 0
 
 const ctx = {
@@ -156,7 +157,16 @@ function paintMute(rootId, button) {
   drawIcons(button)
 }
 
+function headerSignatureOf(rootId) {
+  const c = rootContainer(rootId)
+  const root = findMessage(rootId)
+  return [rootId, c ? c.id : '', c ? c.name || c.slug : '', root ? root.thread_reply_count : -1].join('|')
+}
+
 function renderHeader(rootId) {
+  const signature = headerSignatureOf(rootId)
+  if (signature === headerSignature) return
+  headerSignature = signature
   headerEl.replaceChildren()
   const bar = el('header', 'flex h-12 shrink-0 items-center gap-2 border-b border-surface0 px-3')
   bar.appendChild(icon('message-square-text', 'h-5 w-5 shrink-0 text-overlay1'))
@@ -220,14 +230,15 @@ function render() {
 
   if (rootId !== mountedRoot) {
     mountedRoot = rootId
+    headerSignature = ''
     nodes.clear()
     editing.clear()
     listEl.replaceChildren()
-    renderHeader(rootId)
     load(rootId)
     queueMicrotask(() => composer.focus())
   }
 
+  renderHeader(rootId)
   renderRootBlock(rootId)
   const list = replies(rootId)
   dividerEl.textContent = list.length === 1 ? '1 reply' : list.length + ' replies'
