@@ -99,6 +99,15 @@ async function resubscribe() {
     });
 }
 
+// Removing this leaves a new worker in waiting until every client closes, which a home screen PWA never does.
+self.addEventListener('install', (event) => {
+    event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('fetch', () => {});
 
 self.addEventListener('push', (event) => {
