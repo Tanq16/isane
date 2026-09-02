@@ -114,7 +114,10 @@ mkdir -p data/postgres data/media/recordings
 sudo chown -R 10001:10001 data/media
 sudo chown 10001:0 data/media/recordings
 sudo chmod 2775 data/media/recordings
+sudo chown 10001:10001 config.yaml && sudo chmod 600 config.yaml
 ```
+
+`config.yaml` needs that ownership too. It is mounted read-only into the application container, which reads it as UID 10001, so a file left at mode 600 owned by the deploying user crash-loops the container with `permission denied` before anything else starts.
 
 **5. Start the stack.**
 

@@ -1,4 +1,11 @@
 chat.example.com {
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        X-Robots-Tag noindex
+        -Server
+    }
     handle /livekit/* {
         uri strip_prefix /livekit
         reverse_proxy 127.0.0.1:7880
