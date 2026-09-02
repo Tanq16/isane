@@ -85,7 +85,7 @@ $(TAILWIND_BIN): $(MAKEFILE_LIST)
 	test -n "$$want" && test "$$want" = "$$got" || { echo "checksum mismatch: $(TAILWIND_ASSET)"; exit 1; }; \
 	chmod +x "$(TAILWIND_BIN)"
 
-$(CSS_DIR)/app.css: $(CSS_DIR)/input.css $(TAILWIND_BIN)
+$(CSS_DIR)/app.css: $(CSS_DIR)/input.css $(TAILWIND_BIN) $(STATIC_DIR)/index.html $(shell find $(STATIC_DIR)/js -name '*.js')
 	@$(TAILWIND_BIN) -i $(CSS_DIR)/input.css -o $@ --minify
 	@echo "$(GREEN)Built: $@$(NC)"
 
