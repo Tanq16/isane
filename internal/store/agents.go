@@ -13,7 +13,7 @@ import (
 const agentColumns = `user_id, state, claim_token_hash, allow_history, argv, registered_at, last_seen_at`
 
 const agentInfoColumns = `u.id, u.kind, u.handle, u.display_name, u.avatar_id, u.email,
-	u.password_hash, u.is_admin, u.created_at, u.deactivated_at,
+	u.password_hash, u.is_admin, u.mark_read_on_open, u.created_at, u.deactivated_at,
 	a.user_id, a.state, a.claim_token_hash, a.allow_history, a.argv, a.registered_at, a.last_seen_at`
 
 const agentInfoFrom = ` from agents a join users u on u.id = a.user_id`
@@ -31,7 +31,8 @@ func scanAgent(row pgx.Row) (Agent, error) {
 func scanAgentInfo(row pgx.Row) (AgentInfo, error) {
 	var i AgentInfo
 	err := row.Scan(&i.User.ID, &i.User.Kind, &i.User.Handle, &i.User.DisplayName, &i.User.AvatarID,
-		&i.User.Email, &i.User.PasswordHash, &i.User.IsAdmin, &i.User.CreatedAt, &i.User.DeactivatedAt,
+		&i.User.Email, &i.User.PasswordHash, &i.User.IsAdmin, &i.User.MarkReadOnOpen,
+		&i.User.CreatedAt, &i.User.DeactivatedAt,
 		&i.Agent.UserID, &i.Agent.State, &i.Agent.ClaimTokenHash, &i.Agent.AllowHistory, &i.Agent.Argv,
 		&i.Agent.RegisteredAt, &i.Agent.LastSeenAt)
 	return i, err

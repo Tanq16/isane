@@ -60,8 +60,9 @@ type acceptInviteRequest struct {
 }
 
 type profileRequest struct {
-	DisplayName *string    `json:"display_name"`
-	AvatarID    *uuid.UUID `json:"avatar_id"`
+	DisplayName    *string    `json:"display_name"`
+	AvatarID       *uuid.UUID `json:"avatar_id"`
+	MarkReadOnOpen *bool      `json:"mark_read_on_open"`
 }
 
 type passwordRequest struct {
@@ -159,6 +160,12 @@ func (h *Auth) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if err := h.app.DB.UpdateProfile(r.Context(), u.ID, displayName, avatarID); err != nil {
 		WriteError(w, err)
 		return
+	}
+	if req.MarkReadOnOpen != nil {
+		if err := h.app.DB.SetMarkReadOnOpen(r.Context(), u.ID, *req.MarkReadOnOpen); err != nil {
+			WriteError(w, err)
+			return
+		}
 	}
 	updated, err := h.app.DB.GetUser(r.Context(), u.ID)
 	if err != nil {

@@ -22,12 +22,12 @@ func (db *DB) SessionByTokenHash(ctx context.Context, hash []byte, notBefore tim
 	err := db.Pool.QueryRow(ctx, `select s.id, s.token_hash, s.user_id, s.created_at, s.last_seen_at,
 			s.expires_at, s.user_agent, s.ip,
 			u.id, u.kind, u.handle, u.display_name, u.avatar_id, u.email, u.password_hash,
-			u.is_admin, u.created_at, u.deactivated_at
+			u.is_admin, u.mark_read_on_open, u.created_at, u.deactivated_at
 		from sessions s join users u on u.id = s.user_id
 		where s.token_hash = $1 and s.expires_at > now() and s.created_at > $2`, hash, notBefore).
 		Scan(&s.ID, &s.TokenHash, &s.UserID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.UserAgent, &s.IP,
 			&u.ID, &u.Kind, &u.Handle, &u.DisplayName, &u.AvatarID, &u.Email, &u.PasswordHash,
-			&u.IsAdmin, &u.CreatedAt, &u.DeactivatedAt)
+			&u.IsAdmin, &u.MarkReadOnOpen, &u.CreatedAt, &u.DeactivatedAt)
 	if err != nil {
 		return Session{}, User{}, fmt.Errorf("session by token hash: %w", mapErr(err))
 	}
