@@ -244,13 +244,8 @@ func (h *Containers) SetNotificationPref(w http.ResponseWriter, r *http.Request)
 		WriteError(w, err)
 		return
 	}
-	c, err := containerFor(r.Context(), h.app, id, u.ID)
-	if err != nil {
+	if _, err := containerFor(r.Context(), h.app, id, u.ID); err != nil {
 		WriteError(w, err)
-		return
-	}
-	if c.Kind != store.ContainerChannel {
-		WriteError(w, badRequestf("a notification level applies to channels only"))
 		return
 	}
 	var req notificationPrefRequest

@@ -86,12 +86,9 @@ type routing struct {
 }
 
 func (rt routing) shouldNotify(userID uuid.UUID, m store.Message, c store.Container) bool {
-	if c.Kind == store.ContainerConversation {
-		return true
-	}
 	level := rt.prefs[userID]
 	if level == "" {
-		level = store.LevelMentions
+		level = store.DefaultNotificationLevel(c.Kind)
 	}
 	if level == store.LevelNone {
 		return false
@@ -134,16 +131,14 @@ func (r *Router) recipients(ctx context.Context, m store.Message, author store.U
 	for _, id := range mentionIDs {
 		rt.mentioned[id] = struct{}{}
 	}
-	if c.Kind == store.ContainerChannel {
-		rt.prefs, err = r.db.NotificationPrefsFor(ctx, c.ID)
+	rt.prefs, err = r.db.NotificationPrefsFor(ctx, c.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list notification prefs: %w", err)
+	}
+	if m.ThreadRootID != nil {
+		rt.threads, err = r.db.ThreadSubscriptions(ctx, *m.ThreadRootID)
 		if err != nil {
-			return nil, fmt.Errorf("list notification prefs: %w", err)
-		}
-		if m.ThreadRootID != nil {
-			rt.threads, err = r.db.ThreadSubscriptions(ctx, *m.ThreadRootID)
-			if err != nil {
-				return nil, fmt.Errorf("list thread subscriptions: %w", err)
-			}
+			return nil, fmt.Errorf("list thread subscriptions: %w", err)
 		}
 	}
 	out := make([]uuid.UUID, 0, len(memberIDs))

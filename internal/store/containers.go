@@ -37,7 +37,7 @@ select v.id, v.kind, v.slug, v.name, v.topic, v.last_seq, v.created_by, v.create
 		  and m.seq > coalesce(r.last_read_seq, 0)
 		  and m.deleted_at is null) as unread,
 	mc.n as mentions,
-	coalesce(np.level::text, 'mentions') as level,
+	coalesce(np.level::text, case when v.kind = 'conversation' then 'all' else 'mentions' end) as level,
 	coalesce(pp.ids, '{}'::uuid[]) as participants
 from visible v
 left join read_markers r on r.container_id = v.id and r.user_id = $1

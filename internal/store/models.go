@@ -28,6 +28,13 @@ const (
 	LevelNone     NotificationLevel = "none"
 )
 
+func DefaultNotificationLevel(kind ContainerKind) NotificationLevel {
+	if kind == ContainerConversation {
+		return LevelAll
+	}
+	return LevelMentions
+}
+
 type ThreadSubState string
 
 const (
