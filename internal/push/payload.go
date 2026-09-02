@@ -36,6 +36,9 @@ type ref struct {
 
 func buildPayload(publicURL string, m store.Message, author store.User, c store.Container, badge int64) payload {
 	text := markdown.Truncate(markdown.PlainText(m.Body), bodyLimit)
+	if text == "" {
+		text = attachmentSummary(len(m.Attachments))
+	}
 	title := author.DisplayName
 	body := text
 	if c.Kind == store.ContainerChannel {
@@ -54,6 +57,17 @@ func buildPayload(publicURL string, m store.Message, author store.User, c store.
 			AppBadge: strconv.FormatInt(badge, 10),
 		},
 		X: ref{ContainerID: m.ContainerID, MessageID: m.ID, Seq: m.Seq},
+	}
+}
+
+func attachmentSummary(n int) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "1 attachment"
+	default:
+		return strconv.Itoa(n) + " attachments"
 	}
 }
 
