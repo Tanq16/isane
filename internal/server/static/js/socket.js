@@ -25,6 +25,7 @@ let offlineTimer = null
 let awaitingPong = false
 let outbox = []
 let helloEndpoint = null
+let hiddenAt = 0
 
 export function isLive() {
   return Boolean(ws) && ws.readyState === WebSocket.OPEN
@@ -192,7 +193,16 @@ function revive() {
 
 document.addEventListener('visibilitychange', () => {
   if (isLive()) write('visibility', { visible: pageVisible() })
-  if (pageVisible()) revive()
+  if (!pageVisible()) {
+    hiddenAt = Date.now()
+    return
+  }
+  if (isLive() && hiddenAt && Date.now() - hiddenAt > PING_INTERVAL) {
+    attempt = 0
+    ws.close()
+    return
+  }
+  revive()
 })
 window.addEventListener('online', revive)
 
