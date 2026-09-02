@@ -723,7 +723,7 @@ export function mount(root) {
 
   const header = el('header', 'flex h-12 shrink-0 items-center gap-3 px-4')
   header.appendChild(iconButton('arrow-left', 'Back to chat', () => navigate('/')))
-  titleEl = el('h1', 'min-w-0 shrink-0 font-display text-xl font-semibold text-text', 'Administration')
+  titleEl = el('h1', 'hidden min-w-0 shrink truncate font-display text-xl font-semibold text-text sm:block', 'Administration')
   header.appendChild(titleEl)
 
   railEl = el('nav', 'ml-auto flex items-center gap-1 rounded-full bg-base p-1')
