@@ -1,7 +1,6 @@
 import { get } from './api.js'
 import { state, notify, upsertContainer, upsertMessage, findMessage, loadMessages } from './store.js'
-import { currentEndpoint, currentRegistration, onEndpoint } from './push.js'
-import { plainText } from './render.js'
+import { currentEndpoint, onEndpoint } from './push.js'
 import { play } from './sound.js'
 
 const RECONNECT_MIN = 1000
@@ -11,8 +10,6 @@ const PING_INTERVAL = 30000
 const TYPING_TTL = 5000
 const OUTBOX_LIMIT = 200
 const BACKFILL_PAGES = 40
-const NOTIFICATION_ICON = '/static/icons/icon-192.png'
-const VIBRATE = [200, 100, 200]
 
 const listeners = new Map()
 
@@ -397,43 +394,12 @@ function shouldAnnounce(container, m) {
   return level === 'all' || mentioned
 }
 
-function announcement(container, m) {
-  const author = state.users.get(m.author_id)
-  const name = (author && author.display_name) || 'Someone'
-  const text = plainText(m.body || '')
-  if (container.kind !== 'channel') return { title: name, body: text }
-  const title = container.slug ? '#' + container.slug : container.name || 'Isane'
-  return { title, body: text ? name + ': ' + text : name }
-}
-
-function announcePath(container, m) {
-  if (m.thread_root_id) return '/t/' + m.thread_root_id
-  const path = container.kind === 'channel' && container.slug
-    ? '/c/' + encodeURIComponent(container.slug)
-    : '/d/' + container.id
-  return path + '?m=' + (m.seq ?? 0)
-}
-
 function announce(m, container) {
   if (!container) return
   if (state.me && m.author_id === state.me.id) return
   if (pageVisible() && state.current.containerId === m.container_id) return
   if (!shouldAnnounce(container, m)) return
   play()
-  if (!pageVisible()) return
-  const registration = currentRegistration()
-  if (!registration || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  const { title, body } = announcement(container, m)
-  registration.showNotification(title, {
-    body,
-    icon: NOTIFICATION_ICON,
-    badge: NOTIFICATION_ICON,
-    tag: m.container_id,
-    renotify: true,
-    silent: false,
-    vibrate: VIBRATE,
-    data: { navigate: announcePath(container, m), container_id: m.container_id, message_id: m.id, seq: m.seq },
-  }).catch((err) => console.error('in-page notification failed', err))
 }
 
 function onEdited(d) {
