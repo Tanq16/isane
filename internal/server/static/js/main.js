@@ -2,6 +2,7 @@ import { get, post, onUnauthorized, ApiError } from './api.js'
 import { state, subscribe, notify, findMessage, loadThread } from './store.js'
 import { connect, stop as stopSocket, on as onSocket } from './socket.js'
 import { initPush, enablePush, pushSupported } from './push.js'
+import * as badge from './badge.js'
 import * as sidebar from './ui/sidebar.js'
 import * as timeline from './ui/timeline.js'
 import * as composer from './ui/composer.js'
@@ -438,6 +439,7 @@ async function start() {
   started = true
   mountAll()
   wireSidebarResize()
+  badge.mount()
   connect()
   loadUsers()
   Promise.race([
