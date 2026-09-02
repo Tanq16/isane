@@ -21,8 +21,7 @@ const (
 )
 
 type Presence interface {
-	EndpointLive(userID uuid.UUID, endpoint string, within time.Duration) bool
-	Online(userID uuid.UUID) bool
+	EndpointVisible(userID uuid.UUID, endpoint string, within time.Duration) bool
 }
 
 type Router struct {
@@ -173,19 +172,14 @@ func (r *Router) targets(ctx context.Context, userID uuid.UUID, m store.Message,
 	if err != nil {
 		return nil, fmt.Errorf("list push subscriptions: %w", err)
 	}
-	offline := make([]store.PushSubscription, 0, len(subs))
-	var matched bool
+	hidden := make([]store.PushSubscription, 0, len(subs))
 	for _, s := range subs {
-		if r.presence.EndpointLive(userID, s.Endpoint, socketWindow) {
-			matched = true
+		if r.presence.EndpointVisible(userID, s.Endpoint, socketWindow) {
 			continue
 		}
-		offline = append(offline, s)
+		hidden = append(hidden, s)
 	}
-	if len(offline) == 0 {
-		return nil, nil
-	}
-	if !matched && r.presence.Online(userID) {
+	if len(hidden) == 0 {
 		return nil, nil
 	}
 	badge, err := r.db.TotalMentions(ctx, userID)
@@ -196,8 +190,8 @@ func (r *Router) targets(ctx context.Context, userID uuid.UUID, m store.Message,
 	if err != nil {
 		return nil, fmt.Errorf("encode push payload: %w", err)
 	}
-	out := make([]target, 0, len(offline))
-	for _, s := range offline {
+	out := make([]target, 0, len(hidden))
+	for _, s := range hidden {
 		out = append(out, target{sub: s, body: bytes.Clone(body)})
 	}
 	return out, nil

@@ -32,6 +32,7 @@ type Conn struct {
 
 	lastSeen atomic.Int64
 	endpoint atomic.Pointer[string]
+	visible  atomic.Bool
 }
 
 func newConn(h *Hub, ws *websocket.Conn, u store.User) *Conn {
@@ -48,6 +49,7 @@ func newConn(h *Hub, ws *websocket.Conn, u store.User) *Conn {
 		close(c.done)
 		cancel()
 	})
+	c.visible.Store(true)
 	c.touch()
 	return c
 }
@@ -72,7 +74,11 @@ func (c *Conn) Send(f Frame) {
 	}
 }
 
+func (c *Conn) Visible() bool { return c.visible.Load() }
+
 func (c *Conn) setPushEndpoint(endpoint string) { c.endpoint.Store(&endpoint) }
+
+func (c *Conn) setVisible(visible bool) { c.visible.Store(visible) }
 
 func (c *Conn) touch() { c.lastSeen.Store(time.Now().UnixNano()) }
 
