@@ -99,7 +99,9 @@ function initMarked() {
       return `<h${depth} id="${slug(text.replace(/<[^>]*>/g, ''))}">${text}</h${depth}>`
     },
     image(token) {
-      return `<img src="${escapeHtml(token.href ?? '')}" alt="${escapeHtml(token.text ?? '')}">`
+      const width = Number(token.width) > 0 ? ` width="${Math.round(token.width)}"` : ''
+      const height = Number(token.height) > 0 ? ` height="${Math.round(token.height)}"` : ''
+      return `<img src="${escapeHtml(token.href ?? '')}" alt="${escapeHtml(token.text ?? '')}"${width}${height}>`
     },
     blockquote(token) {
       const body = this.parser.parse(token.tokens)
@@ -317,7 +319,6 @@ function addCopyButtons(root) {
 
 function decorate(root) {
   for (const img of root.querySelectorAll('img')) {
-    img.loading = 'lazy'
     img.style.maxWidth = '100%'
     img.style.borderRadius = '0.5rem'
   }

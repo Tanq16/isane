@@ -50,6 +50,10 @@ function attachmentNode(a) {
     video.preload = 'metadata'
     video.poster = href + '/thumb'
     video.src = href
+    if (a.width && a.height) {
+      video.width = a.width
+      video.height = a.height
+    }
     return video
   }
 
