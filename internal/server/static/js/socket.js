@@ -395,11 +395,11 @@ function announcePath(container, m) {
 }
 
 function announce(m, container) {
-  if (!container) return
+  if (!container || !pageVisible()) return
   if (state.me && m.author_id === state.me.id) return
-  if (pageVisible() && state.current.containerId === m.container_id) return
+  if (state.current.containerId === m.container_id) return
   if (!shouldAnnounce(container, m)) return
-  if (pageVisible()) play()
+  play()
   const registration = currentRegistration()
   if (!registration || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   const { title, body } = announcement(container, m)
