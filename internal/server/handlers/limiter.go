@@ -8,13 +8,16 @@ import (
 )
 
 const (
-	freeAttempts   = 5
+	freeAccountAttempts = 5
+	freeSourceAttempts  = 20
+
 	backoffBase    = time.Second
 	backoffCeiling = 15 * time.Minute
 	attemptTTL     = time.Hour
 )
 
 type limiter struct {
+	free  int
 	mu    sync.Mutex
 	seen  map[string]*attempts
 	swept time.Time
@@ -26,8 +29,8 @@ type attempts struct {
 	touched  time.Time
 }
 
-func newLimiter() *limiter {
-	return &limiter{seen: make(map[string]*attempts)}
+func newLimiter(free int) *limiter {
+	return &limiter{free: free, seen: make(map[string]*attempts)}
 }
 
 func (l *limiter) retryAfter(keys ...string) time.Duration {
@@ -61,8 +64,8 @@ func (l *limiter) fail(keys ...string) {
 		}
 		a.failures++
 		a.touched = now
-		if a.failures > freeAttempts {
-			a.until = now.Add(min(backoffBase<<(a.failures-freeAttempts-1), backoffCeiling))
+		if a.failures > l.free {
+			a.until = now.Add(min(backoffBase<<(a.failures-l.free-1), backoffCeiling))
 		}
 	}
 }

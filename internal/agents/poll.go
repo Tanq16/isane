@@ -51,7 +51,7 @@ func (s *Service) Complete(ctx context.Context, a store.AgentInfo, jobID uuid.UU
 		return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, store.ErrNotFound)
 	}
 	if job.State != store.JobDispatched {
-		return store.AgentJob{}, fmt.Errorf("complete job %s in state %s: %w", jobID, job.State, store.ErrConflict)
+		return store.AgentJob{}, fmt.Errorf("complete job %s: %w: the job is already %s", jobID, store.ErrConflict, job.State)
 	}
 
 	errText = strings.TrimSpace(errText)

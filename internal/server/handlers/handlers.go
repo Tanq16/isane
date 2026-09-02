@@ -122,16 +122,16 @@ func WriteError(w http.ResponseWriter, err error) {
 
 func userMessage(err, sentinel error) string {
 	sentinelText := sentinel.Error()
-	kept := make([]string, 0, 3)
-	for _, part := range strings.Split(err.Error(), ": ") {
-		if part != sentinelText {
-			kept = append(kept, part)
-		}
-	}
-	if len(kept) == 0 {
+	parts := strings.Split(err.Error(), ": ")
+	if parts[len(parts)-1] == sentinelText {
 		return sentinelText
 	}
-	return kept[len(kept)-1]
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != sentinelText {
+			return parts[i]
+		}
+	}
+	return sentinelText
 }
 
 func ReadJSON(r *http.Request, v any) error {

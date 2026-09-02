@@ -108,7 +108,7 @@ const (
 	firstChannelTopic = "Everything that does not have a home yet"
 )
 
-var errInviteUnusable = fmt.Errorf("this invite link is no longer valid: %w", ErrConflict)
+var errInviteUnusable = fmt.Errorf("%w: this invite link is no longer valid", ErrConflict)
 
 func nullUUID(id uuid.UUID) *uuid.UUID {
 	if id == uuid.Nil() {

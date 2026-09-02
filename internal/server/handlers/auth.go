@@ -25,13 +25,17 @@ const minPasswordLength = 8
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 type Auth struct {
-	app     *app.App
-	logins  *limiter
-	invites *limiter
+	app      *app.App
+	accounts *limiter
+	sources  *limiter
 }
 
 func NewAuth(a *app.App) *Auth {
-	return &Auth{app: a, logins: newLimiter(), invites: newLimiter()}
+	return &Auth{
+		app:      a,
+		accounts: newLimiter(freeAccountAttempts),
+		sources:  newLimiter(freeSourceAttempts),
+	}
 }
 
 var decoyHash = sync.OnceValue(func() string {
@@ -76,8 +80,8 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, badRequestf("handle or email and password are required"))
 		return
 	}
-	source, account := requestKey(r), "account:"+strings.ToLower(ident)
-	if wait := h.logins.retryAfter(source, account); wait > 0 {
+	source, account := requestKey(r), strings.ToLower(ident)
+	if wait := max(h.sources.retryAfter(source), h.accounts.retryAfter(account)); wait > 0 {
 		writeRetryAfter(w, wait, "too many sign-in attempts, try again shortly")
 		return
 	}
@@ -91,11 +95,13 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		stored = *u.PasswordHash
 	}
 	if !auth.VerifyPassword(stored, req.Password) || err != nil || !u.Active() || u.PasswordHash == nil {
-		h.logins.fail(source, account)
+		h.sources.fail(source)
+		h.accounts.fail(account)
 		WriteError(w, errInvalidLogin())
 		return
 	}
-	h.logins.succeed(source, account)
+	h.sources.succeed(source)
+	h.accounts.succeed(account)
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
@@ -184,7 +190,7 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	source := requestKey(r)
-	if wait := h.invites.retryAfter(source); wait > 0 {
+	if wait := h.sources.retryAfter(source); wait > 0 {
 		writeRetryAfter(w, wait, "too many invite attempts, try again shortly")
 		return
 	}
@@ -218,11 +224,11 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		PasswordHash: &hash,
 	})
 	if err != nil {
-		h.invites.fail(source)
+		h.sources.fail(source)
 		WriteError(w, err)
 		return
 	}
-	h.invites.succeed(source)
+	h.sources.succeed(source)
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return

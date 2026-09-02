@@ -36,7 +36,7 @@ func (db *DB) UpsertPushSubscription(ctx context.Context, s PushSubscription) (P
 		s.ID, s.UserID, s.Endpoint, s.P256dh, s.Auth, s.UserAgent))
 	if err != nil {
 		if errors.Is(mapErr(err), ErrNotFound) {
-			return PushSubscription{}, fmt.Errorf("upsert push subscription: this endpoint is registered to another account: %w", ErrConflict)
+			return PushSubscription{}, fmt.Errorf("upsert push subscription: %w: this endpoint is registered to another account", ErrConflict)
 		}
 		return PushSubscription{}, fmt.Errorf("upsert push subscription: %w", mapErr(err))
 	}
