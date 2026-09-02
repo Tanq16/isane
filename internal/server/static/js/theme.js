@@ -9,7 +9,7 @@ function meta(name) {
   return document.querySelector(`meta[name="${name}"]`)
 }
 
-export function applyTheme(theme) {
+function applyTheme(theme) {
   const dark = theme !== 'light'
   document.documentElement.classList.toggle('dark', dark)
   const color = meta('theme-color')

@@ -1,7 +1,7 @@
 import * as api from '../api.js'
 import { state, subscribe, notify, upsertContainer } from '../store.js'
 import { dateLabel, drawIcons, el, emptyState, field, icon, iconButton, navigate, sizeLabel, textButton } from './dom.js'
-import { confirmModal, openModal, promptModal } from './modal.js'
+import { confirmModal, promptModal } from './modal.js'
 import { slugify } from './settings.js'
 import { toast } from './toast.js'
 

@@ -70,7 +70,7 @@ export function field(labelText, opts = {}) {
   return { wrap, input }
 }
 
-export function hueFor(id) {
+function hueFor(id) {
   const key = String(id || '')
   let sum = 0
   for (let i = 0; i < key.length; i++) sum += key.charCodeAt(i)

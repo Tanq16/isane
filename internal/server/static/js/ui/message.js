@@ -6,11 +6,11 @@ import { confirmModal, openModal } from './modal.js'
 
 export const GROUP_WINDOW = 7 * 60 * 1000
 
-export function mentionsMe(m) {
+function mentionsMe(m) {
   return Boolean(state.me && Array.isArray(m.mentions) && m.mentions.includes(state.me.id))
 }
 
-export function attachmentNode(a) {
+function attachmentNode(a) {
   if (a.state !== 'ready') {
     const wrap = el('div', 'mt-2 flex max-w-md items-center gap-2 rounded-xl bg-base px-3 py-2 text-xs')
     wrap.appendChild(el('span', 'min-w-0 flex-1 truncate text-subtext0', a.original_name || 'Attachment'))
