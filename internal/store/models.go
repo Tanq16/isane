@@ -182,6 +182,7 @@ type Message struct {
 	ThreadRootID      *uuid.UUID   `json:"thread_root_id,omitempty"`
 	ClientID          string       `json:"client_id"`
 	IsSystem          bool         `json:"is_system"`
+	CallID            *uuid.UUID   `json:"call_id,omitempty"`
 	ThreadReplyCount  int          `json:"thread_reply_count"`
 	ThreadLastReplyAt *time.Time   `json:"thread_last_reply_at,omitempty"`
 	CreatedAt         time.Time    `json:"created_at"`
@@ -199,6 +200,7 @@ type NewMessage struct {
 	ReplyToID     *uuid.UUID
 	ThreadRootID  *uuid.UUID
 	IsSystem      bool
+	CallID        *uuid.UUID
 	AttachmentIDs []uuid.UUID
 	MentionIDs    []uuid.UUID
 }
