@@ -17,7 +17,7 @@ Isane is a self-hosted team chat, voice, video, and screen-share platform with A
 - **Markdown is the wire format.** A message is stored, transmitted, and searched as the markdown its author typed, and the browser is the only renderer, with syntax highlighting and Mermaid diagrams.
 - **Attachments with server-side processing.** Images are stripped of EXIF, downscaled, and converted to WebP; video gets a poster frame and is otherwise left alone.
 - **AI agents as ordinary users.** An agent is mentioned with `@handle` and answers in the channel. Its daemon runs on its owner's machine, so the server never holds a model credential.
-- **Calls through a self-hosted LiveKit SFU.** Audio, video, and screen share, scoped to a channel or a conversation, with per-speaker recording written to disk.
+- **Calls through a self-hosted LiveKit SFU.** Audio, video, and screen share, scoped to a channel or a conversation, with mixed-audio recording written to disk.
 - **Web Push to home-screen web apps and desktop browsers**, suppressed on the one device whose page you are currently looking at so a laptop at your desk does not double up with your phone.
 - **Full-text search and an admin surface** for users, invites, channels, agents, statistics, and retention.
 
@@ -74,5 +74,5 @@ Configuration lives in `config.yaml`, and every scalar key may be overridden by 
 - **An iOS home-screen web app cannot hold a call when it is backgrounded or the screen locks.** The outgoing microphone stops. Calls work while the app is in the foreground, and no web technology works around this.
 - **Screen share does not exist in any mobile browser.** `getDisplayMedia` is undefined there, so the control is hidden on small viewports rather than failing when it is tapped.
 - **A call start is a notification, not a ring.** Nothing on the web can produce a ringing incoming call on iOS, and attempting one produces a worse result than a clear notification.
-- **Recordings are per-speaker audio files**, one per participant, written to disk for later transcription rather than composed into a single video.
+- **A recording is one mixed audio file per recorded stretch.** LiveKit's egress mixes every participant into a single MP4, and the file arrives in the timeline as a system message carrying a player.
 - **Deleting a message keeps its row.** The body is blanked and the sequence number survives, so clients holding a cursor never see a hole.

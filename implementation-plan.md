@@ -1,287 +1,314 @@
 # Implementation plan
 
-Twenty-one defects reported against the live deployment at https://isane.etheriosking.com, grouped into backend and frontend work that can proceed in parallel. Every file appears in exactly one of the two sections.
+Nine changes across notifications, unread state, typing, calls, and call recordings. Every claim below carries the `file:line` that proves it.
 
-## Decisions already taken
+The work splits cleanly. Backend owns Go, SQL, `egress.example.yaml`, and `docs/`. Frontend owns everything under `internal/server/static/`. The wire contract in each section is fixed, so both halves are written against it rather than against each other.
 
-These were settled before the plan was written. Do not re-open them.
+## 1. No notification sound when the tab is hidden
 
-- **Channels keep their `mentions` notification default.** Fixing the push suppression bug does not, on its own, make ordinary channel messages notify. A channel notifies on every message only after its owner raises it to All in the channel settings panel. DMs notify on every message by default.
-- **Clicking the New pill marks the whole container read.** The divider goes for good, the sidebar unread count clears, and the read marker advances to the container's newest sequence.
-- **The divider anchors on a real read marker.** `ContainerView` gains `last_read_seq`, because `last_seq - unread` lands in the wrong place whenever thread replies or deleted messages occupy sequence numbers inside the unread window.
-- **A DM gets the same three-level radio a channel has**, not a binary mute toggle. Mentions-only is useful in a busy group DM, and the level machinery already exists.
-- **The call panel never carries a join control.** Joining moves to the call system message in the timeline.
-- **Closing the call panel hides it and keeps the call running.** Leaving already has its own control.
+`announce()` returns before `play()` whenever the page is hidden, at `internal/server/static/js/socket.js:398`; `play()` is one line below at `:402`. Commit `9ba8d3d` widened a guard that had covered only the notification banner and took the sound with it.
 
-## Contracts between the two agents
+A service worker cannot make the sound. `HTMLAudioElement` is `[Exposed=Window]` per the HTML specification and `AudioContext` is `[Exposed=Window]` per the Web Audio specification, so neither exists in `ServiceWorkerGlobalScope`. `silent: false` at `internal/server/static/sw.js:33` already does everything it can; the Notifications specification delegates the sound to the platform, and on macOS that is the Chrome-wide setting in Notification Center, not addressable per site. A hidden but loaded tab may play audio: Chrome's autoplay rules gate on a prior click in the document, not on visibility, and Chrome's page-lifecycle rules exempt a tab that plays audio or updates its favicon from freezing, which is why the badge at `internal/server/static/js/badge.js:41-48` already moves.
 
-Three JSON field names cross the boundary. They are fixed here so neither agent has to guess.
+**Frontend, `internal/server/static/js/socket.js`, `announce()`.** Move `play()` above the visibility gate and keep `showNotification` below it:
 
-| Field | Carried on | Written by | Read by |
-|---|---|---|---|
-| `call_id` | a message object | backend | frontend |
-| `last_read_seq` | a container view object | backend | frontend |
-| `visible` | the socket `hello` payload, and a new `visibility` frame | frontend | backend |
+```js
+if (!container) return
+if (state.me && m.author_id === state.me.id) return
+if (pageVisible() && state.current.containerId === m.container_id) return
+if (!shouldAnnounce(container, m)) return
+play()
+if (!pageVisible()) return
+// registration / showNotification block unchanged
+```
 
-The `visibility` frame is a client-to-server frame carrying `{"visible": bool}`. The client sends it on every `visibilitychange`, and sends `visible` in the opening `hello` as well.
+This cannot reintroduce the double-banner regression, because `showNotification` stays behind `pageVisible()` and a hidden device therefore gets exactly one banner, the push one from `sw.js:42`. It cannot double the sound either: a visible tab already pairs `play()` with a `silent: false` notification today. `sw.js` is not touched.
 
-Only one database migration is added, `internal/store/migrations/0003_message_call_id.sql`. Nothing else in this plan needs one.
+## 2. Mark as read on open
 
----
+The preference is account-level, stored on `users`, delivered on the socket ready payload. Read markers are already server-side and shared, so a device-local flag would let the phone auto-mark read while the laptop did not.
 
-# Backend
+Threads have no unread state at all: `onMessage` skips the unread counter for a message carrying `thread_root_id` (`internal/server/static/js/socket.js:350`), `UnreadCounts` filters `m.thread_root_id is null` (`internal/store/readstate.go:38-40`), and `read_markers` is keyed on container only (`readstate.go:12-23`). The setting therefore governs channels and DMs. Do not add per-thread read state in this change.
 
-## B1. Push is suppressed for every device whenever any session is online
+### Backend
 
-`internal/push/router.go:188-190` drops every subscription the user owns when no live socket reports a matching push endpoint:
+1. `internal/store/migrations/0004_user_mark_read_on_open.sql`, one statement:
+   `alter table users add column mark_read_on_open boolean not null default true;`
+2. `internal/store/models.go`: add `MarkReadOnOpen bool \`json:"mark_read_on_open"\`` to `User` (`models.go:90-101`). Not to `DirectoryUser`; it is private to its owner.
+3. `internal/store/users.go`: append `mark_read_on_open` to `userColumns` (`users.go:11`) and `&u.MarkReadOnOpen` to `scanUser` (`users.go:17-22`). Those are the only two places a user row is read. Add `SetMarkReadOnOpen(ctx, id uuid.UUID, on bool) error` beside `UpdateProfile` (`users.go:134-137`) using `db.execOne`, and leave `UpdateProfile`'s signature alone.
+4. `internal/server/handlers/auth.go`: add `MarkReadOnOpen *bool \`json:"mark_read_on_open"\`` to `profileRequest` (`auth.go:62-65`), and in `UpdateProfile` (`auth.go:133-170`) call `SetMarkReadOnOpen` when the pointer is non-nil, before the `GetUser` re-read at `auth.go:163`.
+
+No new endpoint and no new socket frame. `ReadyPayload.User` is a full `store.User` (`internal/app/handler.go:18,75-76`) assigned to `state.me` at `socket.js:279`, and `PATCH /api/auth/me` already returns the updated user.
+
+### Frontend
+
+`internal/server/static/js/ui/settings.js`:
+
+- Extract the toggle body shared by the new row and `soundRow()` (`settings.js:390-412`) into `toggleRow(body, label, isOn, onChange)` and rewrite `soundRow` to call it. Two real consumers, so this is DRY rather than speculation.
+- Add `readingSection(body)`: the toggle labelled "Mark as read on open", plus a `?` button in `text-xs text-overlay1` revealing one help line, "Turn this off and you have to click the New badge to mark messages as read." The toggle calls `api.patch('/api/auth/me', { mark_read_on_open: next })`, then sets `state.me` and `notify('me')`, mirroring `profileSection`'s save at `settings.js:313-319`.
+- Call it from `openUserSettings()` (`settings.js:474-496`), between `pushSection(body)` and the Session label.
+
+`internal/server/static/js/ui/timeline.js`:
+
+- Add `const DIVIDER_LINGER = 4500` beside `NEAR_BOTTOM` (line 11) and `let dividerTimer = 0` beside `dividerSeq` (line 32).
+- In `render()`'s container-switch branch (`:307-323`), `clearTimeout(dividerTimer)` and set the anchor by mode. On keeps today's line, `dividerSeq = c && (c.unread || 0) > 0 ? sentSeq : -1`. Off sets `dividerSeq = c ? sentSeq : -1` unconditionally, so a message arriving while the container is open still raises a marker the user can click.
+- New `markOnOpen(cid)`, called at the end of both non-jump paths of `openContainer()` (after the `render()` at `:369`, and at `:383`), guarded on `cid === state.current.containerId` and `dividerSeq >= 0`: call `markRead(cid, c.last_seq || 0)`, the same value `dismissDivider` uses at `:466`, then start `dividerTimer` to clear `dividerSeq` and re-render after `DIVIDER_LINGER`, re-checking that the container has not changed. Plain removal, no transition class. Starting the timer after the load rather than at switch time is what guarantees the marker is on screen for the full interval.
+- Guard `flushRead()` (`:454`) with an early return when the preference is off. That single guard covers both entry points, the observer at `:496` and the `visibilitychange` listener at `:511-513`, leaving the New pill as the only way to advance the marker.
+- Exclude the `?m=` deep-link branch of `openContainer()` (`:351-365`). A jump lands the reader mid-history and marking the whole container read there would be wrong.
+
+## 3. Typing indicators
+
+Nothing clears a typing entry except its own expiry. `onTyping` stamps `Date.now() + TYPING_TTL` with `TYPING_TTL = 5000` (`socket.js:11,450`), the sender emits at most once per `TYPING_INTERVAL = 3000` (`composer.js:7,271-278`), and `pruneTyping` runs at `TTL + 100` (`socket.js:452`). The last frame lands up to 3000 ms before the send and expires 5000 ms after that, plus up to 1000 ms of sweep, so the indicator survives the message by two to six seconds. `onMessage` (`socket.js:344-366`) never touches `state.typing`.
+
+Clear on arrival rather than adding an explicit stop frame. It costs zero frames on the wire and fixes the reported case exactly; an explicit stop would add a client frame plus a fan-out per member on every send. `TYPING_TTL` and `TYPING_INTERVAL` stay as they are, because a TTL below the interval plus jitter makes a continuously typing user flicker, and the TTL now covers only the abandoned draft.
+
+Two further defects in the same area are in scope. `lastTyping` is never reset on send (`composer.js:49,280-337`), so the first keystrokes of the next message emit nothing for up to three seconds. And the typing frame carries only a container id (`internal/socket/frame.go:100-112`) while the thread composer's `target()` returns the thread's container id (`thread.js:287-291`), so typing in the main timeline shows "X is typing" in the thread pane and the reverse.
+
+### Backend
+
+`internal/socket/frame.go`: add `ThreadRootID *uuid.UUID \`json:"thread_root_id,omitempty"\`` to both `TypingPayload` (`:100-102`) and `TypingEventPayload` (`:109-112`). Carry it through `App.Typing` (`internal/app/handler.go:142-153`) and the `typing` case in `internal/socket/conn.go` unchanged in every other respect.
+
+### Frontend
+
+- `internal/server/static/js/socket.js`, in `onMessage()` (`:344`), before `notify(...)`: delete the author's entry for that container and `notify('typing')` when the delete removed something, dropping the container key when the map empties.
+- `internal/server/static/js/ui/composer.js`: set `lastTyping = 0` in `submit()` where the textarea is cleared (`:313`); send `thread_root_id` on the outgoing frame from `maybeTyping()` (`:271-278`) taken from `target()`; and filter in `renderTyping()` (`:123-139`) on both the container id and the thread root id so the two composers stop showing each other's typists.
+- `internal/server/static/js/socket.js`, `onTyping` (`:443`): key the inner map on the user and record the thread root alongside the expiry so the composer can filter.
+
+## 4. Recording state reaches every participant
+
+`Recording()` writes the state and returns it in the HTTP body only (`internal/server/handlers/calls.go:146-151`), with no broadcast, unlike `Start()` at `:77`. No frame type carries it (`internal/socket/frame.go:24-40`), so the client compensates locally at `internal/server/static/js/ui/call.js:404`. The webhook paths that move the state are equally silent: `eventRoomFinished` writes `RecordingProcessing` at `:209` and `finishEgress` writes `RecordingReady` at `:261`.
+
+A second defect sits in the same handler. The manual stop path writes `RecordingOff` (`:132,146`) while `finishEgress` promotes to `ready` only from `RecordingProcessing` (`:254-256`), so a recording stopped with the Record button never reaches `ready`, and the client's optimistic `'processing'` is a value the server never wrote.
+
+### Backend
+
+1. `internal/socket/frame.go`: add `TypeCallRecording = "call_recording"` to the outbound const block (`:24-40`) and, beside `CallEndedPayload` (`:137-139`):
 
 ```go
-if !matched && r.presence.Online(userID) {
-    return nil, nil
+type CallRecordingPayload struct {
+	CallID uuid.UUID            `json:"call_id"`
+	State  store.RecordingState `json:"recording_state"`
 }
 ```
 
-`matched` is false on every page load, because the endpoint reaches the server only in the opening `hello` frame while `currentEndpoint()` is still null: `internal/server/static/js/main.js:441` calls `connect()` before `initPush()` at `:444`. One open desktop tab therefore silences the account, the phone included.
+`store` is already imported at `frame.go:10`. Keep the payload narrow rather than rebroadcasting the whole `store.Call`, which would re-seed `participants` and race the `call_participant` frames.
 
-The suppression must become per device and must key on whether that device's page is visible, not on whether a socket exists.
+2. `internal/server/handlers/calls.go`: add `setRecording(ctx, call store.Call, state store.RecordingState) error`, which calls `SetRecordingState` then broadcasts the frame to the container. Route all three writers through it: `Recording()` at `:146`, `eventRoomFinished` at `:209`, `finishEgress` at `:261`.
+3. Same file: `stopEgress` (`:324-335`) returns the number of egresses it stopped, and `Recording()`'s off branch picks `store.RecordingProcessing` when that count is above zero and `store.RecordingOff` otherwise, so `finishEgress` can promote to `ready`. Drop the local `state` variable at `:132` in favour of a value computed per branch.
 
-- Delete the blanket bail at `internal/push/router.go:188-190`.
-- Keep the deliberate skip at `internal/push/router.go:179-182`, but narrow its condition to a subscription whose device currently reports a visible page.
-- `internal/socket/conn.go`: store a visibility flag beside the push endpoint, defaulting to visible.
-- `internal/socket/frame.go:68`: accept `visible` on the hello payload, and add a `visibility` frame type the client can send at any time.
-- `internal/socket/hub.go:219-224`: record the flag; add a lookup that answers whether a given endpoint is both live and visible.
-- `internal/socket/hub.go:114-118`: bound `Online` by the same freshness `EndpointLive` already applies at `internal/socket/conn.go:79-81`, so a socket that is dead but not yet reaped stops suppressing pushes for up to `pongWait`, which is 65 seconds.
+### Frontend
 
-A locked Android phone is the same defect. Chrome keeps answering the protocol ping, so `touch()` at `internal/socket/conn.go:87-90` keeps the socket fresh while the page renders nothing, and the phone's own subscription is skipped as live.
+- `internal/server/static/js/socket.js`: add `case 'call_recording'` beside `call_participant` (`:238-240`), handled by an `onCallRecording(d)` modelled on `onCallParticipant` (`:481-491`) that finds the matching call in `state.calls`, sets `recording_state`, and calls `notify('calls')`.
+- `internal/server/static/js/ui/call.js`: delete the optimistic write at `:404`. `toggleRecording` writes the handler's response body into `state.calls` and calls `notify('calls')`; the broadcast frame then lands as a no-op for the initiator.
 
-`send.go` needs no change. `pushTTL` is already 86400 at `internal/push/send.go:21` and `Urgency` is already `UrgencyHigh` at `:45`, both the maximum useful values.
+## 5. A call ends when its last participant leaves
 
-## B2. A push with no text renders an empty body
+The only two `EndCall` call sites are the `room_finished` webhook branch (`internal/server/handlers/calls.go:213`) and the reaper (`internal/app/app.go:206`). `Leave()` (`:110-115`) and `eventParticipantLeft` (`:193-201`) broadcast a participant frame and stop, neither counting participants.
 
-`internal/push/payload.go:38` builds the preview from `markdown.Truncate(markdown.PlainText(m.Body), bodyLimit)`. An attachment-only message yields an empty string, so a DM push shows a blank body and a channel push shows a bare display name.
+The delay is LiveKit's departure timeout: `livekit.example.yaml:38` sets `departure_timeout: 20`, documented as the number of seconds to keep the room open after everyone leaves in `livekit_room.proto:88-89` at `github.com/livekit/protocol@v1.51.0`. The reaper cannot beat it, running at `callReapInterval = time.Minute` (`internal/app/app.go:29`) and skipping any call whose LiveKit room still exists (`:198-205`). Client-side the Join affordance keys purely on `state.calls` holding a matching id (`internal/server/static/js/ui/message.js:198-207`), so only `call_ended` clears it.
 
-Fall back to an attachment count when the plain text is empty. Backend only; `internal/server/static/sw.js:28` already renders whatever body arrives.
+Fix it server-side rather than by lowering `departure_timeout`, which is deployment-only, does nothing for a running deployment, and breaks a legitimate reconnect when set near zero.
 
-## B3. Mute is refused for a DM and a group DM
+### Backend
 
-Storage is already generic: `notification_prefs` is `(user_id, container_id, level)` keyed on `containers(id)` with no kind constraint (`internal/store/migrations/0001_init.sql:117-122`). Three sites restrict it.
+1. `internal/store/calls.go`: add `EndCallIfEmpty(ctx, id uuid.UUID) (bool, error)`, modelled on `EndCall` (`:144-162`), running inside `db.Tx` with the update guarded so two concurrent leaves cannot both win:
 
-- `internal/server/handlers/containers.go:252-255` returns 400 with `"a notification level applies to channels only"`. Delete the gate.
-- `internal/push/router.go:90-92` returns true for a conversation before the level is read. Remove the short-circuit so a conversation runs the same level check a channel does. Removing it also revives DM thread mute, which is inert today because the branch returns before the thread block at `internal/push/router.go:101-110`.
-- `internal/push/router.go:138-149` loads the prefs map only for a channel, leaving `rt.prefs` nil for a conversation. Load it for both kinds.
-
-`internal/store/containers.go:40` coalesces an absent row to `'mentions'` for every container. Make the default kind-dependent: `'all'` for a conversation, `'mentions'` for a channel. Without this the radio paints "Mentions only" for a DM the server treats as "All messages".
-
-A group DM and a one-to-one DM are the same `kind = 'conversation'` row throughout this path, so one change serves both.
-
-## B4. The divider anchors on arithmetic that is wrong
-
-The client computes `sentSeq = last_seq - unread`. `unread` counts only top-level, non-deleted messages (`internal/store/containers.go:36-39`) while `last_seq` counts everything, so the divider lands below its true position, or on a thread reply that never renders.
-
-- `internal/store/models.go:159-165`: add `LastReadSeq int64` to `ContainerView`, serialised as `last_read_seq`.
-- `internal/store/containers.go`: select the read marker in `containerViewSQL` alongside the existing left join, coalescing an absent marker to 0.
-
-The value is already stored; `internal/store/readstate.go:12-23` writes it and clamps to the container's `last_seq`.
-
-## B5. A call system message carries no link to its call
-
-`internal/server/handlers/calls.go:78` posts the body `"@"+u.Handle+" started a call"` with no identifier, and `store.Message` has no field pointing at a call, so the timeline cannot offer a join control on it.
-
-- New `internal/store/migrations/0003_message_call_id.sql`:
-  ```sql
-  alter table messages add column call_id uuid null references calls(id) on delete set null;
-  ```
-- `internal/store/models.go:167-185`: add `CallID *uuid.UUID` with tag `json:"call_id,omitempty"` to `Message`, and the same to `NewMessage` at `:186`.
-- `internal/store/messages.go`: add `call_id` to `messageCols` (`:13-14`), `messageColsQualified` (`:16-17`), `scanMessage` (`:23-28`), and the insert column and value lists (`:58-60`).
-- `internal/app/publish.go`: add `PostCallNotice` beside `PostSystem` (`:101-119`) that sets `CallID`. Leave the two existing `PostSystem` callers at `internal/app/publish.go:246` and `internal/app/app.go:165` alone.
-- `internal/server/handlers/calls.go:78`: post through it with `call.ID`.
-
-Liveness needs no new plumbing. `state.calls` on the client already holds only live calls, seeded from `ReadyPayload.Calls` and maintained by the `call_started` and `call_ended` frames.
-
-## B6. Deployment configuration
-
-`rtc.advertise_internal_ip: true` switches LiveKit's NAT1-to-1 rewrite from replace mode to append mode, so every enumerated host address survives alongside the public one. LiveKit runs on the host network, so it enumerates the other deployment's Docker bridges too, and offered `172.18.0.1` as an ICE candidate. Both `10.0.1.0/24` and `172.18.0.0/16` are common client LAN ranges, so a browser can waste time pairing against an unrelated device on its own network.
-
-- `livekit.example.yaml`: add `rtc.ips.includes: ["10.0.1.0/24"]`, keeping the one internal address egress needs and dropping the bridges. Interface excludes are the wrong lever, because compose bridge names are `br-<hash>` and change.
-- `docs/deployment.md`: document that setting beside the `PUBLIC_IP` paragraph at `:102`, and add the cloud security-list rules the firewall section at `:43-58` does not currently cover. That section documents `ufw` against the repo defaults of `7881` and `50000-50300`, which is neither what this deployment uses nor where the packets are being dropped.
-
-## Backend files
-
-`internal/push/router.go`, `internal/push/payload.go`, `internal/socket/conn.go`, `internal/socket/frame.go`, `internal/socket/hub.go`, `internal/server/handlers/containers.go`, `internal/server/handlers/calls.go`, `internal/store/models.go`, `internal/store/messages.go`, `internal/store/containers.go`, `internal/app/publish.go`, `internal/store/migrations/0003_message_call_id.sql`, `livekit.example.yaml`, `docs/deployment.md`.
-
----
-
-# Frontend
-
-## F1. Message action icons render as blank boxes
-
-`drawIcons` passes an option the vendored Lucide does not accept:
-
-```js
-// internal/server/static/js/ui/dom.js:23-27
-if (nodes.length) lucide.createIcons({ nodes })
+```sql
+update calls set ended_at = now()
+where id = $1 and ended_at is null
+  and not exists (select 1 from call_participants where call_id = $1 and left_at is null)
 ```
 
-`createIcons` accepts `icons`, `nameAttr`, `attrs`, `root`, and `inTemplates`. `nodes` is discarded, so `root` stays `document` and the call sweeps the live document instead of the subtree it was handed. Rows are built detached (`internal/server/static/js/ui/message.js:296` draws into `article` before `internal/server/static/js/ui/timeline.js:190` inserts it), so the sweep triggered by row *i* repairs row *i-1* and misses row *i*. The last row rendered keeps blank icons until some unrelated sweep runs, which is the reported "sometimes".
+Return `tag.RowsAffected() == 1` and keep `EndCall`'s `call_participants` sweep in the same transaction.
 
-- `internal/server/static/js/ui/dom.js:23-27`: pass `{ root }`.
-- `internal/server/static/js/render.js:279-283` is a second copy of the same broken helper, which blanks callout icons and code copy buttons. Delete it and import `drawIcons` from `./ui/dom.js`. There is no import cycle: `ui/dom.js` imports only `../store.js`.
+2. `internal/server/handlers/calls.go`: add `endIfEmpty(ctx, call store.Call)` calling `EndCallIfEmpty` and, when it returns true, stopping the egress, moving the recording state to `store.RecordingProcessing` through `setRecording` when the call was recording, and broadcasting `socket.TypeCallEnded`. Call it from `Leave()` after the broadcast at `:114` and from `eventParticipantLeft` after the broadcast at `:201`. Both are needed, because `disconnectOnPageLeave: false` (`internal/server/static/js/ui/call.js:77`) means a closed tab never reaches `Leave()`.
 
-Every current call site passes a containing element, so tightening the sweep regresses nothing.
+3. Deleting the LiveKit room. `DeleteRoom` (`internal/calls/service.go:65-74`) is referenced nowhere today, and leaving a room alive lets a six-hour access token (`internal/calls/token.go:12`) rejoin a call the database has ended. Call it, but settle the ordering against an in-flight recording first: read the egress source for what a `DeleteRoom` does to a room composite egress that has not finalised, and if stopping the egress and deleting the room in the same breath can truncate the file, defer the delete until `egress_ended` arrives for that call. Log and continue on a `DeleteRoom` error, since `Leave()` is not gated on `h.enabled(w)` and `authorize` returns `ErrDisabled` when LiveKit is off (`internal/calls/service.go:77-79`).
 
-While in this file: `internal/server/static/js/ui/sidebar.js:192` writes `entry.chevron.dataset.lucide` on an `<i>` Lucide already replaced and detached, so the group collapse chevron never flips. Re-read the reference after replacement.
+A late `room_finished` for an already-ended call is harmless: `EndCall`'s `coalesce(ended_at, now())` (`internal/store/calls.go:147`) still matches the row, and `CallByRoom` then reports `processing`, so the recording branch skips. Leave the reaper (`internal/app/app.go:185-213`) alone as the backstop for a lost webhook.
 
-## F2. The ellipsis button on a message is redundant
+4. Scope the live-call list. `ListLiveCalls` (`internal/store/calls.go:96-98`) selects every row with `ended_at is null`, so every user's ready payload carries the room name, starter, and participant ids of every live call in the deployment, including containers they are not a member of. Take the user id and filter to channels plus conversations the user participates in, mirroring the membership rule in `MemberIDs` (`internal/store/containers.go:255-275`), and update the single call site at `internal/app/handler.go:50`.
 
-`internal/server/static/js/ui/message.js:193-216` builds an `md:hidden` button opening a modal whose rows come from the same `messageActions` array as the inline bar (`:148-175`), so it cannot contain an action the bar lacks. On desktop `.md\:hidden` renders nothing at all. On touch the bar is already revealed by focus, because `.group-focus-within\/msg\:flex` carries no media query and `article.tabIndex = 0` at `:234` makes tap-to-focus work.
+### Frontend
 
-Delete `:193-216`, return `bar` directly instead of the fragment at `:181` and `:218-219`, and drop the now-unused `openModal` from the import at `:5`. `confirmModal` is still used at `:163`.
+`internal/server/static/js/socket.js`: `onReady` currently only adds to `state.calls` (`:292-296`), so a call that ended while the socket was down leaves a permanent stale entry lighting both the sidebar indicator and the Join button. With the payload now authoritative, rebuild the map instead:
 
-The inline buttons are `h-7 w-7` at `-top-3 right-4`, so they overlap the row above and are a smaller touch target than the 44px sheet rows. Enlarge the touch target on the mobile breakpoint rather than restoring the sheet.
+```js
+const live = new Map()
+for (const call of d.calls) {
+  if (call && call.container_id && !call.ended_at) live.set(call.container_id, call)
+}
+state.calls = live
+```
 
-## F3. Opening a container does not land at the newest message
+That invalidates every object reference held elsewhere, which is why the call panel reads through `liveCall()` in section 7 rather than holding `activeCall` directly.
 
-The scroll is issued and the rows are present when it runs (`internal/server/static/js/ui/timeline.js:386-387` sets `scrollEl.scrollTop = scrollEl.scrollHeight`), but several boxes are not final at that instant and nothing re-asserts the position.
+## 6. The header call icon
 
-- `internal/server/static/js/ui/timeline.js`, in `mount` around `:465-490`: add a `ResizeObserver` on `listEl` that re-runs the scroll while `atBottom` is true. Keep the existing explicit scrolls.
-- `internal/server/static/js/ui/message.js:47-53`: set `video.width` and `video.height` from `a.width` and `a.height`, which the payload already carries. Images already get theirs at `:39-42`.
-- `internal/server/static/js/render.js:99-101`: carry `width` and `height` through the markdown image renderer when the token has them, and drop `loading = 'lazy'` inside the timeline, because a lazy image with no dimensions is the worst case for anchoring.
+`renderHeader()` renders one `iconButton('phone', 'Start a call', ...)` for every non-archived container (`internal/server/static/js/ui/timeline.js:266-270`), its appearance never varying with call state, and it dispatches `isane:call-start`, which joins. `headerSignatureOf` (`:206-210`) carries only `call.id`, so the header does not repaint when membership or panel state changes.
 
-Mermaid renders asynchronously at `internal/server/static/js/render.js:399` and `:411`, the push banner appears up to three seconds later (`internal/server/static/js/main.js:443-449`), and `font-display: swap` reflows rows on a cold load. The observer covers all three; a `requestAnimationFrame` would not.
+**Frontend only.** Three cases:
 
-## F4. The new-message divider never clears
+| State | Control |
+|---|---|
+| No live call | `iconButton('phone', 'Start a call', ...)` dispatching `isane:call-start`, unchanged |
+| Live, this tab not joined | An inert `phone-call` indicator in `text-teal`, matching the sidebar indicator at `sidebar.js:170`. It does not join; the Join control stays in the timeline |
+| Live, this tab joined | `iconButton('phone-call', 'Show the call', () => call.reopen())` |
 
-The divider is computed once per container visit at `internal/server/static/js/ui/timeline.js:320-322` and the New pill at `:100-107` is a `<span>`, not a control.
+Import `* as call from './call.js'`; there is no cycle, since `call.js` imports only `../store.js`, `../api.js`, `../socket.js`, and `./dom.js`. Extend `headerSignatureOf` with the live call's `recording_state` and with `call.panelState().joined` and `.hidden`, or the header will not repaint.
 
-- Make the pill a `<button>`.
-- On click: set `dividerSeq = 0`, re-render, and advance read state the way `flushRead` does at `:446-458`, sending the container's `last_seq` over the existing `read` frame. `internal/store/readstate.go:12-23` clamps a too-large sequence, so this is safe. Update `c.unread` and `c.mentions`, then `notify('containers')`.
-- Anchor the divider on `c.last_read_seq` from B4 instead of `last_seq - unread`.
+For the teal tone, do not append a colour class through `iconButton`'s `extra` argument: the base class string at `internal/server/static/js/ui/dom.js:29` already carries `text-overlay1`, and two conflicting `text-*` utilities resolve by generated-CSS order rather than by attribute order. Build the node, then `classList.remove('text-overlay1')` and `classList.add('text-teal')`.
 
-No new endpoint is needed; the `read` frame already exists end to end.
+## 7. The call panel: icons, close, expand, resize
 
-## F5. The composer preview keeps its box after a send
+`controlButton()` builds a text-labelled button (`internal/server/static/js/ui/call.js:412-422`) and `renderControls()` emits five of them (`:424-436`), with no `aria-pressed`, no `title`, and no `aria-label`. The panel is `xl:w-[380px]` with no custom property (`internal/server/static/index.html:57`), so it cannot be dragged; `render()` hides it whenever a thread is open (`:456`); nothing reopens it once `dismiss()` sets the module flag (`:450-453`); and the tile grid's `sm:grid-cols-2` (`:495`) is a viewport query, so a 380px docked pane renders two 180px tiles on a wide screen.
 
-`previewEl` is a normal-flow sibling inside the composer rail (`internal/server/static/js/ui/composer.js:432-433`). `submit` empties it at `:318` but leaves `previewOpen` true, so a 32px `bg-base` box stays under a `bg-mantle` pane. `#composer` is `shrink-0` and `#timeline` is `flex-1`, so every pixel the preview holds is a pixel the message list loses. The panel has no height cap, unlike the textarea capped by `autosize()` at `:68-72`.
+The vendored bundle is `lucide v1.38.0` (`internal/server/static/vendor/lucide.min.js:2`, pinned at `Makefile:11`). `drawIcons(root)` calls `lucide.createIcons({ root })` (`dom.js:23-26`), which matches descendants only and never the root element, so it must run after the nodes are appended.
 
-- Add one `setPreview(open)` owning `previewOpen`, the `hidden` class, `aria-pressed`, the mauve tint, the title, clearing `previewTimer`, and clearing children on close. Route `togglePreview` (`:241-248`) and `renderNotice` (`:341`) through it.
-- Replace the `previewEl.replaceChildren()` at `:318` with `setPreview(false)`.
-- Add `max-h-64 overflow-y-auto` to the class string at `:432`.
+Every class named here is absent from the committed `internal/server/static/css/app.css` until `make assets` runs, and that file is gitignored, so it is a build step and not a commit.
 
-A pending 200ms `previewTimer` from `schedulePreview` (`:233-239`) can otherwise fire after a send and repopulate the panel from an empty textarea. Both composers inherit the fix, since `createComposer` serves the main composer at `:528-542` and the thread composer at `internal/server/static/js/ui/thread.js:282-297`.
+### Frontend
 
-## F6. Redundant header controls
+**A shared resize helper, `internal/server/static/js/ui/resize.js`.** Three real consumers exist, so this is DRY rather than speculation: the sidebar's `wireSidebarResize()` (`main.js:88-128`), and the two right-hand panes. Export `wireResize({ handle, pane, edge, prop, key, min, max, fallback })` returning `{ read, apply }`, where `edge` is `'left'` or `'right'` and `max` may be a number or a function. Width comes from the pane's own bounding rect rather than from `clientX` against `innerWidth`, which is what makes a right-edge pane correct when another pane sits beside it. Keyboard arrows move by 16px with the sign flipped for a right edge. Only `main.js` imports it; the helper knows nothing about calls, threads, or the sidebar.
 
-- `internal/server/static/js/ui/timeline.js:272`: the at-sign button and the settings button both call `openChannelSettings(c)` with the same argument, and the function takes no section parameter. Delete the button and the now-unused `LEVEL_ICON` constant at `:12`. The cost is that `all` and `mentions` become visible only inside the modal; a muted channel keeps its dimmed sidebar row at `internal/server/static/js/ui/sidebar.js:153`.
-- `internal/server/static/js/ui/timeline.js:275`: the header search button calls `focusSearch` at `:228-231`, which focuses the sidebar's one search input. It is also broken when the sidebar is collapsed, because `--sidebar-width` goes to `0px` while the input keeps taking focus invisibly. Delete the button and `focusSearch`.
+**`internal/server/static/index.html`.** Two new handles, siblings in the `#app` flex row, each immediately before its pane, shaped like `#sidebar-resize` (`:44-45`) but gated on `xl`. Pane visibility moves from a JS `hidden` toggle to `#app` data attributes, matching the existing `data-drawer` and `data-sidebar` pattern (`:38`): `data-thread="closed|open"` and `data-call="hidden|docked|expanded"`. The docked utilities then live behind `:is(:where(.group)[data-call=docked] *)` at specificity (0,2,0) against the base `fixed`/`hidden` at (0,1,0), so docked wins and expanded loses without depending on utility source order. `#call-pane` gains `border-l border-surface0` when docked, matching every other divider in the app (`index.html:48,54`; `thread.js:171`); without it, `bg-crust` against `#main`'s `bg-mantle` is a 1.07 step and reads as no seam.
 
-## F7. The DM panel is named for settings but configures nothing
+Expanded is the mobile layout applied at every width: the pane keeps its base `fixed inset-0 z-30` and never picks up the `xl:` docked overrides. `#main` stays rendered underneath, so the timeline's scroll position survives, where a `display:none` on `#main` would reset it. `z-30` keeps it under `#modal-root` and `#toast-root` (`:64-67`).
 
-One call site serves both kinds at `internal/server/static/js/ui/timeline.js:274`, always with the `settings` icon. The conversation branch of `openChannelSettings` (`internal/server/static/js/ui/settings.js:151-159`) renders only `participantsSection` (`:130-147`), a read-only roster. The channel branch is genuinely configurable, so the rename must touch only the conversation arm.
+**`internal/server/static/css/input.css`.** Two lines in the existing `:root` block so a `var()` that JS never set resolves instead of collapsing to `width: auto`: `--thread-width: 380px;` and `--call-width: 380px;`.
 
-- `internal/server/static/js/ui/timeline.js:274`: pick icon and label by kind. `settings` with `Channel settings` for a channel, `users-round` with `Members` for a conversation. `UsersRound` is present in the vendored bundle.
-- `internal/server/static/js/ui/settings.js:152-157`: modal title `Members`, icon `users-round`.
-- `internal/server/static/js/ui/settings.js:131`: drop the `People` section label, now the only content of a modal titled Members.
+**`internal/server/static/js/main.js`.** Replace `wireSidebarResize()` with `wirePanes()`, three `wireResize` calls. The sidebar's is a straight port with `edge: 'left'`, `min: 200`, `max: 400`, `fallback: 240`, no behaviour change. Both right panes take `edge: 'right'`, `min: 280`, `max: () => paneCap()`, `fallback: 380`, keys `isane-thread-width` and `isane-call-width` in the hyphen form that `isane-sidebar-width` already uses.
 
-The header already renders a `users` glyph as the container-kind marker at `internal/server/static/js/ui/timeline.js:254`, which is why the control takes `users-round` rather than a second identical glyph.
+`paneCap()` is the whole width policy, and it is what stops the old 96px failure repeating:
 
-## F8. A DM cannot be muted
+```
+open   = (thread docked ? 1 : 0) + (call docked ? 1 : 0)
+budget = innerWidth - sidebarWidth - (open + 1) * 4 - 400
+cap    = max(280, min(560, budget / max(open, 1)))
+```
 
-Backend item B3 removes the gate. The frontend supplies the control.
+`sidebarWidth` must be read from the live computed custom property, not from `read()`, because `toggleSidebar()` writes `0px` directly (`timeline.js:226`), below the minimum. `fitPanes()` re-applies `read()` for each open pane through that cap without overwriting the stored preference, so a pane returns to its chosen width when space comes back; it runs on `window.resize` coalesced through `requestAnimationFrame`, during a drag, and from `onStateChange` (`:272-286`) when the keys include `current` or `calls`. It derives open state from `state.current.threadRootId` and `call.panelState()` rather than from the DOM. At 1280px with both panes open the message column holds at 400px and each pane caps at 314px; at 1536px both sit at 380px and the column gets 524px.
 
-- `internal/server/static/js/ui/settings.js:151-159`: call `notificationSection(body, c)` in the conversation branch. It is already generic over the container object.
-- `internal/server/static/js/ui/settings.js:11-15`: the `LEVELS` copy says "No notifications from this channel". Make it container-neutral.
-- `internal/server/static/js/ui/timeline.js:271-273`: remove the `c.kind === 'channel'` gate on the level bell so a DM gets the same one-click affordance. `headerSignatureOf` at `:204` already includes `c.level`, so the header repaints on a change.
+`internal/server/static/js/boot.js` keeps its own copy of the sidebar numbers untouched: it is a classic script in `<head>` that must run before first paint and cannot import from the module graph. It needs no seeding for the two new properties, because both panes start hidden and `input.css` supplies the default.
 
-## F9. Calls
+**`internal/server/static/js/ui/timeline.js`.** Delete `storedWidth()` (`:212-219`) and have `toggleSidebar()` (`:226`) use the `read()` returned by the sidebar's `wireResize`, removing the second copy of the 200/400/240 constants.
 
-**F9a. Starting a call shows the starter a join prompt for their own call.** `start()` at `internal/server/static/js/ui/call.js:346-365` does auto-join at `:360`, but `join()` renders synchronously at `:283-284` while `joined` is still false, and `renderPrompt` at `:441-454` shows whenever `!joined && call`. Deleting `renderPrompt` fixes this and F9d together.
+**`internal/server/static/js/ui/thread.js`.** `render()` (`:222-229`) sets `#app`'s `data-thread` instead of toggling `hidden` on the pane. Nothing else changes.
 
-**F9b. A failed join orphans a live LiveKit room.** The catch at `internal/server/static/js/ui/call.js:303-307` sets `room = null` without calling `room.disconnect()`. If `room.connect()` succeeded and `setMicrophoneEnabled(true)` at `:291` then threw, which on Android means a denied or dismissed mic prompt, the connection stays live, the user still shows as a participant, and `leave()` at `:312-327` can no longer reach it. Disconnect before nulling.
+**`internal/server/static/js/ui/call.js`.**
 
-**F9c. The call panel cannot be closed.** `renderHeader()` at `internal/server/static/js/ui/call.js:431-439` appends no close control, and `visible` at `:458` is derived purely from call state, so nothing dismisses it. Below the `xl` breakpoint `#call-pane` is `fixed inset-0 z-30` (`internal/server/static/index.html:56-57`), so a call starting in the channel you are reading covers the whole phone screen with no exit, and pressing Leave leaves the panel full-screen showing a join prompt.
+- Add a module `expanded` flag. `render()` (`:455-466`) sets `#app`'s `data-call` to `hidden`, `docked`, or `expanded` instead of toggling `hidden`. Every transition of `joined`, `connecting`, `dismissed`, or `expanded` calls `notify('calls')`, because the store is the only repaint trigger the header has (`timeline.js:524`).
+- Add `liveCall()` returning `state.calls.get(activeCall.container_id)` when its id matches, and `activeCall` otherwise. Read `recording_state` through it, so the panel is correct whether the frame handler mutates the map entry in place or the ready rebuild replaces it.
+- Replace `controlButton()` with `callButton(name, label, tone, onClick, pressed)`. It uses `icon()` from `dom.js:15-21` but not `iconButton()`, whose `h-8 w-8` is a header size rather than a touch target. Shared classes: `grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve`, icon at `h-5 w-5`, plus `title`, `aria-label`, and `aria-pressed` on the four toggles.
 
-Add a module-level `dismissed` flag, an `x` button in `renderHeader` mirroring `internal/server/static/js/ui/thread.js:198`, an Escape listener on `rootEl` mirroring `internal/server/static/js/ui/thread.js:299-303`, and a clause honouring the flag in the `visible` expression. Clear it in `join()` and in `teardown()` so a fresh call reopens the panel. Closing hides the panel and keeps the call running.
-
-**F9d. The join prompt is shown to everybody.** Remove `renderPrompt` (`:441-454`), its call site (`:463`), and its `promptEl` construction (`:480-481`), and drop the bare `Boolean(call)` term from `visible` at `:458` so the condition becomes `joined || connecting`. This is only safe once F9e exists, because otherwise there is no way to join a call you did not start.
-
-**F9e. Joining from the timeline.** `messageNode` returns early for a system message at `internal/server/static/js/ui/message.js:226-228` and `systemNode` at `:222-224` builds inert text.
-
-Give `systemNode` a call branch that reads `m.call_id` from B5, looks up `state.calls.get(m.container_id)`, and appends a join control when the ids match. Add that liveness to `messageSignature` at `:300-315`, otherwise `internal/server/static/js/ui/timeline.js:109-113` never swaps the node when `call_ended` arrives. For a user already joined but with the panel hidden, the same control reopens the panel.
-
-**F9f. Mobile survivability.** `internal/server/static/js/ui/call.js:516-518` disconnects on `pagehide`, and the SDK does the same by default, so switching apps or locking an Android phone ends the call while `visibilitychange` at `:506-508` only re-acquires the wake lock. Decide `disconnectOnPageLeave` deliberately in `roomOptions()` at `:80-101` and align or drop the app's own listener.
-
-`wire()` at `:211-271` subscribes to none of `room.startAudio()`, `room.canPlaybackAudio`, or `RoomEvent.AudioPlaybackStatusChanged`, all present in the vendored SDK, so a viewer whose browser blocks playback gets silence with no affordance. Subscribe and surface a tap-to-hear control.
-
-`playsinline` is already set at `internal/server/static/js/ui/call.js:153`, and `video.muted = true` at `:154` is correct because remote audio attaches separately at `:222-226`. Neither is a defect.
-
-The total media failure is explained by the missing cloud ingress rules, not by any of the above. These three would bite once the network is fixed.
-
-## F10. Notifications, sound, and the tab badge
-
-**F10a. The page must report its visibility.** Backend item B1 reads it.
-
-- `internal/server/static/js/main.js:441-444`: order `connect()` against `initPush()` so the opening `hello` does not race the endpoint.
-- `internal/server/static/js/push.js`: expose an endpoint-ready callback.
-- `internal/server/static/js/socket.js:103-109`: send `visible` in `hello`, re-send the endpoint once `initPush()` resolves, and send a `visibility` frame on `visibilitychange`. The listener already exists at `:178-180`.
-
-**F10b. An in-page notification path.** The server deliberately skips a device whose page is visible, and the frontend has no replacement, so a desktop session with the app open is silent by design.
-
-Fire from `onMessage` at `internal/server/static/js/socket.js:328` when the page is hidden or the message belongs to another container. Use `registration.showNotification()`, never `new Notification()`, which throws `TypeError` on Chrome Android and `ReferenceError` on iOS Safari unless installed. Gate it on the container's `level` exactly as the server does, so the page never announces something a push would have suppressed.
-
-**F10c. Android notification fields.** `internal/server/static/sw.js:27-36` passes `body`, `icon`, `badge`, `data`, `tag`, and `renotify`. Add `vibrate: [200, 100, 200]`, `silent: false`, and `requireInteraction` for the desktop case. Never set `silent: true` together with `vibrate`, which is a `TypeError`.
-
-A heads-up banner is not reachable from a web page. Chrome creates one notification channel per origin at Android's `IMPORTANCE_DEFAULT`, which makes a sound but does not produce a heads-up, and channel importance is immutable once created. Only the user can raise it, in Android Settings under Chrome, Notifications, Sites. Put that sentence in the settings panel.
-
-**F10d. A notification sound.** Nothing in the repository plays audio. A service worker cannot: `BaseAudioContext` and `AudioContext` are `[Exposed=Window]`, and `NotificationOptions` has no `sound` member, so the push case is the operating system's to sound and only the in-page case is ours.
-
-Vendor `uisfx@0.4.0`'s `sounds/minimal/notification.mp3`, 4222 bytes. Its audio is CC0-1.0 per the package's own `LICENSE-AUDIO`, and it publishes an npm integrity hash, so it fits the `npm_file` mechanism at `Makefile:42-52` that every other vendored asset already uses.
-
-- `Makefile:7-12`: pin `UISFX_VERSION := 0.4.0`.
-- `Makefile:60-64`: one `npm_file` call extracting that single file into `$(VENDOR_DIR)`.
-- `Makefile:93-95`: one `verify-assets` entry.
-- New `internal/server/static/js/sound.js`: a lazily constructed, reused `Audio` element. Handle the rejected `play()` promise, because a browser may refuse audio before the user has interacted with the origin.
-- `internal/server/static/js/ui/settings.js:389`: a mute toggle.
-
-Kenney's CC0 pack was rejected because it ships as an unversioned zip with no published checksum and cannot be pinned. Web Audio synthesis was rejected because it does nothing for the push case and reads as a beep rather than a bell.
-
-**F10e. Red count on the tab favicon.** Per-container counts exist on `state.containers` (`internal/server/static/js/store.js:6`), maintained at `internal/server/static/js/socket.js:335-337` and `:370-371`. There is no total, no `document.title` mutation, and no favicon code.
-
-The Badging API cannot do what was asked: it targets installed applications, not browser tabs, and `setAppBadge` is `version_added: false` on Chrome Android, so the existing call at `internal/server/static/sw.js:40-47` is already a silent no-op on the reporter's phone. Keep it for installed desktop and iOS, and add a canvas favicon for the tab.
-
-- `internal/server/static/js/store.js`: a derived total, weighting mentions above plain unread the way `internal/server/static/js/ui/sidebar.js:173-176` already does.
-- New `internal/server/static/js/badge.js`: draw `icon-192.png` to a 32x32 canvas, stamp a red disc using the existing `--ctp-red` token, `toDataURL('image/png')`, assign to the icon link, and set `document.title`. The title works in every browser, including ones that ignore an icon update.
-- `internal/server/static/index.html:8`: that link declares `type="image/svg+xml"` and cannot hold a PNG data URL. Give it a stable id and swap the type, or append a second link, since the HTML specification takes the last equally appropriate icon in tree order.
-
-## Frontend files
-
-`internal/server/static/js/ui/dom.js`, `internal/server/static/js/render.js`, `internal/server/static/js/ui/message.js`, `internal/server/static/js/ui/timeline.js`, `internal/server/static/js/ui/composer.js`, `internal/server/static/js/ui/settings.js`, `internal/server/static/js/ui/call.js`, `internal/server/static/js/ui/sidebar.js`, `internal/server/static/js/socket.js`, `internal/server/static/js/push.js`, `internal/server/static/js/main.js`, `internal/server/static/js/store.js`, `internal/server/static/js/sound.js` (new), `internal/server/static/js/badge.js` (new), `internal/server/static/sw.js`, `internal/server/static/index.html`, `Makefile`.
-
-`internal/server/static/css/app.css` is generated and gitignored, so any new Tailwind utility exists only after `make assets`.
-
----
-
-# What only the account owner can do
-
-No code change substitutes for these, and calls cannot connect until they are done.
-
-Add three ingress rules to the security list on the instance's VCN subnet, sourced from `0.0.0.0/0`:
-
-| Protocol | Port | Carries |
+| Tone | Classes | Used by |
 |---|---|---|
-| TCP | 7891 | LiveKit ICE/TCP for this deployment. 7881 belongs to the separate Element instance on the same host |
-| UDP | 3478 | LiveKit's built-in TURN |
-| UDP | 60001-60300 | Media 60001-60200 and TURN relay allocations 60201-60300 |
+| `on` | `bg-surface0 text-text hover:bg-surface1` | mic live, camera live |
+| `off` | `bg-surface0 text-overlay1 hover:bg-surface1 hover:text-text` | camera off, screen idle, record idle |
+| `alert` | `bg-red/15 text-red hover:bg-red/25` | mic muted, recording live |
+| `accent` | `bg-mauve text-crust hover:brightness-110` | screen sharing live |
+| `danger` | `bg-red text-crust hover:brightness-110` | leave |
+| `busy` | `bg-surface0 text-overlay0 cursor-not-allowed` | recording processing |
 
-Do not open 7890. Confirm the rules landed on the security list the instance's subnet actually uses, then verify from outside that TCP 7891 accepts a connection and that a STUN binding request to `132.145.199.102:3478` is answered.
+Solid red marks the one destructive action and tinted red marks a hot state.
 
-The host's own iptables INPUT chain is already ACCEPT with no rejecting rule, so the host firewall is not involved.
+- `renderControls()` becomes `flex shrink-0 items-center justify-center gap-2 border-t border-surface0 px-3 py-2`, with `drawIcons(controlsEl)` after the buttons are appended.
 
-# Out of scope
+| Control | Icon | Tone | Label |
+|---|---|---|---|
+| Mic | `mic` / `mic-off` | on / alert | Mute / Unmute |
+| Camera | `video` / `video-off` | on / off | Turn the camera off / on |
+| Screen share | `screen-share` / `screen-share-off` | accent / off | Stop sharing / Share your screen |
+| Record | `circle-dot` / `circle-stop` / `loader-circle` | off / alert / busy | Start recording / Stop recording / Saving the recording |
+| Leave | `phone-off` | danger | Leave the call |
 
-- Live propagation of a notification level change to a user's other sessions. No frame carries it today, so a change reaches another tab only on reconnect. This gap already exists for channels and is a separate defect.
-- Setting the RFC 8030 `Topic` header to collapse queued pushes for a phone that has been offline for hours.
-- `GET /api/messages/{id}`, without which a reply quote whose parent is outside the loaded window still shows no author and no jump target.
-- The push subscription endpoint takeover at `internal/store/push.go:26`, where the upsert keys on endpoint alone.
-- `internal/server/static/js/ui/thread.js:137` focuses the first article in the timeline when a thread closes, scrolling the timeline to the top of the loaded window.
-- `internal/store/readstate.go:82-91` `NotificationPref` has no callers.
-- `internal/server/static/js/ui/sidebar.js:394-401` listens for three events nothing dispatches.
+Screen share stays behind `screenShareSupported()` (`:52-54,430`). Record reads `liveCall().recording_state`: `recording` gives alert plus `circle-stop`; `processing` gives busy, `disabled`, `aria-busy="true"`, and `loader-circle` with `animate-spin`; `off`, `ready`, and `failed` all render idle.
+
+- `renderHeader()` (`:438-448`) keeps the title and the `x` close, and gains an expand toggle before the close: `iconButton(expanded ? 'minimize-2' : 'maximize-2', ..., toggleExpand, 'hidden xl:grid')`. `hidden xl:grid` because below `xl` the panel is already full screen, and `iconButton`'s base carries `grid` so the extra must restore it. The recording badge (`:442-444`) gains a pulsing dot.
+- Escape (`:510-514`) collapses first when expanded and hides only when already docked.
+- The tile grid class is chosen in `render()` from `expanded`, both as literal strings so the Tailwind scanner sees them: expanded takes `grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4`, docked takes `grid grid-cols-1 gap-2`.
+- Drop `&& !state.current.threadRootId` from the visibility expression at `:456`. A thread and a call may be docked together, which is the point of making both resizable; `paneCap()` is what keeps the message column honest.
+- Export `panelState()` returning `{ joined, connecting, hidden, expanded, callId, containerId, recordingState }`, and `reopen()`, which clears `dismissed` and re-renders with no network call, no LiveKit connect, and no join, and is a no-op when this tab is neither joined nor connecting.
+
+Verify every Lucide name against the vendored bundle before using it. A name that does not exist renders nothing.
+
+## 8. Recordings: capture
+
+Today one track egress runs per participant, writing a per-speaker `.ogg` (`internal/calls/egress.go:11-45`), and the node is configured to accept only track egress, every composite cost priced at 1000 against a 2-CPU host (`egress.example.yaml:14-21`, matching the live `~/isane/egress.yaml`).
+
+Audio-only room composite runs on the SDK source, not Chrome. In `livekit/egress` v1.14.1, `pkg/config/pipeline.go:537-543` returns true for a request that is audio-only with an empty `Layout` and `CustomBaseUrl`, and `pipeline.go:231-236` then sets `SourceTypeSDK`. `pkg/stats/monitor.go:285-293` prices it as `SDKAudioRoomCompositeCpuCost` and, because `costs.isWeb` is false, skips the Chrome admission check at `monitor.go:225-227`. Mixing is real: `audiomixer` at `pkg/pipeline/builder/audio.go:389`. Track composite cannot serve, because `TrackCompositeEgressRequest` carries exactly one `AudioTrackId` and one `VideoTrackId` (`livekit_egress.pb.go:4524-4526`).
+
+Switch to one mixed file per stretch. The cost is one recording at a time on this host and the loss of per-speaker separation.
+
+Format is MP4 with AAC, not OGG with Opus: Safari gained Ogg Opus only in 18.4, `audio/mp4` works everywhere, and the README leans on iOS home-screen use (`README.md:73-74`). `OutputTypeMP4` is in `AudioOnlyFileOutputTypes` (`pkg/types/types.go:207-211`), and `faac`, `mp4mux`, and `audiomixer` are all present in the running aarch64 `livekit/egress:v1.14.1` container.
+
+### Backend
+
+1. `internal/calls/egress.go`: replace `StartTrackEgress` and `audioTrackID` with `StartRoomEgress(ctx, roomName, outPath string) (string, error)` issuing `StartRoomCompositeEgress` with `AudioOnly: true`, empty `Layout` and `CustomBaseUrl` (that emptiness is what selects the SDK source), one `EncodedFileOutput` with `FileType: EncodedFileType_MP4`, `Filepath: outPath`, `DisableManifest: true`, and `Advanced` encoding options setting `AudioCodec_AAC` and `AudioBitrate: 48`, overriding the 128 kbps default at `pkg/config/pipeline.go:207-210` for roughly 21 MB per recorded hour. The `RoomRecord` grant, `StopEgress`, and `ListEgress` are unchanged.
+2. `internal/media/service.go`: add `RecordingPath(callID, recordingID uuid.UUID) string` returning `filepath.Join(s.RecordingsDir(), callID.String()+"-"+recordingID.String()+".mp4")`, and `OpenRecording(r store.CallRecording) (*os.File, error)` mirroring `Open` (`:186-192`). Flat, with no per-call subdirectory. This is what makes retention able to unlink: `recordings/` is mode 2775 owned by uid 10001, while any subdirectory egress creates is mode 0755 owned by uid 1001, so `sweepRecordings` fails `os.Remove` and skips `DeleteCallRecording` (`internal/retention/retention.go:96-110`), leaving both file and row forever.
+3. `internal/retention/retention.go`: delete the `os.Remove(dir)` branch at `:102-104` now that the layout is flat. Keep the `fs.ErrNotExist` tolerance at `:98`.
+4. `internal/server/handlers/calls.go`: `Recording()` rejects an on request when the call is already recording; on turns `startEgress` into `startRecording(ctx, call, startedBy)`, which allocates the recording id first, inserts the row with `UserID: &startedBy`, `Mime: "audio/mp4"`, and `StoragePath: h.app.Media.RecordingPath(call.ID, recID)`, then starts the egress at `path.Join(egressOutRoot, call.ID.String()+"-"+recID.String()+".mp4")`. Delete the `startEgress` branch from `participant_joined` (`:190-192`); the mixer subscribes to new publishers itself. An egress that will not start must reach the user as an error from the handler rather than only a log line, because at one CPU per recording a second concurrent recording on this host is rejected.
+5. `egress.example.yaml` and the deployed `~/isane/egress.yaml`: add `sdk_audio_room_composite_cpu_cost: 1` under `cpu_cost`, keep `audio_room_composite_cpu_cost: 1000` (it prices the Chrome-backed variant, `monitor.go:287-289`), and rewrite the comment at `:13`, which is now false. `compose.yaml` needs no change.
+
+## 9. Recordings: message, delivery, and player
+
+No route serves recording bytes; `GET /api/calls/{id}/recordings` (`internal/server/router.go:60`) returns metadata and has no frontend caller. Nothing links a recording to a message. `finishEgress` never reads `info.GetStatus()` (`internal/server/handlers/calls.go:224-262`), so `EGRESS_FAILED` and `EGRESS_ABORTED` (`livekit_egress.pb.go:453-454`) are treated as success, and `store.RecordingFailed` (`models.go:87`) is never assigned. A webhook for an unknown egress aborts the handler, because `CompleteCallRecording` goes through `execOne`, which returns `ErrNotFound` on zero rows (`internal/store/users.go:41-43`).
+
+### Backend
+
+1. `internal/store/migrations/0005_recording_message.sql`:
+
+```sql
+alter table messages add column recording_id uuid null references call_recordings(id) on delete set null;
+create unique index messages_recording_idx on messages (recording_id) where recording_id is not null;
+
+alter table call_recordings add column mime text not null default 'audio/ogg';
+alter table call_recordings alter column mime drop default;
+```
+
+The link is a nullable `messages.recording_id` beside `call_id`, not the attachment mechanism, which would duplicate `call_recordings` and hand `Media.Delete` a file the app must not own. `on delete set null` leaves the notice text intact when retention removes the recording. The partial unique index doubles as the idempotency guard for a retried `egress_ended`, since `InsertMessage` maps `23505` to `ErrConflict` (`internal/store/store.go:117-118`). The `mime` backfill is correct: existing rows are per-speaker OGG.
+
+2. `internal/store/models.go`: add `CallRecording.Mime string \`json:"-"\``, `Message.Recording *CallRecording \`json:"recording,omitempty"\``, and `NewMessage.RecordingID *uuid.UUID`. `StoragePath` and `EgressID` stay `json:"-"`.
+3. `internal/store/calls.go`: `recordingColumns` gains `mime`; update `scanRecording` and the `CreateCallRecording` insert. Replace `CompleteCallRecording` (`:222`) and `SetRecordingSize` (`:227`) with `RecordingByEgressID(ctx, egressID string) (CallRecording, error)` and `FinishCallRecording(ctx, id uuid.UUID, durationMs *int, sizeBytes int64) error`.
+4. `internal/store/messages.go`: `recording_id` into `messageCols` (`:13`), `messageColsQualified` (`:16`), `scanMessage` (`:26-30`), and the insert column list and values (`:60-65`).
+5. `internal/store/hydrate.go`: add `RecordingsForMessages` and call it from `hydrateRefs` (`:34-54`) beside attachments and mentions, so a paged timeline gets `duration_ms` and `size_bytes` without a second round trip.
+6. `internal/app/publish.go`: add `PostRecordingNotice(ctx, containerID, authorID, recordingID uuid.UUID, body string)` delegating to `postSystem` with `RecordingID` set and no `CallID`, because `liveCallOf` (`message.js:198-202`) would otherwise put a Join button on the recording notice. Body text is plain, since `systemNode` renders `plainText(m.body)`: `"@alice recorded 4m 12s of the call"`, falling back to `"@alice recorded the call"` when the duration is unknown. It still reads correctly after retention nulls `recording_id`.
+7. `internal/server/handlers/calls.go`, `finishEgress` (`:224`): return early unless `info.GetStatus() == livekit.EgressStatus_EGRESS_COMPLETE`, setting `store.RecordingFailed` through `setRecording` otherwise; look the row up with `RecordingByEgressID` and tolerate `ErrNotFound`; require exactly one `FileResults` entry with a non-zero size, and `os.Stat` the app-side `StoragePath` for a non-zero size before believing the file is usable; `FinishCallRecording`; `PostRecordingNotice`, swallowing `store.ErrConflict`; then `setRecording` to `store.RecordingReady`. Duration stays `int(f.GetDuration() / int64(time.Millisecond))`, because `FileInfo.Duration` is a nanosecond difference (`pkg/pipeline/controller.go:1010`). The room-ended stop needs no extra branch: `room_finished` already calls `stopEgress`, which produces the same `egress_ended`, so the notice posts through the identical path. It must keep setting `Processing` before `EndCall`.
+8. Same file, new `Audio(w, r)`: `pathUUID(r, "id")`, then the recording, then `CallByID`, then `containerFor` (`internal/server/handlers/containers.go:349-362`) for the object-level check, then `OpenRecording`, then `Cache-Control`, then `serveFile(w, r, f, name, rec.Mime, queryBool(r, "download"))`.
+9. `internal/server/router.go`: one route beside the attachment routes, `mux.Handle("GET /api/recordings/{id}", s.user(calls.Audio))`. One route with `?download=1` serves both playback and download, matching the existing `queryBool` helper (`handlers.go:243-246`) and `serveFile`'s `download bool` parameter (`media.go:199,211-216`), so the filename is decided in one place.
+
+Range support is required and `serveFile` already provides it, ending in `http.ServeContent`, which parses the range header, replies `206`, and sets `Accept-Ranges: bytes`. A plain `io.Copy` would leave the browser unable to seek past what it had buffered. `http.ServeFile` would work too but takes a path and re-inspects `r.URL.Path`; `serveFile` takes the already-opened file and is the right reuse.
+
+10. Docs. `docs/decisions.md:9` records "track egress, never room composite" and cites a CPU figure that belongs to the Chrome path (`room_composite_cpu_cost = 4`, `pkg/config/service.go:32-35`), not the SDK audio path; rewrite it to name the SDK audio path and keep the surviving half of the reasoning, that a mix cannot be diarised by track. `docs/deployment.md:116` is wrong about retention deleting recordings and becomes true only for the new flat layout. `README.md:77` describes per-speaker files.
+
+### Frontend
+
+`internal/server/static/css/input.css`: one rule under the pseudo-element exception, since range thumbs are `::-webkit-slider-thumb` and `::-moz-range-thumb`, which Tailwind does not reach: `.recording-seek { accent-color: var(--ctp-mauve); }`.
+
+`internal/server/static/js/ui/audio.js`, new, exporting `recordingPlayer(rec)` built from `el` and `icon` (`ui/dom.js:8-21`):
+
+```
+div  mt-1 flex w-full max-w-md items-center gap-2 rounded-xl bg-base px-2 py-1.5
+├── button  grid h-8 w-8 shrink-0 place-items-center rounded-full bg-mauve text-crust   play / pause
+├── input[type=range]  recording-seek h-1 min-w-0 flex-1
+├── span  shrink-0 text-micro tabular-nums text-overlay1        "0:00 / 4:12"
+├── a[href="/api/recordings/{id}?download=1"]  shrink-0 text-overlay1 hover:text-text   download
+└── audio  hidden, preload="metadata", src="/api/recordings/{id}"
+```
+
+`bg-base` is the correct well inside the `mantle` timeline. Total duration comes from `rec.duration_ms` so the label is right before metadata loads; `timeupdate` drives the range value and the elapsed half; `input` on the range sets `currentTime`. Play and pause swap the icon and re-run `drawIcons` on the button. Size it fluid: the message column's width now changes continuously during a drag, so a fixed-pixel width or a `min-width` above roughly 330px will overflow at the pane minimum.
+
+A custom bar rather than `<audio controls>`. The page is themed light and dark from `--ctp-*` and a user-agent widget follows neither, Chrome's native control set adds a playback-rate and download menu the user did not ask for, and every other control in the timeline is already built from `el()` and `icon()`. This leaves the timeline carrying two audio idioms, since the audio attachment at `message.js:60-69` uses `<audio controls>`; do not convert that one in this change.
+
+`internal/server/static/js/ui/message.js`: in `systemNode` (`:204-214`), append `recordingPlayer(m.recording)` after the text span when `m.recording` is present, and make the article `flex-col` so the player sits under the centred line. Add `m.recording ? m.recording.id : ''` to `messageSignature` (`:290-307`). It must be an identity and never playback state, because `nodeFor` replaces the node whenever the signature changes (`ui/timeline.js:118-129,163-170`), which would stop playback mid-track. Player state lives on the DOM node and in the `<audio>` element, never in `state`, so nothing calls `notify()`.
+
+## Out of scope
+
+- Per-thread read state. Threads carry none today, so "mark as read on open" governs channels and DMs.
+- Converting the audio attachment player at `message.js:60-69` to the new bar.
+- `GET /api/calls/{id}/recordings` stays and stays uncalled.
+- Legacy per-call recording directories on the host, which remain undeletable until someone changes their ownership by hand.
+
+## What a reviewer re-exercises
+
+Hidden tab with push on and with push off; hidden tab receiving into the container that is open; the double-banner suppression while visible. A `?m=` deep link with unread present; a container switch during the marker linger; the New pill in both modes. Typing then sending in a channel, in a DM, and in a thread, and typing continuously past five seconds to confirm no flicker. Two participants where one leaves and the other stays, then a single participant whose network blips. A reconnect during a live call, confirming the recording badge and the Leave button still track. Start, stop, and restart recording twice in one call, confirming two notices; end a call while recording and confirm the notice still posts; join a call mid-recording and confirm the newcomer is in the mix. Play, pause, seek, and download from the timeline, and confirm the recording notice carries no Join button while the call is still live. The sidebar drag, its arrow keys, and its collapse. Both panes docked at 1280px and 1536px, and the mobile layout at 390px and 768px, where both handles stay invisible and untabbable. A retention sweep, confirming file and row both disappear.

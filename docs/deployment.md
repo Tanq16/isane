@@ -113,7 +113,7 @@ In `livekit.yaml` and `egress.yaml`, replace both `REPLACE_ME_openssl_rand_base6
 
 **4. Create the data directories with the right ownership.**
 
-The application runs as UID 10001. The egress container runs as its own user in group 0, so the recordings directory is group-writable and setgid, which is what lets egress write files the application can later sweep.
+The application runs as UID 10001. The egress container runs as its own user in group 0, so the recordings directory is group-writable and setgid, which is what lets egress write files the application can later sweep. Recordings are written flat into that directory, because a subdirectory egress created would carry egress's own ownership and the application could not unlink from it.
 
 ```bash
 mkdir -p data/postgres data/media/recordings

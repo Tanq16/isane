@@ -6,7 +6,7 @@ An implementing agent will be tempted to change these. Each was decided delibera
 - **`seq`, never timestamps, for ordering and cursors.** Clocks skew and jump.
 - **Read state per user, delivery per device.** These are different concepts and merging them produces badges that will not clear.
 - **One call type.** Cameras off already publish nothing.
-- **Track egress, never room composite.** Composite costs 2 to 6 CPUs and produces a worse input for transcription.
+- **SDK audio room composite, never the Chrome-backed one.** An audio-only composite with no layout runs on the SDK source at one CPU where the Chrome path costs four, and the price is a single mixed file that cannot be diarised by track.
 - **Agents run on their owners' machines.** The server holds no model credentials.
 - **Markdown is the wire format and the frontend is the only renderer.** No `body_html`, no server-side conversion, no separate agent format.
 - **Paged scrollback, not virtualization.** The client never holds a full channel.
