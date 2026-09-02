@@ -86,10 +86,11 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/admin/stats", s.adminOnly(admin.Stats))
 	mux.Handle("GET /api/admin/retention", s.adminOnly(admin.Retention))
 	mux.Handle("GET /api/health", http.HandlerFunc(s.health))
+	mux.Handle("GET /api/version", http.HandlerFunc(s.version))
 
 	mux.Handle("GET /ws", s.user(s.handleWS))
 
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(s.static))))
+	mux.Handle("GET /static/", http.StripPrefix("/static/", s.revalidated(http.FileServer(http.FS(s.static)))))
 	mux.HandleFunc("GET /sw.js", s.serveWorker)
 	mux.HandleFunc("/", s.serveIndex)
 }
