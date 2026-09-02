@@ -85,6 +85,15 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 		if err != nil {
 			return fmt.Errorf("consume invite: %w", err)
 		}
+		if !created.IsAdmin {
+			return nil
+		}
+		_, err = tx.Exec(ctx, `insert into containers (id, kind, slug, name, topic, created_by)
+			values ($1, 'channel', $2, $3, $4, $5)`,
+			uuid.New(), firstChannelSlug, firstChannelName, firstChannelTopic, created.ID)
+		if err != nil {
+			return fmt.Errorf("create the first channel: %w", mapErr(err))
+		}
 		return nil
 	})
 	if err != nil {
@@ -92,6 +101,12 @@ func (db *DB) AcceptInvite(ctx context.Context, tokenHash []byte, u User) (User,
 	}
 	return created, nil
 }
+
+const (
+	firstChannelSlug  = "general"
+	firstChannelName  = "General"
+	firstChannelTopic = "Everything that does not have a home yet"
+)
 
 var errInviteUnusable = fmt.Errorf("this invite link is no longer valid: %w", ErrConflict)
 
