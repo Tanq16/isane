@@ -9,7 +9,6 @@ import { openChannelSettings } from './settings.js'
 const PAGE = 50
 const NEAR_TOP = 300
 const NEAR_BOTTOM = 120
-const LEVEL_ICON = { all: 'bell', mentions: 'at-sign', none: 'bell-off' }
 
 let scrollEl = null
 let headerEl = null
@@ -231,11 +230,6 @@ function toggleSidebar(button) {
   drawIcons(button)
 }
 
-function focusSearch() {
-  const input = document.querySelector('#sidebar input[type="search"]')
-  if (input) input.focus()
-}
-
 function renderHeader() {
   if (!headerEl) return
   const c = currentContainer()
@@ -274,11 +268,8 @@ function renderHeader() {
     actions.appendChild(iconButton('phone', 'Start a call', () =>
       window.dispatchEvent(new CustomEvent('isane:call-start', { detail: { containerId: c.id } }))))
   }
-  if (c.kind === 'channel') {
-    actions.appendChild(iconButton(LEVEL_ICON[c.level] || 'at-sign', 'Notifications', () => openChannelSettings(c), 'hidden md:grid'))
-  }
-  actions.appendChild(iconButton('settings', c.kind === 'channel' ? 'Channel settings' : 'Conversation details', () => openChannelSettings(c)))
-  actions.appendChild(iconButton('search', 'Search messages', focusSearch, 'hidden md:grid'))
+  const channel = c.kind === 'channel'
+  actions.appendChild(iconButton(channel ? 'settings' : 'users-round', channel ? 'Channel settings' : 'Members', () => openChannelSettings(c)))
   headerEl.appendChild(actions)
   drawIcons(headerEl)
 }

@@ -10,8 +10,8 @@ import { toast } from './toast.js'
 
 const LEVELS = [
   ['all', 'All messages', 'Every message raises a notification.', 'bell'],
-  ['mentions', 'Mentions only', 'Only a message naming you or the channel.', 'at-sign'],
-  ['none', 'Nothing', 'No notifications from this channel.', 'bell-off'],
+  ['mentions', 'Mentions only', 'Only a message that names you.', 'at-sign'],
+  ['none', 'Nothing', 'No notifications at all.', 'bell-off'],
 ]
 
 const MIN_PASSWORD = 8
@@ -128,7 +128,6 @@ function archiveSection(body, c, handle) {
 }
 
 function participantsSection(body, c) {
-  body.appendChild(sectionLabel('People'))
   const list = el('div', 'space-y-0.5')
   for (const id of c.participants || []) {
     const u = user(id)
@@ -150,10 +149,11 @@ export function openChannelSettings(c) {
   if (!c) return
   if (c.kind !== 'channel') {
     openModal({
-      title: 'Conversation',
-      icon: 'users',
+      title: 'Members',
+      icon: 'users-round',
       build(body) {
         participantsSection(body, c)
+        notificationSection(body, c)
       },
     })
     return
