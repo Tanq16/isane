@@ -11,10 +11,11 @@ import (
 )
 
 const messageCols = `id, container_id, seq, author_id, body, reply_to_id, thread_root_id, client_id,
-	is_system, thread_reply_count, thread_last_reply_at, created_at, edited_at, deleted_at`
+	is_system, call_id, thread_reply_count, thread_last_reply_at, created_at, edited_at, deleted_at`
 
 const messageColsQualified = `m.id, m.container_id, m.seq, m.author_id, m.body, m.reply_to_id, m.thread_root_id,
-	m.client_id, m.is_system, m.thread_reply_count, m.thread_last_reply_at, m.created_at, m.edited_at, m.deleted_at`
+	m.client_id, m.is_system, m.call_id, m.thread_reply_count, m.thread_last_reply_at, m.created_at, m.edited_at,
+	m.deleted_at`
 
 const messageByClientIDSQL = `select ` + messageCols + ` from messages where author_id = $1 and client_id = $2`
 
@@ -23,7 +24,8 @@ const allocateSeqSQL = `update containers set last_seq = last_seq + 1 where id =
 func scanMessage(row pgx.Row) (Message, error) {
 	var m Message
 	err := row.Scan(&m.ID, &m.ContainerID, &m.Seq, &m.AuthorID, &m.Body, &m.ReplyToID, &m.ThreadRootID,
-		&m.ClientID, &m.IsSystem, &m.ThreadReplyCount, &m.ThreadLastReplyAt, &m.CreatedAt, &m.EditedAt, &m.DeletedAt)
+		&m.ClientID, &m.IsSystem, &m.CallID, &m.ThreadReplyCount, &m.ThreadLastReplyAt, &m.CreatedAt, &m.EditedAt,
+		&m.DeletedAt)
 	return m, err
 }
 
@@ -56,9 +58,10 @@ func (db *DB) InsertMessage(ctx context.Context, m NewMessage) (Message, error) 
 		}
 
 		inserted, err := scanMessage(tx.QueryRow(ctx, `insert into messages
-			(id, container_id, seq, author_id, body, reply_to_id, thread_root_id, client_id, is_system)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning `+messageCols,
-			uuid.New(), m.ContainerID, seq, m.AuthorID, m.Body, m.ReplyToID, m.ThreadRootID, m.ClientID, m.IsSystem))
+			(id, container_id, seq, author_id, body, reply_to_id, thread_root_id, client_id, is_system, call_id)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning `+messageCols,
+			uuid.New(), m.ContainerID, seq, m.AuthorID, m.Body, m.ReplyToID, m.ThreadRootID, m.ClientID, m.IsSystem,
+			m.CallID))
 		if err != nil {
 			return mapErr(err)
 		}

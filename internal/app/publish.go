@@ -99,18 +99,31 @@ func (a *App) postMessage(ctx context.Context, author store.User, p socket.SendP
 }
 
 func (a *App) PostSystem(ctx context.Context, containerID uuid.UUID, authorID uuid.UUID, threadRootID *uuid.UUID, body string) (store.Message, error) {
-	c, err := a.DB.GetContainer(ctx, containerID)
-	if err != nil {
-		return store.Message{}, fmt.Errorf("post system message: %w", err)
-	}
-	m, err := a.DB.InsertMessage(ctx, store.NewMessage{
+	return a.postSystem(ctx, store.NewMessage{
 		ContainerID:  containerID,
 		AuthorID:     authorID,
 		Body:         body,
-		ClientID:     uuid.New().String(),
 		ThreadRootID: threadRootID,
-		IsSystem:     true,
 	})
+}
+
+func (a *App) PostCallNotice(ctx context.Context, containerID, authorID, callID uuid.UUID, body string) (store.Message, error) {
+	return a.postSystem(ctx, store.NewMessage{
+		ContainerID: containerID,
+		AuthorID:    authorID,
+		Body:        body,
+		CallID:      &callID,
+	})
+}
+
+func (a *App) postSystem(ctx context.Context, n store.NewMessage) (store.Message, error) {
+	c, err := a.DB.GetContainer(ctx, n.ContainerID)
+	if err != nil {
+		return store.Message{}, fmt.Errorf("post system message: %w", err)
+	}
+	n.ClientID = uuid.New().String()
+	n.IsSystem = true
+	m, err := a.DB.InsertMessage(ctx, n)
 	if err != nil {
 		return store.Message{}, fmt.Errorf("post system message: %w", err)
 	}
