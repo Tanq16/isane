@@ -59,6 +59,10 @@ ufw allow 50000:50300/udp
 
 LiveKit media must reach clients over UDP directly. Restricting to 443 forces every call to relay over TCP, which adds latency and degrades under packet loss.
 
+A cloud VPS has a second firewall in front of the host one. The provider's security list or network ACL drops what it does not allow before `ufw` ever sees the packet, so the same four rules have to be added there too, sourced from `0.0.0.0/0`, on the security list attached to the subnet the instance actually uses. Use the ports in your own `livekit.yaml` rather than the ones above if you moved `rtc.tcp_port` or the `rtc` and `turn` port ranges, which is what a second LiveKit already holding the defaults on the host forces you to do.
+
+Verify the rules from outside the host, not from it: a TCP connection to the ICE/TCP port must be accepted, and a STUN binding request to the public address on `3478/udp` must be answered. Signaling that works while every call stays silent is almost always a missing rule here, because signaling arrives over 443 through Caddy and media does not.
+
 ## Walkthrough
 
 **1. Clone and create the config files.**
@@ -100,6 +104,8 @@ PUBLIC_IP=<the address your domain resolves to>
 `APP_PORT` is the one other variable compose reads, defaulting to `8080`. Set it when something else on the host already holds that port; the container still listens on 8080 and only the loopback publish moves, so `Caddyfile` is the only other file that changes.
 
 `PUBLIC_IP` is the address LiveKit advertises to clients as its ICE and TURN candidate, so it must be the public address your domain resolves to rather than the host's private interface. Compose refuses to start without it. Setting it is also what keeps the deployment off third-party infrastructure: LiveKit's `use_external_ip` discovers the address by querying `global.stun.twilio.com` and `stun.l.google.com`, and supplying the address directly skips that lookup. `NODE_IP` overrides `rtc.node_ip` in `livekit.yaml`, so either place works and the environment wins.
+
+`rtc.ips.includes` in `livekit.yaml` narrows the host addresses LiveKit offers as ICE candidates to the listed CIDRs. LiveKit runs on the host network, so without it every Docker bridge on the machine is enumerated and offered, including the bridges of unrelated stacks, and a browser wastes pairing time against an address that may also exist on its own LAN. Set it to the subnet of this host's private interface, which is the one internal address egress needs. Interface excludes are the wrong lever, because compose names its bridges `br-<hash>` and those names change.
 
 In `config.yaml`, set `server.public_url` and `livekit.public_url` to the real hostname, both VAPID keys, `push.subject` to a `mailto:` address you own, and `livekit.api_secret`. Leave `database.url` as it is, since compose overrides it.
 
@@ -209,7 +215,7 @@ Run each step in order and stop at the first one that explains the silence. `psq
 ## Diagnosing a missing notification
 
 1. **Confirm the user has a `push_subscriptions` row with `enabled = true`.** No row means the browser never subscribed, most often because permission was never requested from a click or keystroke.
-2. **Confirm the device did not have a live socket.** A device whose tab is connected is suppressed by design and renders the notification in the page instead.
+2. **Confirm the device was not looking at the page.** A device whose tab is connected and visible is suppressed by design and renders the notification in the page instead. Suppression is per device, so another device left open never silences this one.
 3. **Run the routing predicate by hand** against the user, the message, and the container. A channel left at its `mentions` default, carrying a message with no mention, is working correctly.
 4. **Check the last send's status.** A 404 or 410 means the subscription is dead and the row should already have been deleted.
 

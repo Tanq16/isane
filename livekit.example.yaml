@@ -18,6 +18,11 @@ rtc:
   # Egress runs on this same host and cannot reach node_ip where the provider does
   # not hairpin its own public address, so the private address is offered too.
   advertise_internal_ip: true
+  ips:
+    # Without this LiveKit offers every Docker bridge on the host as an ICE candidate.
+    # An includes list drops every address outside it, so replace this with the subnet
+    # of this host's own private interface.
+    includes: ["10.0.1.0/24"]
 
 turn:
   enabled: true
