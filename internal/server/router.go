@@ -21,6 +21,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/logout", sessions.Logout)
 	mux.HandleFunc("POST /api/auth/accept-invite", sessions.AcceptInvite)
 	mux.Handle("GET /api/auth/me", s.user(sessions.Me))
+	mux.Handle("PATCH /api/auth/me", s.user(sessions.UpdateProfile))
 	mux.Handle("POST /api/auth/password", s.user(sessions.ChangePassword))
 
 	mux.Handle("GET /api/settings", s.user(settings.Get))

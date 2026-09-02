@@ -55,6 +55,11 @@ type acceptInviteRequest struct {
 	Password    string `json:"password"`
 }
 
+type profileRequest struct {
+	DisplayName *string    `json:"display_name"`
+	AvatarID    *uuid.UUID `json:"avatar_id"`
+}
+
 type passwordRequest struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
@@ -117,6 +122,59 @@ func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	WriteJSON(w, http.StatusOK, u)
+}
+
+func (h *Auth) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	var req profileRequest
+	if err := ReadJSON(r, &req); err != nil {
+		WriteError(w, err)
+		return
+	}
+	displayName := u.DisplayName
+	if req.DisplayName != nil {
+		name, err := boundedField("display_name", *req.DisplayName, maxNameLength)
+		if err != nil {
+			WriteError(w, err)
+			return
+		}
+		displayName = name
+	}
+	avatarID := req.AvatarID
+	if avatarID != nil {
+		if err := h.ownedAvatar(r, *avatarID, u.ID); err != nil {
+			WriteError(w, err)
+			return
+		}
+	}
+	if err := h.app.DB.UpdateProfile(r.Context(), u.ID, displayName, avatarID); err != nil {
+		WriteError(w, err)
+		return
+	}
+	updated, err := h.app.DB.GetUser(r.Context(), u.ID)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, updated.Directory()))
+	WriteJSON(w, http.StatusOK, updated)
+}
+
+func (h *Auth) ownedAvatar(r *http.Request, id, userID uuid.UUID) error {
+	a, err := h.app.DB.GetAttachment(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	if a.UploaderID != userID {
+		return forbiddenf("not the uploader of this attachment")
+	}
+	if a.Kind != store.AttachmentImage || a.State != store.AttachmentReady {
+		return badRequestf("avatar_id must name a processed image")
+	}
+	return nil
 }
 
 func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
