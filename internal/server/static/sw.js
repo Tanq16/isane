@@ -95,6 +95,8 @@ async function resubscribe() {
     });
 }
 
+self.addEventListener('fetch', () => {});
+
 self.addEventListener('push', (event) => {
     event.waitUntil(present(event));
 });
