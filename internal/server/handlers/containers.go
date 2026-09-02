@@ -98,6 +98,7 @@ func (h *Containers) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, c))
 	WriteJSON(w, http.StatusCreated, view)
 }
 
@@ -154,6 +155,7 @@ func (h *Containers) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, updated))
 	WriteJSON(w, http.StatusOK, updated)
 }
 
@@ -331,6 +333,7 @@ func (h *Containers) CreateConversation(w http.ResponseWriter, r *http.Request) 
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToUsers(participants, socket.NewFrame(socket.TypeContainer, c))
 	WriteJSON(w, http.StatusOK, view)
 }
 

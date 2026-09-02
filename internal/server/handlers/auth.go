@@ -14,6 +14,7 @@ import (
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
+	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -148,6 +149,7 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, u.Directory()))
 	WriteJSON(w, http.StatusCreated, u)
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/auth"
+	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -109,6 +110,7 @@ func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, created.Directory()))
 	WriteJSON(w, http.StatusCreated, created)
 }
 
@@ -133,6 +135,7 @@ func (h *Admin) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishUser(r, target.ID)
 	writeOK(w)
 }
 
@@ -184,6 +187,7 @@ func (h *Admin) SetAdmin(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishUser(r, target.ID)
 	writeOK(w)
 }
 
@@ -271,6 +275,7 @@ func (h *Admin) ArchiveChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishChannel(r, id)
 	writeOK(w)
 }
 
@@ -284,6 +289,7 @@ func (h *Admin) UnarchiveChannel(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.publishChannel(r, id)
 	writeOK(w)
 }
 
@@ -322,6 +328,7 @@ func (h *Admin) ReserveAgent(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, info.User.Directory()))
 	WriteJSON(w, http.StatusCreated, adminAgentReserved{Agent: info, ClaimToken: raw})
 }
 
@@ -346,6 +353,14 @@ func (h *Admin) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		WriteError(w, err)
 		return
+	}
+	if freed {
+		gone := info.User.Directory()
+		now := time.Now()
+		gone.DeactivatedAt = &now
+		h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, gone))
+	} else {
+		h.publishUser(r, info.User.ID)
 	}
 	WriteJSON(w, http.StatusOK, adminAgentDeleted{HandleFreed: freed})
 }
@@ -374,6 +389,24 @@ func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
 		out.LastRunAt = &last
 	}
 	WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Admin) publishUser(r *http.Request, id uuid.UUID) {
+	u, err := h.app.DB.GetUser(r.Context(), id)
+	if err != nil {
+		h.app.Log.Error().Err(err).Str("user", id.String()).Msg("reload user for broadcast")
+		return
+	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, u.Directory()))
+}
+
+func (h *Admin) publishChannel(r *http.Request, id uuid.UUID) {
+	c, err := h.app.DB.GetContainer(r.Context(), id)
+	if err != nil {
+		h.app.Log.Error().Err(err).Str("container", id.String()).Msg("reload channel for broadcast")
+		return
+	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, c))
 }
 
 func (h *Admin) human(w http.ResponseWriter, r *http.Request) (store.User, bool) {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/tanq16/isane/internal/app"
+	"github.com/tanq16/isane/internal/socket"
 )
 
 type Settings struct {
@@ -42,5 +43,6 @@ func (h *Settings) Update(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Hub.ToAll(socket.NewFrame(socket.TypeSettings, s))
 	WriteJSON(w, http.StatusOK, s)
 }

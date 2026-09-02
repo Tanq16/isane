@@ -6,6 +6,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/rs/zerolog/log"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -29,6 +30,10 @@ const (
 	TypeCallEnded       = "call_ended"
 	TypeAgentWorking    = "agent_working"
 	TypeAgentDone       = "agent_done"
+	TypeSettings        = "settings"
+	TypeContainer       = "container"
+	TypeUser            = "user"
+	TypeAttachment      = "attachment"
 	TypePong            = "pong"
 	TypeError           = "error"
 )
@@ -52,6 +57,7 @@ func NewFrame(t string, d any) Frame {
 	}
 	raw, err := json.Marshal(d)
 	if err != nil {
+		log.Error().Err(err).Str("type", t).Msg("encode socket frame payload")
 		return Frame{T: t}
 	}
 	return Frame{T: t, D: raw}

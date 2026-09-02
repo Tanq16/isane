@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	frameAttachment = "attachment"
 	attachmentCache = "private, max-age=31536000, immutable"
 	attachmentCSP   = "default-src 'none'; sandbox"
 )
@@ -123,7 +122,7 @@ func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid
 		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("process attachment")
 		return
 	}
-	frame := socket.NewFrame(frameAttachment, done)
+	frame := socket.NewFrame(socket.TypeAttachment, done)
 	if done.MessageID == nil {
 		h.app.Hub.ToUser(uploaderID, frame)
 		return
