@@ -43,6 +43,6 @@ media_quality:
     max_bitrate: 2500000
     max_framerate: 15
   audio:
-    max_bitrate: 48000
+    max_bitrate: 24000
     dtx: true
   codec: vp8

@@ -121,7 +121,7 @@ func Default() Config {
 				},
 			},
 			ScreenShare: ScreenQuality{MaxResolution: 1080, MaxBitrate: 2500000, MaxFramerate: 15},
-			Audio:       AudioQuality{MaxBitrate: 48000, DTX: true},
+			Audio:       AudioQuality{MaxBitrate: 24000, DTX: true},
 			Codec:       "vp8",
 		},
 	}

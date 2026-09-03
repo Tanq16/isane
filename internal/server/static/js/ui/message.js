@@ -221,9 +221,11 @@ export function messageNode(view, ctx) {
   if (m.is_system) return systemNode(m)
 
   const mention = mentionsMe(m)
-  const article = el('article', 'group/msg relative px-4 py-0.5 hover:bg-surface0/40'
+  const article = el('article', 'group/msg relative border-l-2 py-0.5 pl-[14px] pr-4 transition-colors'
     + (view.head ? ' mt-4' : '')
-    + (mention ? ' border-l-2 border-red bg-red/8 pl-[14px]' : ''))
+    + (mention
+      ? ' border-red bg-red/8'
+      : ' border-transparent hover:border-surface1 focus-within:border-surface1'))
   article.tabIndex = 0
 
   if (m.deleted_at) {

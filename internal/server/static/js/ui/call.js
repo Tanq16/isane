@@ -15,6 +15,32 @@ const TONES = {
   busy: 'bg-surface0 text-overlay0 cursor-not-allowed',
 }
 
+const CALL_ERRORS = {
+  microphone: 'Could not use the microphone.',
+  token: 'Could not get a call token.',
+  connect: 'Could not reach the call server.',
+  publish: 'Could not publish your microphone.',
+}
+
+const MIC_DENIED = 'Isane needs microphone access. Allow it in your device settings, then try again.'
+
+const STRIP_QUERY = '(min-width: 48rem)'
+const MAX_STAGE_TILES = 8
+
+const TILE = 'relative overflow-hidden bg-base ring-1 ring-edge'
+const STAGE_TILE_FIT = TILE + ' w-full self-center aspect-video max-h-full rounded-xl'
+const STAGE_TILE_SCROLL = TILE + ' w-full aspect-video rounded-xl'
+const STRIP_TILE = TILE + ' aspect-video h-20 w-auto shrink-0 rounded-lg'
+const OVERFLOW_TILE = 'grid place-items-center text-message font-semibold text-subtext0'
+const STAGE_FIT = 'grid min-h-0 flex-1 gap-2 overflow-hidden auto-rows-[minmax(0,1fr)] grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]'
+const STAGE_SCROLL = 'grid min-h-0 flex-1 content-start gap-2 overflow-y-auto grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))]'
+const STRIP = 'flex shrink-0 items-center gap-2 overflow-x-auto empty:hidden'
+const CAPTION = 'absolute inset-x-0 bottom-0 flex items-center gap-2 bg-scrim'
+const STAGE_CAPTION = CAPTION + ' px-2 py-1 text-xs'
+const STRIP_CAPTION = CAPTION + ' px-1.5 py-0.5 text-micro'
+
+const stripMedia = matchMedia(STRIP_QUERY)
+
 function lk() {
   return globalThis.LivekitClient || globalThis.LiveKit || null
 }
@@ -22,7 +48,9 @@ function lk() {
 let rootEl = null
 let panelEl = null
 let headerEl = null
-let gridEl = null
+let stripEl = null
+let stageEl = null
+let overflowEl = null
 let controlsEl = null
 let audioSinkEl = null
 let audioButtonEl = null
@@ -98,6 +126,14 @@ function livekitUrl(fromServer) {
   return scheme + location.host + '/livekit'
 }
 
+function audioCaptureOptions() {
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  }
+}
+
 function roomOptions() {
   const LK = lk()
   const q = state.quality || {}
@@ -114,11 +150,7 @@ function roomOptions() {
     adaptiveStream: true,
     dynacast: true,
     disconnectOnPageLeave: false,
-    audioCaptureDefaults: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
+    audioCaptureDefaults: audioCaptureOptions(),
     videoCaptureDefaults: {
       resolution: { width: Math.round((height * 16) / 9), height, frameRate: framerate },
     },
@@ -128,7 +160,7 @@ function roomOptions() {
       videoSimulcastLayers: layers,
       videoEncoding: { maxBitrate: video.max_bitrate || 1700000, maxFramerate: framerate },
       screenShareEncoding: { maxBitrate: screen.max_bitrate || 2500000, maxFramerate: screen.max_framerate || 15 },
-      audioPreset: { maxBitrate: audio.max_bitrate || 48000 },
+      audioPreset: { maxBitrate: audio.max_bitrate || 24000 },
       dtx: audio.dtx !== false,
       red: true,
     },
@@ -177,30 +209,27 @@ function ensureTile(identity, source, label) {
   let tile = tiles.get(key)
   if (tile) return tile
 
-  const wrap = el(
-    'div',
-    source === 'screen'
-      ? 'relative col-span-full aspect-video overflow-hidden rounded-xl bg-base ring-1 ring-edge'
-      : 'relative aspect-video overflow-hidden rounded-xl bg-base ring-1 ring-edge'
-  )
-  const video = el('video', 'h-full w-full object-cover')
+  const wrap = el('div', STAGE_TILE_SCROLL)
+  const video = el('video', 'h-full w-full ' + (source === 'screen' ? 'object-contain' : 'object-cover'))
   video.autoplay = true
   video.playsInline = true
   video.muted = true
   const placeholder = el('div', 'absolute inset-0 flex items-center justify-center text-2xl font-semibold text-overlay1')
   placeholder.textContent = (label || '?').trim().charAt(0).toUpperCase()
-  const caption = el('div', 'absolute inset-x-0 bottom-0 flex items-center gap-2 bg-scrim px-2 py-1 text-xs')
+  const caption = el('div', STAGE_CAPTION)
   const name = el('span', 'truncate text-subtext0', source === 'screen' ? label + ' screen' : label)
   const mutedFlag = el('span', 'hidden shrink-0 text-red', 'muted')
+  const speakerEl = el('div', 'pointer-events-none absolute inset-0 hidden rounded-xl ring-2 ring-mauve')
   caption.appendChild(name)
   caption.appendChild(mutedFlag)
   wrap.appendChild(video)
   wrap.appendChild(placeholder)
   wrap.appendChild(caption)
-  gridEl.appendChild(wrap)
+  wrap.appendChild(speakerEl)
 
-  tile = { wrap, video, placeholder, name, mutedFlag, track: null }
+  tile = { wrap, video, placeholder, caption, name, mutedFlag, speakerEl, source, track: null }
   tiles.set(key, tile)
+  scheduleRender()
   return tile
 }
 
@@ -211,6 +240,7 @@ function removeTile(identity, source) {
   if (tile.track) tile.track.detach(tile.video)
   tile.wrap.remove()
   tiles.delete(key)
+  scheduleRender()
 }
 
 function attachVideo(identity, source, label, track) {
@@ -296,8 +326,7 @@ function wire() {
     const loud = new Set(speakers.map((p) => p.identity))
     for (const [key, tile] of tiles) {
       const identity = key.slice(0, key.lastIndexOf(':'))
-      tile.wrap.classList.toggle('ring-2', loud.has(identity))
-      tile.wrap.classList.toggle('ring-mauve', loud.has(identity))
+      tile.speakerEl.classList.toggle('hidden', !loud.has(identity))
     }
   })
 
@@ -306,31 +335,29 @@ function wire() {
   room.on(E.Disconnected, () => teardown())
 }
 
-async function join(call) {
-  dismissed = false
+function callError(stage, err) {
+  if (stage === 'microphone' && err && err.name === 'NotAllowedError') return MIC_DENIED
+  const detail = err && err.message
+  return detail ? CALL_ERRORS[stage] + ' ' + detail : CALL_ERRORS[stage]
+}
+
+async function join(call, mic) {
   const LK = lk()
-  if (!LK) {
-    statusText = ''
-    toast('The call client did not load.', { severity: 'error' })
-    render()
-    return
-  }
-  if (connecting || joined) {
-    render()
-    return
-  }
   connecting = true
   activeCall = call
   statusText = 'Connecting'
   notify('calls')
   render()
 
+  let stage = 'token'
   try {
     const grant = await api.get('/api/calls/' + call.id + '/token')
+    stage = 'connect'
     room = new LK.Room(roomOptions())
     wire()
     await room.connect(livekitUrl(grant.url), grant.token)
-    await room.localParticipant.setMicrophoneEnabled(true)
+    stage = 'publish'
+    await room.localParticipant.publishTrack(mic)
     ensureTile(room.localParticipant.identity, 'camera', labelOf(room.localParticipant))
     for (const participant of (room.remoteParticipants || room.participants || new Map()).values()) {
       ensureTile(participant.identity, 'camera', labelOf(participant))
@@ -343,8 +370,9 @@ async function join(call) {
     await acquireWakeLock()
     resetIdle()
   } catch (err) {
+    mic.stop()
     statusText = ''
-    toast(err.message || 'Could not join the call.', { severity: 'error' })
+    toast(callError(stage, err), { severity: 'error' })
     if (room) {
       try {
         await room.disconnect()
@@ -388,6 +416,10 @@ function teardown() {
     const index = key.lastIndexOf(':')
     removeTile(key.slice(0, index), key.slice(index + 1))
   }
+  if (overflowEl) {
+    overflowEl.remove()
+    overflowEl = null
+  }
   audioSinkEl.replaceChildren()
   clearTimeout(idleTimer)
   dimEl.classList.add('hidden')
@@ -399,19 +431,46 @@ function teardown() {
 async function start(containerId) {
   const cid = containerId || state.current.containerId
   if (!cid) return
-  const existing = state.calls.get(cid)
-  if (existing && !existing.ended_at) {
-    join(existing)
+  dismissed = false
+  const LK = lk()
+  if (!LK) {
+    statusText = ''
+    toast('The call client did not load.', { severity: 'error' })
+    render()
     return
   }
-  statusText = 'Starting'
+  if (connecting || joined) {
+    render()
+    return
+  }
+  const existing = state.calls.get(cid)
+  const live = existing && !existing.ended_at ? existing : null
+
+  statusText = live ? 'Connecting' : 'Starting'
   render()
+
+  let mic
+  try {
+    mic = await LK.createLocalAudioTrack(audioCaptureOptions())
+  } catch (err) {
+    statusText = ''
+    toast(callError('microphone', err), { severity: 'error' })
+    render()
+    return
+  }
+
+  if (live) {
+    await join(live, mic)
+    return
+  }
+
   try {
     const call = await api.post('/api/containers/' + cid + '/call', {})
     state.calls.set(cid, call)
     notify('calls')
-    await join(call)
+    await join(call, mic)
   } catch (err) {
+    mic.stop()
     statusText = ''
     toast(err.message || 'Could not start a call.', { severity: 'error' })
     render()
@@ -532,6 +591,73 @@ function dismiss() {
   render()
 }
 
+function syncChildren(container, nodes) {
+  const current = container.children
+  if (current.length === nodes.length && nodes.every((node, i) => current[i] === node)) return
+  container.replaceChildren(...nodes)
+}
+
+function overflowCell(count, tileClass) {
+  if (!overflowEl) overflowEl = el('div')
+  overflowEl.className = tileClass + ' ' + OVERFLOW_TILE
+  overflowEl.textContent = '+' + count + (count === 1 ? ' other' : ' others')
+  return overflowEl
+}
+
+function placeTiles() {
+  const wide = stripMedia.matches
+  stageEl.className = wide ? STAGE_FIT : STAGE_SCROLL
+  if (!joined) {
+    syncChildren(stripEl, [])
+    syncChildren(stageEl, [])
+    return
+  }
+
+  const screens = []
+  const cameras = []
+  for (const tile of tiles.values()) {
+    if (tile.source === 'screen') screens.push(tile)
+    else cameras.push(tile)
+  }
+  const local = room ? tiles.get(tileKey(room.localParticipant.identity, 'camera')) : null
+
+  let strip = []
+  let stage = []
+  if (!wide) {
+    stage = screens.concat(cameras)
+  } else if (screens.length) {
+    strip = cameras
+    stage = screens
+  } else {
+    strip = local ? [local] : []
+    stage = cameras.filter((tile) => tile !== local)
+  }
+  if (!stage.length) {
+    stage = strip
+    strip = []
+  }
+
+  const spilled = stage.length > MAX_STAGE_TILES ? stage.length - (MAX_STAGE_TILES - 1) : 0
+  if (spilled) stage = stage.slice(0, MAX_STAGE_TILES - 1)
+
+  const stageTile = wide ? STAGE_TILE_FIT : STAGE_TILE_SCROLL
+  const stageNodes = stage.map((tile) => {
+    tile.wrap.className = stageTile + (tile.source === 'screen' ? ' col-span-full' : '')
+    tile.caption.className = STAGE_CAPTION
+    return tile.wrap
+  })
+  if (spilled) stageNodes.push(overflowCell(spilled, stageTile))
+
+  const stripNodes = strip.map((tile) => {
+    tile.wrap.className = STRIP_TILE
+    tile.caption.className = STRIP_CAPTION
+    return tile.wrap
+  })
+
+  syncChildren(stripEl, stripNodes)
+  syncChildren(stageEl, stageNodes)
+}
+
 function render() {
   const app = document.getElementById('app')
   const open = visible()
@@ -540,8 +666,7 @@ function render() {
 
   renderHeader()
   renderControls()
-  gridEl.className = expanded ? 'grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4' : 'grid grid-cols-1 gap-2'
-  gridEl.classList.toggle('hidden', !joined)
+  placeTiles()
   audioButtonEl.classList.toggle('hidden', !joined || !room || room.canPlaybackAudio)
   statusEl.textContent = statusText
   statusEl.classList.toggle('hidden', !statusText)
@@ -555,8 +680,8 @@ export function mount(root) {
   headerEl = el('div')
   panelEl.appendChild(headerEl)
 
-  const body = el('div', 'relative min-h-0 flex-1 overflow-y-auto p-3')
-  audioButtonEl = el('button', 'mb-2 hidden w-full rounded-xl bg-mauve px-3 py-2 text-xs font-semibold text-crust transition-colors hover:brightness-110', 'Tap to hear the call')
+  const body = el('div', 'relative flex min-h-0 flex-1 flex-col gap-2 p-3')
+  audioButtonEl = el('button', 'hidden w-full rounded-xl bg-mauve px-3 py-2 text-xs font-semibold text-crust transition-colors hover:brightness-110', 'Tap to hear the call')
   audioButtonEl.type = 'button'
   audioButtonEl.addEventListener('click', async () => {
     if (!room) return
@@ -568,8 +693,10 @@ export function mount(root) {
   body.appendChild(audioButtonEl)
   statusEl = el('p', 'hidden w-full py-2 text-left text-xs text-peach')
   body.appendChild(statusEl)
-  gridEl = el('div', 'grid grid-cols-1 gap-2')
-  body.appendChild(gridEl)
+  stripEl = el('div', STRIP)
+  body.appendChild(stripEl)
+  stageEl = el('div', STAGE_SCROLL)
+  body.appendChild(stageEl)
   panelEl.appendChild(body)
 
   dimEl = el('div', 'absolute inset-0 z-10 hidden bg-scrim')
@@ -594,6 +721,8 @@ export function mount(root) {
   })
 
   window.addEventListener('isane:call-start', (e) => start(e.detail && e.detail.containerId))
+
+  stripMedia.addEventListener('change', scheduleRender)
 
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && joined) acquireWakeLock()
