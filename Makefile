@@ -1,8 +1,11 @@
-.PHONY: help assets verify-assets font build docker run clean
+.PHONY: help assets verify-assets font build build-agent build-agent-for build-agent-all docker run clean
 
-APP_NAME := isane
+APP_NAME   := isane
+AGENT_NAME := isane-agent
 
 VERSION ?= dev-build
+GOOS    ?= $(shell go env GOOS)
+GOARCH  ?= $(shell go env GOARCH)
 
 MARKED_VERSION      := 18.0.11
 MERMAID_VERSION     := 11.17.2
@@ -103,13 +106,29 @@ build: assets verify-assets ## Build the binary for this machine
 	@CGO_ENABLED=0 go build -ldflags="-s -w -X '$(MODULE)/cmd.AppVersion=$(VERSION)'" -o $(APP_NAME) .
 	@echo "$(GREEN)Built: ./$(APP_NAME)$(NC)"
 
+build-agent: ## Build the agent daemon for this machine
+	@CGO_ENABLED=0 go build -ldflags="-s -w -X '$(MODULE)/agent/cmd.AppVersion=$(VERSION)'" -o $(AGENT_NAME) ./agent
+	@echo "$(GREEN)Built: ./$(AGENT_NAME)$(NC)"
+
+build-agent-for: ## Build the agent daemon for a specific GOOS/GOARCH
+	@CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
+	  -ldflags="-s -w -X '$(MODULE)/agent/cmd.AppVersion=$(VERSION)'" \
+	  -o $(AGENT_NAME)-$(GOOS)-$(GOARCH) ./agent
+	@echo "$(GREEN)Built: ./$(AGENT_NAME)-$(GOOS)-$(GOARCH)$(NC)"
+
+build-agent-all: ## Build every agent daemon platform binary
+	@$(MAKE) --no-print-directory build-agent-for GOOS=linux  GOARCH=amd64
+	@$(MAKE) --no-print-directory build-agent-for GOOS=linux  GOARCH=arm64
+	@$(MAKE) --no-print-directory build-agent-for GOOS=darwin GOARCH=amd64
+	@$(MAKE) --no-print-directory build-agent-for GOOS=darwin GOARCH=arm64
+
 docker: ## Build the container image
 	@docker build --build-arg VERSION=$(VERSION) -t $(APP_NAME):$(VERSION) -t $(APP_NAME):latest .
 
 run: assets ## Run against http://localhost:8080 with debug logging
 	@go run . serve --debug
 
-clean: ## Remove the binary, the vendored assets, and the compiled stylesheet
-	@rm -f $(APP_NAME) $(CSS_DIR)/app.css
+clean: ## Remove the binaries, the vendored assets, and the compiled stylesheet
+	@rm -f $(APP_NAME) $(AGENT_NAME) $(AGENT_NAME)-* $(CSS_DIR)/app.css
 	@rm -rf $(VENDOR_DIR) dist
 	@echo "$(GREEN)Cleaned$(NC)"
