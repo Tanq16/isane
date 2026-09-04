@@ -43,23 +43,12 @@ func (s *Service) claim(ctx context.Context, a store.AgentInfo) ([]store.AgentJo
 }
 
 func (s *Service) Complete(ctx context.Context, a store.AgentInfo, jobID uuid.UUID, result, errText string) (store.AgentJob, error) {
-	job, err := s.db.GetAgentJob(ctx, jobID)
-	if err != nil {
-		return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, err)
-	}
-	if job.AgentID != a.User.ID {
-		return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, store.ErrNotFound)
-	}
-	if job.State != store.JobDispatched {
-		return store.AgentJob{}, fmt.Errorf("complete job %s: %w: the job is already %s", jobID, store.ErrConflict, job.State)
-	}
-
 	errText = strings.TrimSpace(errText)
 	if errText == "" && strings.TrimSpace(result) == "" {
 		errText = "agent returned an empty result"
 	}
 	if errText != "" {
-		failed, err := s.db.FinishAgentJob(ctx, jobID, store.JobFailed, nil, &errText)
+		failed, err := s.db.FinishAgentJob(ctx, jobID, a.User.ID, store.JobFailed, nil, &errText)
 		if err != nil {
 			return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, err)
 		}
@@ -67,7 +56,7 @@ func (s *Service) Complete(ctx context.Context, a store.AgentInfo, jobID uuid.UU
 			Str("reason", errText).Msg("agent job failed")
 		return failed, nil
 	}
-	done, err := s.db.FinishAgentJob(ctx, jobID, store.JobDone, &result, nil)
+	done, err := s.db.FinishAgentJob(ctx, jobID, a.User.ID, store.JobDone, &result, nil)
 	if err != nil {
 		return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, err)
 	}

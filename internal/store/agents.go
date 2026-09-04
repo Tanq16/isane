@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -238,11 +239,14 @@ func (db *DB) ClaimQueuedJobs(ctx context.Context, agentID uuid.UUID, limit int)
 	return jobs, nil
 }
 
-func (db *DB) FinishAgentJob(ctx context.Context, id uuid.UUID, state AgentJobState, result, errText *string) (AgentJob, error) {
+func (db *DB) FinishAgentJob(ctx context.Context, id, agentID uuid.UUID, state AgentJobState, result, errText *string) (AgentJob, error) {
 	j, err := scanAgentJob(db.Pool.QueryRow(ctx, `update agent_jobs
-		set state = $2, result = $3, error = $4, finished_at = now()
-		where id = $1
-		returning `+agentJobColumns, id, state, result, errText))
+		set state = $3, result = $4, error = $5, finished_at = now()
+		where id = $1 and agent_id = $2 and state = 'dispatched'
+		returning `+agentJobColumns, id, agentID, state, result, errText))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentJob{}, fmt.Errorf("finish agent job: %w: the job is not dispatched to this agent", ErrConflict)
+	}
 	if err != nil {
 		return AgentJob{}, fmt.Errorf("finish agent job: %w", mapErr(err))
 	}
