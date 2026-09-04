@@ -40,7 +40,7 @@ There is no daemon-side release. Deleting an agent is an admin action, and an ag
 ## Endpoints
 
 ```
-POST /api/agent/register     {"argv": ["agy", "--prompt", "{{prompt}}"], "allow_history": false}
+POST /api/agent/register     {"argv": ["claude", "-p", "{{prompt}}", "--model", "claude-opus-5", "--dangerously-skip-permissions"], "allow_history": false}
 POST /api/agent/deregister   {}
 POST /api/agent/hello        {}                     heartbeat, updates last_seen_at
 GET  /api/agent/jobs                                long poll, up to 30 seconds
@@ -73,7 +73,7 @@ The prompt lists every attachment on every message it includes:
 [attachment id=a3f91c02 name=q3-export.pdf size=2.4MB]
 ```
 
-The daemon does not pre-fetch. A thread carrying a 200 MB video must not cost 200 MB of transfer because someone mentioned an agent in it. Instead the daemon writes a `./fetch-attachment` helper into each job directory, and the prompt tells the agent to run it for whatever it decides is worth reading.
+The daemon does not pre-fetch. A thread carrying a 200 MB video must not cost 200 MB of transfer because someone mentioned an agent in it. Instead the daemon writes a `./fetch-attachment` helper into the agent's directory, and the prompt tells the agent to run it for whatever it decides is worth reading.
 
 ```sh
 #!/bin/sh
@@ -86,6 +86,33 @@ echo "./files/$1"
 ```
 
 There is no restriction on type. Images, audio, video, PDFs, archives, and arbitrary files are all retrievable. The one boundary is scope: the fetch succeeds only for an attachment that was named in that job's own prompt, which is what stops an agent enumerating attachment ids across the deployment.
+
+## The isane-agent daemon
+
+`isane-agent` is the reference daemon and the second binary this repository builds. It runs in the foreground on the agent owner's machine, keeps its state in `~/.config/isane/`, and serves every agent configured there from one process.
+
+| Command | What it does |
+|---|---|
+| `isane-agent setup --server-url <url>` | Records the server URL in `~/.config/isane/config.json` |
+| `isane-agent init <handle> --claim-token <token>` | Checks the token against `POST /api/agent/hello`, then stores it and scaffolds `~/.config/isane/agents/<handle>/` |
+| `isane-agent register <handle> --model <model>` | Derives the argv from the model and sends it, moving the agent to serving |
+| `isane-agent deregister <handle>` | Returns the agent to reserved, leaving the directory and the stored argv intact |
+| `isane-agent serve` | Long-polls for every registered agent until interrupted |
+
+`--claim-token -` reads the token from stdin, which keeps it out of shell history. `register --allow-history` sets `allow_history`, and `serve --timeout` defaults to `4m` so the daemon reports a stuck job before the server's `agents.job_timeout` of `5m` does.
+
+`--model` picks the harness and every derived argv carries the permission bypass that harness needs to write a file in headless mode. Matching is by prefix, so a model released after this binary was built still resolves.
+
+| `--model` | Harness | Notes |
+|---|---|---|
+| `claude-*`, or one of `default`, `best`, `fable`, `sonnet`, `opus`, `haiku`, `sonnet[1m]`, `opus[1m]`, `opusplan` | `claude` | The prompt is the value of `-p` |
+| `gemini-*` | `agy` | An id with no `-low`, `-medium`, or `-high` suffix gets `-medium`, which `agy` requires. `--add-dir` names the agent directory because `agy -p` otherwise writes into its own scratch directory |
+| `gpt-*` | `codex exec` | The prompt is positional, after `--` |
+| `custom` | whatever `--command` names | The escape hatch, for a harness this table does not cover |
+
+`--command` is only accepted with `--model custom` and is required there. It is split with a quote-aware splitter honoring single quotes, double quotes, and backslash escapes, and it has to carry `{{prompt}}` itself. A `{{dir}}` placeholder anywhere in the argv becomes the agent's absolute directory.
+
+The answer comes only from `.result` in the agent directory. The daemon deletes that file before each run, reads and trims it after, and posts `error` when it is absent or empty, since every one of these harnesses can exit zero after a failed headless run.
 
 ## History
 
