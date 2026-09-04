@@ -281,29 +281,7 @@ function profileSection(body, handle) {
   const me = state.me
   body.appendChild(sectionLabel('Profile'))
 
-  const row = el('div', 'mb-3 flex items-center gap-4')
-  const preview = el('div', 'shrink-0')
-  preview.appendChild(avatarNode(me, 'h-14 w-14', 'text-lg'))
-  row.appendChild(preview)
-
-  const picker = el('input', 'hidden')
-  picker.type = 'file'
-  picker.accept = 'image/*'
-  const upload = textButton('Change picture', () => picker.click(), 'secondary')
-  const status = el('p', 'text-xs text-overlay1')
-  const column = el('div', 'min-w-0 flex-1')
-  column.appendChild(upload)
-  column.appendChild(status)
-  row.appendChild(column)
-  row.appendChild(picker)
-  body.appendChild(row)
-
-  const name = field('Display name', { value: me.display_name || '', name: 'me-display-name' })
-  body.appendChild(name.wrap)
-  body.appendChild(el('div', 'mt-2'))
-  body.appendChild(readOnlyRow('Handle', '@' + me.handle))
-  body.appendChild(readOnlyRow('Email', me.email || 'Not set'))
-
+  let name = null
   let avatarId = me.avatar_id || null
 
   const save = textButton('Save profile', async () => {
@@ -324,39 +302,76 @@ function profileSection(body, handle) {
     save.disabled = false
   }, 'primary')
 
+  const picker = el('input', 'hidden')
+  picker.type = 'file'
+  picker.accept = 'image/*'
+
+  const pick = el('button', 'group relative h-14 w-14 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
+  pick.type = 'button'
+  pick.title = 'Change picture'
+  pick.setAttribute('aria-label', pick.title)
+  pick.appendChild(avatarNode(me, 'h-14 w-14', 'text-lg'))
+  const overlay = el('span', 'absolute inset-0 grid place-items-center rounded-full bg-crust/70 opacity-0 transition-opacity group-hover:opacity-100')
+  overlay.appendChild(icon('pencil', 'h-5 w-5 text-text'))
+  pick.appendChild(overlay)
+  pick.addEventListener('click', () => picker.click())
+
+  const status = el('p', 'min-w-0 flex-1 text-xs text-overlay1')
+  const row = el('div', 'mb-3 flex items-center gap-4')
+  row.append(pick, save, status, picker)
+  body.appendChild(row)
+
+  name = field('Display name', { value: me.display_name || '', name: 'me-display-name' })
+  body.appendChild(name.wrap)
+  body.appendChild(el('div', 'mt-2'))
+  body.appendChild(readOnlyRow('Handle', '@' + me.handle))
+  body.appendChild(readOnlyRow('Email', me.email || 'Not set'))
+
   picker.addEventListener('change', async () => {
     const file = picker.files && picker.files[0]
     picker.value = ''
     if (!file) return
     status.textContent = 'Uploading'
-    status.className = 'text-xs text-yellow'
+    status.className = 'min-w-0 flex-1 text-xs text-yellow'
     try {
       const attachment = await api.upload(file)
       avatarId = attachment.id
       status.textContent = 'Ready. Save to apply.'
-      status.className = 'text-xs text-green'
+      status.className = 'min-w-0 flex-1 text-xs text-green'
     } catch (err) {
       status.textContent = err.message || 'Upload failed'
-      status.className = 'text-xs text-red'
+      status.className = 'min-w-0 flex-1 text-xs text-red'
     }
   })
+}
 
-  body.appendChild(el('div', 'mt-3'))
-  body.appendChild(save)
+function inlineField(labelText, opts = {}) {
+  const wrap = el('label', 'flex items-center gap-3')
+  wrap.appendChild(el('span', 'w-20 shrink-0 text-xs font-medium text-subtext0', labelText))
+  const input = el('input', 'h-8 min-w-0 flex-1 border-b border-surface1 bg-transparent text-sm text-text transition-colors placeholder:text-overlay1 focus:border-mauve focus:outline-none')
+  input.type = opts.type || 'text'
+  if (opts.placeholder) input.placeholder = opts.placeholder
+  if (opts.autocomplete) input.autocomplete = opts.autocomplete
+  if (opts.name) {
+    input.name = opts.name
+    input.id = 'field-' + opts.name
+    wrap.htmlFor = input.id
+  }
+  wrap.appendChild(input)
+  return { wrap, input }
 }
 
 function passwordSection(body, handle) {
   body.appendChild(sectionLabel('Password'))
-  const current = field('Current password', { type: 'password', name: 'current-password', autocomplete: 'current-password' })
-  const next = field('New password', { type: 'password', name: 'new-password', autocomplete: 'new-password' })
-  const again = field('Confirm new password', { type: 'password', name: 'confirm-password', autocomplete: 'new-password' })
+  const minimum = 'At least ' + MIN_PASSWORD + ' characters'
+  const current = inlineField('Current:', { type: 'password', name: 'current-password', autocomplete: 'current-password' })
+  const next = inlineField('New:', { type: 'password', name: 'new-password', autocomplete: 'new-password', placeholder: minimum })
+  const again = inlineField('Confirm:', { type: 'password', name: 'confirm-password', autocomplete: 'new-password', placeholder: minimum })
   const grid = el('div', 'space-y-3')
   grid.appendChild(current.wrap)
   grid.appendChild(next.wrap)
   grid.appendChild(again.wrap)
   body.appendChild(grid)
-  const hint = el('p', 'mt-2 text-xs text-overlay1', 'At least ' + MIN_PASSWORD + ' characters.')
-  body.appendChild(hint)
 
   const change = textButton('Change password', async () => {
     if (next.input.value.length < MIN_PASSWORD) {
@@ -430,19 +445,8 @@ function readingSection(body) {
     }
   })
 
-  const help = el('p', 'mt-2 hidden text-xs text-overlay1',
-    'Turn this off and you have to click the New badge to mark messages as read.')
-  const explain = el('button', 'mt-2 text-xs text-overlay1 transition-colors hover:text-text', '?')
-  explain.type = 'button'
-  explain.title = 'What this does'
-  explain.setAttribute('aria-label', explain.title)
-  explain.setAttribute('aria-expanded', 'false')
-  explain.addEventListener('click', () => {
-    const shown = !help.classList.toggle('hidden')
-    explain.setAttribute('aria-expanded', shown ? 'true' : 'false')
-  })
-  body.appendChild(explain)
-  body.appendChild(help)
+  body.appendChild(el('p', 'my-2 text-xs text-overlay1',
+    'Turn this off and you have to click the New badge to mark messages as read.'))
 }
 
 function pushSection(body) {
@@ -500,7 +504,7 @@ function pushSection(body) {
     } catch (err) {
       toast(err.message || 'Could not forget this device.', { severity: 'error' })
     }
-  }, 'ghost')
+  }, 'secondary')
   body.appendChild(el('div', 'mt-2'))
   body.appendChild(forget)
 }
@@ -525,7 +529,7 @@ export function openUserSettings(onSignOut) {
           icon: 'log-out',
         })
         if (ok) onSignOut()
-      }, 'ghost'))
+      }, 'secondary'))
     },
   })
 }
