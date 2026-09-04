@@ -55,7 +55,7 @@ function humanKey(key) {
 function panel(title, description) {
   const wrap = el('section', 'min-w-0')
   wrap.appendChild(el('h2', 'text-message font-semibold text-text', title))
-  if (description) wrap.appendChild(el('p', 'mt-1 max-w-prose text-sm text-overlay1', description))
+  if (description) wrap.appendChild(el('p', 'mt-1 text-sm text-overlay1', description))
   const error = el('p', 'mt-2 hidden text-sm text-red')
   error.setAttribute('role', 'alert')
   wrap.appendChild(error)
