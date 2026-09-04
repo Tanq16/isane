@@ -7,6 +7,15 @@ import { drawIcons, el, icon } from './dom.js'
 const TYPING_INTERVAL = 3000
 const MENTION_PATTERN = /(^|\s)@([a-z0-9_-]*)$/i
 
+function mentionScore(entry, q) {
+  const handle = entry.handle.toLowerCase()
+  if (handle === q) return 4
+  if (handle.startsWith(q)) return 3
+  const name = (entry.display_name || '').toLowerCase()
+  if (name.split(/\s+/).some((word) => word.startsWith(q))) return 2
+  return name.includes(q) ? 1 : 0
+}
+
 function readDraft(key) {
   try {
     return localStorage.getItem(key) || ''
@@ -169,10 +178,18 @@ export function createComposer(options) {
     for (const u of state.users.values()) {
       if (u.deactivated_at) continue
       if (participants && u.kind !== 'agent' && !participants.has(u.id)) continue
-      if (!u.handle.toLowerCase().startsWith(q) && !(u.display_name || '').toLowerCase().includes(q)) continue
       out.push(u)
     }
-    return out.slice(0, 8)
+    return out
+      .map((entry) => ({ entry, score: mentionScore(entry, q) }))
+      .filter((row) => row.score > 0)
+      .sort((a, b) =>
+        b.score - a.score ||
+        a.entry.handle.length - b.entry.handle.length ||
+        a.entry.handle.localeCompare(b.entry.handle))
+      .slice(0, 8)
+      .reverse()
+      .map((row) => row.entry)
   }
 
   function closeMentions() {
@@ -227,7 +244,7 @@ export function createComposer(options) {
     }
     mentionStart = caret - match[2].length - 1
     mentionMatches = candidates(match[2])
-    mentionIndex = 0
+    mentionIndex = mentionMatches.length - 1
     mentionOpen = mentionMatches.length > 0
     renderMentions()
   }
