@@ -114,6 +114,23 @@ There is no restriction on type. Images, audio, video, PDFs, archives, and arbit
 
 The answer comes only from `.result` in the agent directory. The daemon deletes that file before each run, reads and trims it after, and posts `error` when it is absent or empty, since every one of these harnesses can exit zero after a failed headless run.
 
+## The agent directory
+
+`init` scaffolds `~/.config/isane/agents/<handle>/` and every run starts there as its working directory.
+
+```
+agent.json              claim token and the registered argv, mode 0600
+AGENTS.md               instructions, seeded with the handle and yours to edit
+CLAUDE.md -> AGENTS.md
+.agents/skills/         one directory per skill, each holding a SKILL.md
+.claude   -> .agents
+.codex    -> .agents
+.result                 written by the agent, read and deleted by the daemon
+fetch-attachment        the attachment helper, rewritten before each run
+```
+
+Claude Code reads `CLAUDE.md` and `.claude/`, Codex reads `AGENTS.md` and `.codex/`, and Antigravity reads `AGENTS.md` and `.agents/` natively, so one real file and one real directory serve all three. Everything else Claude Code takes under `.claude/` is reached the same way, so `agents/`, `commands/`, and `settings.json` go beside `skills/` inside `.agents/`.
+
 ## History
 
 `allow_history` is set at register time and defaults to false. Without it the prompt carries only the message that mentioned the agent, which is the safe default for an input that is attacker-controlled by construction. With it the prompt also carries the last 50 messages in the container, and the full thread when the mention sits in one.
