@@ -4,6 +4,8 @@ import (
 	"net/netip"
 	"time"
 	"uuid"
+
+	"github.com/tanq16/isane/internal/agentproto"
 )
 
 type UserKind string
@@ -67,14 +69,14 @@ const (
 	AgentServing  AgentState = "serving"
 )
 
-type AgentJobState string
+type AgentJobState = agentproto.JobState
 
 const (
-	JobQueued     AgentJobState = "queued"
-	JobDispatched AgentJobState = "dispatched"
-	JobDone       AgentJobState = "done"
-	JobFailed     AgentJobState = "failed"
-	JobTimeout    AgentJobState = "timeout"
+	JobQueued     = agentproto.JobQueued
+	JobDispatched = agentproto.JobDispatched
+	JobDone       = agentproto.JobDone
+	JobFailed     = agentproto.JobFailed
+	JobTimeout    = agentproto.JobTimeout
 )
 
 type RecordingState string
@@ -239,19 +241,7 @@ type Agent struct {
 	LastSeenAt     *time.Time `json:"last_seen_at,omitempty"`
 }
 
-type AgentJob struct {
-	ID           uuid.UUID     `json:"id"`
-	AgentID      uuid.UUID     `json:"agent_id"`
-	ContainerID  uuid.UUID     `json:"container_id"`
-	TriggerMsgID uuid.UUID     `json:"trigger_msg_id"`
-	State        AgentJobState `json:"state"`
-	Prompt       string        `json:"prompt"`
-	Result       *string       `json:"result,omitempty"`
-	Error        *string       `json:"error,omitempty"`
-	CreatedAt    time.Time     `json:"created_at"`
-	DispatchedAt *time.Time    `json:"dispatched_at,omitempty"`
-	FinishedAt   *time.Time    `json:"finished_at,omitempty"`
-}
+type AgentJob = agentproto.Job
 
 type Call struct {
 	ID             uuid.UUID      `json:"id"`

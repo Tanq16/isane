@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tanq16/isane/internal/agentproto"
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
@@ -18,24 +19,8 @@ type Agents struct{ app *app.App }
 
 func NewAgents(a *app.App) *Agents { return &Agents{app: a} }
 
-type registerBody struct {
-	Handle       string   `json:"handle"`
-	ClaimToken   string   `json:"claim_token"`
-	Argv         []string `json:"argv"`
-	AllowHistory bool     `json:"allow_history"`
-}
-
-type resultBody struct {
-	Result string `json:"result"`
-	Error  string `json:"error"`
-}
-
-type jobList struct {
-	Jobs []store.AgentJob `json:"jobs"`
-}
-
 func (h *Agents) Register(w http.ResponseWriter, r *http.Request) {
-	var body registerBody
+	var body agentproto.RegisterRequest
 	if err := ReadJSON(r, &body); err != nil {
 		WriteError(w, err)
 		return
@@ -53,7 +38,7 @@ func (h *Agents) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Agents) Deregister(w http.ResponseWriter, r *http.Request) {
-	var body registerBody
+	var body agentproto.RegisterRequest
 	if err := ReadJSON(r, &body); err != nil {
 		WriteError(w, err)
 		return
@@ -100,7 +85,7 @@ func (h *Agents) Jobs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
-	WriteJSON(w, http.StatusOK, jobList{Jobs: nonNil(jobs)})
+	WriteJSON(w, http.StatusOK, agentproto.JobList{Jobs: nonNil(jobs)})
 	if err := http.NewResponseController(w).Flush(); err != nil {
 		h.app.Log.Debug().Err(err).Msg("flush agent job response")
 	}
@@ -116,7 +101,7 @@ func (h *Agents) Result(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	var body resultBody
+	var body agentproto.ResultRequest
 	if err := ReadJSON(r, &body); err != nil {
 		WriteError(w, err)
 		return

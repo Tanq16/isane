@@ -133,8 +133,9 @@ function reconcile(list) {
 }
 
 function close() {
-  const opener = document.querySelector('#timeline article[tabindex]')
-  if (opener) opener.focus()
+  const rootId = state.current.threadRootId
+  const opener = document.querySelector('#timeline [data-key="' + rootId + '"]')
+  if (opener) opener.focus({ preventScroll: true })
   state.current.threadRootId = null
   const cid = state.current.containerId
   const c = cid ? state.containers.get(cid) : null

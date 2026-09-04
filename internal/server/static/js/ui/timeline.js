@@ -538,9 +538,11 @@ export function mount(root) {
     { root: scrollEl, threshold: 0.5 }
   )
 
-  new ResizeObserver(() => {
+  const pin = new ResizeObserver(() => {
     if (atBottom) scrollEl.scrollTop = scrollEl.scrollHeight
-  }).observe(listEl)
+  })
+  pin.observe(listEl)
+  pin.observe(scrollEl)
 
   scrollEl.addEventListener('scroll', () => {
     atBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < NEAR_BOTTOM
