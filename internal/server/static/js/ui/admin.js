@@ -6,7 +6,8 @@ import { slugify } from './settings.js'
 import { toast } from './toast.js'
 
 const SECTIONS = [
-  ['identities', 'Identities', 'users'],
+  ['people', 'People', 'users'],
+  ['agents', 'Agents', 'bot'],
   ['channels', 'Channels', 'hash'],
   ['invites', 'Invites', 'ticket'],
   ['stats', 'Stats', 'chart-column'],
@@ -44,7 +45,7 @@ function isAdmin() {
 function sectionFromPath() {
   const rest = location.pathname.replace(/^\/admin\/?/, '')
   const name = rest.split('/')[0]
-  return SECTIONS.some(([key]) => key === name) ? name : 'identities'
+  return SECTIONS.some(([key]) => key === name) ? name : 'people'
 }
 
 function humanKey(key) {
@@ -154,11 +155,9 @@ function labelledGrid(...wraps) {
   return grid
 }
 
-function buildIdentities() {
-  const section = panel('Identities', 'People and agents that can sign in. Handles are never reused.')
+function buildPeople() {
+  const section = panel('People', 'Everyone who signs in with a password. A handle is never reused.')
   const usersList = el('div', 'min-w-0')
-  const agentsList = el('div', 'min-w-0')
-  const secrets = el('div')
 
   const handle = field('Handle', { name: 'admin-user-handle', placeholder: 'ana' })
   const display = field('Display name', { name: 'admin-user-name', placeholder: 'Ana Ruiz' })
@@ -188,52 +187,11 @@ function buildIdentities() {
   form.appendChild(labelledGrid(handle.wrap, display.wrap, email.wrap, wrapAction(create)))
   section.body.append(form, usersList)
 
-  const agentHandle = field('Handle', { name: 'admin-agent-handle', placeholder: 'helper' })
-  const agentName = field('Display name', { name: 'admin-agent-name', placeholder: 'Helper' })
-  const reserve = textButton('Reserve agent', async () => {
-    section.clear()
-    reserve.disabled = true
-    try {
-      const reserved = await api.post('/api/admin/agents', {
-        handle: agentHandle.input.value.trim(),
-        display_name: agentName.input.value.trim(),
-      })
-      const created = reserved.agent && reserved.agent.user
-      if (created) {
-        state.users.set(created.id, created)
-        notify('users')
-      }
-      secrets.replaceChildren(claimBlock(reserved, agentHandle.input.value.trim()))
-      agentHandle.input.value = ''
-      agentName.input.value = ''
-      await loadAgents()
-    } catch (err) {
-      section.fail(err)
-    }
-    reserve.disabled = false
-  }, 'secondary')
-
-  const agentsHead = el('div', 'mt-8')
-  agentsHead.appendChild(el('h3', 'text-message font-semibold text-text', 'Agents'))
-  agentsHead.appendChild(el('p', 'mt-1 max-w-prose text-sm text-overlay1',
-    'Reserving a handle shows the claim token once. The daemon registers with it from its own machine.'))
-  const agentForm = el('div', 'mt-4')
-  agentForm.appendChild(labelledGrid(agentHandle.wrap, agentName.wrap, wrapAction(reserve)))
-  section.body.append(agentsHead, agentForm, secrets, agentsList)
-
-  function claimBlock(reserved, requested) {
-    const handleName = (reserved.agent && reserved.agent.user && reserved.agent.user.handle) || requested
-    const wrap = el('div')
-    wrap.appendChild(secretBlock('Claim token', reserved.claim_token))
-    wrap.appendChild(secretBlock('Daemon headers',
-      'Authorization: Bearer ' + reserved.claim_token + '\nX-Isane-Agent: ' + handleName))
-    return wrap
-  }
-
   async function loadUsers() {
     const users = await api.get('/api/admin/users')
     const t = table(['Handle', 'Name', 'Email', 'Role', 'State', ''])
     for (const u of users) {
+      if (u.kind === 'agent') continue
       const actions = actionGroup(
         actionButton('key-round', 'Reset the password', 'hover:text-peach', async () => {
           const password = await promptModal({
@@ -295,6 +253,60 @@ function buildIdentities() {
     drawIcons(usersList)
   }
 
+  section.load = async () => {
+    section.clear()
+    try {
+      await loadUsers()
+    } catch (err) {
+      section.fail(err)
+    }
+  }
+  return section
+}
+
+function buildAgents() {
+  const section = panel('Agents', 'Reserving a handle shows the claim token once. The daemon registers with it from its own machine.')
+  const agentsList = el('div', 'min-w-0')
+  const secrets = el('div')
+
+  const agentHandle = field('Handle', { name: 'admin-agent-handle', placeholder: 'helper' })
+  const agentName = field('Display name', { name: 'admin-agent-name', placeholder: 'Helper' })
+  const reserve = textButton('Reserve agent', async () => {
+    section.clear()
+    reserve.disabled = true
+    try {
+      const reserved = await api.post('/api/admin/agents', {
+        handle: agentHandle.input.value.trim(),
+        display_name: agentName.input.value.trim(),
+      })
+      const created = reserved.agent && reserved.agent.user
+      if (created) {
+        state.users.set(created.id, created)
+        notify('users')
+      }
+      secrets.replaceChildren(claimBlock(reserved, agentHandle.input.value.trim()))
+      agentHandle.input.value = ''
+      agentName.input.value = ''
+      await loadAgents()
+    } catch (err) {
+      section.fail(err)
+    }
+    reserve.disabled = false
+  }, 'primary')
+
+  const form = el('div', 'mb-6')
+  form.appendChild(labelledGrid(agentHandle.wrap, agentName.wrap, wrapAction(reserve)))
+  section.body.append(form, secrets, agentsList)
+
+  function claimBlock(reserved, requested) {
+    const handleName = (reserved.agent && reserved.agent.user && reserved.agent.user.handle) || requested
+    const wrap = el('div')
+    wrap.appendChild(secretBlock('Claim token', reserved.claim_token))
+    wrap.appendChild(secretBlock('Daemon headers',
+      'Authorization: Bearer ' + reserved.claim_token + '\nX-Isane-Agent: ' + handleName))
+    return wrap
+  }
+
   async function loadAgents() {
     const agents = await api.get('/api/admin/agents')
     const t = table(['Handle', 'Name', 'State', 'Last seen', 'History', 'Argv', ''])
@@ -347,7 +359,6 @@ function buildIdentities() {
   section.load = async () => {
     section.clear()
     try {
-      await loadUsers()
       await loadAgents()
     } catch (err) {
       section.fail(err)
@@ -683,11 +694,13 @@ function buildStats() {
 function activate(name) {
   if (!builders.has(name)) return
   activeSection = name
-  for (const [key, pill] of pills) {
+  for (const [key, { pill, track }] of pills) {
     const active = key === name
-    pill.className = 'flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve '
+    pill.className = 'flex shrink-0 items-center rounded-full px-2.5 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve '
       + (active ? 'bg-surface0 text-text' : 'text-subtext0 hover:text-text')
     pill.setAttribute('aria-current', active ? 'page' : 'false')
+    track.classList.toggle('grid-cols-[1fr]', active)
+    track.classList.toggle('grid-cols-[0fr]', !active)
   }
   const section = builders.get(name)
   titleEl.textContent = SECTIONS.find(([key]) => key === name)[1]
@@ -726,16 +739,19 @@ export function mount(root) {
   titleEl = el('h1', 'hidden min-w-0 shrink truncate font-display text-xl font-semibold text-text sm:block', 'Administration')
   header.appendChild(titleEl)
 
-  railEl = el('nav', 'ml-auto flex items-center gap-1 rounded-full bg-base p-1')
+  railEl = el('nav', 'ml-auto flex shrink-0 items-center gap-1 rounded-full bg-base p-1')
   railEl.setAttribute('aria-label', 'Administration')
   for (const [key, label, iconName] of SECTIONS) {
     const pill = el('button')
     pill.type = 'button'
     pill.dataset.section = key
-    pill.appendChild(icon(iconName, 'h-4 w-4'))
-    pill.appendChild(el('span', 'hidden sm:inline', label))
+    pill.title = label
+    pill.appendChild(icon(iconName, 'h-4 w-4 shrink-0'))
+    const track = el('span', 'grid grid-cols-[0fr] transition-[grid-template-columns] duration-200 ease-out')
+    track.appendChild(el('span', 'overflow-hidden whitespace-nowrap pl-1.5', label))
+    pill.appendChild(track)
     pill.addEventListener('click', () => navigate('/admin/' + key))
-    pills.set(key, pill)
+    pills.set(key, { pill, track })
     railEl.appendChild(pill)
   }
   header.appendChild(railEl)
@@ -756,7 +772,8 @@ export function mount(root) {
   rootEl.replaceChildren(page)
   drawIcons(page)
 
-  builders.set('identities', buildIdentities())
+  builders.set('people', buildPeople())
+  builders.set('agents', buildAgents())
   builders.set('channels', buildChannels())
   builders.set('invites', buildInvites())
   builders.set('stats', buildStats())
