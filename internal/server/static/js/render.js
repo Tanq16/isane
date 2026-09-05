@@ -317,6 +317,16 @@ function addCopyButtons(root) {
   }
 }
 
+function wrapTables(root) {
+  for (const table of root.querySelectorAll('table')) {
+    if (table.parentElement.classList.contains('table-scroll')) continue
+    const wrap = document.createElement('div')
+    wrap.className = 'table-scroll'
+    table.parentNode.insertBefore(wrap, table)
+    wrap.appendChild(table)
+  }
+}
+
 function decorate(root) {
   for (const img of root.querySelectorAll('img')) {
     img.style.maxWidth = '100%'
@@ -327,6 +337,7 @@ function decorate(root) {
     a.target = '_blank'
     a.rel = 'noopener noreferrer'
   }
+  wrapTables(root)
   addCopyButtons(root)
   drawIcons(root)
 }

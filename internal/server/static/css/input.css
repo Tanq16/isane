@@ -332,6 +332,8 @@
     text-align: left;
 }
 .markdown-body table tr:last-child td { border-bottom: none; }
+.markdown-body .table-scroll { overflow-x: auto; margin-bottom: 1rem; }
+.markdown-body .table-scroll > table { margin-bottom: 0; }
 
 .markdown-body blockquote {
     border-left: 2px solid var(--ctp-surface1);
