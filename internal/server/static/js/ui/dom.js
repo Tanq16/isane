@@ -72,7 +72,7 @@ export function textButton(label, onClick, variant) {
 export function field(labelText, opts = {}) {
   const wrap = el('label', 'block min-w-0')
   wrap.appendChild(el('span', 'mb-1 block text-xs font-medium text-subtext0', labelText))
-  const input = el('input', 'h-9 w-full rounded-lg bg-surface0 px-3 text-sm text-text transition-colors placeholder:text-overlay1 focus:outline-none focus:ring-1 focus:ring-mauve')
+  const input = el('input', 'h-9 w-full rounded-lg bg-surface0 px-3 text-sm pointer-coarse:text-[1rem] text-text transition-colors placeholder:text-overlay1 focus:outline-none focus:ring-1 focus:ring-mauve')
   input.type = opts.type || 'text'
   if (opts.placeholder) input.placeholder = opts.placeholder
   if (opts.autocomplete) input.autocomplete = opts.autocomplete

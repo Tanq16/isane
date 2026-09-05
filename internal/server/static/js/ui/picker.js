@@ -142,7 +142,7 @@ export function openPicker() {
     icon: 'square-pen',
     build(body) {
       const fieldWrap = el('div', 'flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg bg-surface0 p-1.5 focus-within:ring-1 focus-within:ring-mauve')
-      input = el('input', 'h-6 min-w-32 flex-1 bg-transparent px-1 text-sm text-text placeholder:text-overlay1 focus:outline-none')
+      input = el('input', 'h-6 min-w-32 flex-1 bg-transparent px-1 text-sm pointer-coarse:text-[1rem] text-text placeholder:text-overlay1 focus:outline-none')
       input.type = 'text'
       input.placeholder = 'Type a name'
       input.setAttribute('aria-label', 'Find people')

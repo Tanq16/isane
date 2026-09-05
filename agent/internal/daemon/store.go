@@ -19,7 +19,8 @@ const (
 	agentsDir        = "agents"
 	recordFile       = "agent.json"
 	instructionsFile = "AGENTS.md"
-	skillsDir        = ".agents/skills"
+	harnessConfigDir = ".agents"
+	skillsDir        = harnessConfigDir + "/skills"
 	resultFile       = ".result"
 	fetchHelperFile  = "fetch-attachment"
 	lockFile         = "serve.lock"
@@ -34,9 +35,10 @@ curl -fsS -o "./files/$1" \
 echo "./files/$1"
 `
 
-var claudeLinks = map[string]string{
-	"CLAUDE.md":      instructionsFile,
-	".claude/skills": "../" + skillsDir,
+var harnessLinks = map[string]string{
+	"CLAUDE.md": instructionsFile,
+	".claude":   harnessConfigDir,
+	".codex":    harnessConfigDir,
 }
 
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
@@ -132,12 +134,8 @@ func (s *Store) Scaffold(agent Agent) error {
 			return err
 		}
 	}
-	for name, target := range claudeLinks {
-		link := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
-			return err
-		}
-		if err := os.Symlink(target, link); err != nil && !errors.Is(err, os.ErrExist) {
+	for name, target := range harnessLinks {
+		if err := os.Symlink(target, filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrExist) {
 			return err
 		}
 	}

@@ -348,7 +348,7 @@ function profileSection(body, handle) {
 function inlineField(labelText, opts = {}) {
   const wrap = el('label', 'flex items-center gap-3')
   wrap.appendChild(el('span', 'w-20 shrink-0 text-xs font-medium text-subtext0', labelText))
-  const input = el('input', 'h-8 min-w-0 flex-1 border-b border-surface1 bg-transparent text-sm text-text transition-colors placeholder:text-overlay1 focus:border-mauve focus:outline-none')
+  const input = el('input', 'h-8 min-w-0 flex-1 border-b border-surface1 bg-transparent text-sm pointer-coarse:text-[1rem] text-text transition-colors placeholder:text-overlay1 focus:border-mauve focus:outline-none')
   input.type = opts.type || 'text'
   if (opts.placeholder) input.placeholder = opts.placeholder
   if (opts.autocomplete) input.autocomplete = opts.autocomplete

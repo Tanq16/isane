@@ -351,7 +351,7 @@ export function mount(root) {
   const searchWrap = el('div', 'relative mt-2 shrink-0')
   const searchBox = el('div', 'flex h-8 items-center gap-1.5 rounded-lg bg-surface0 px-2 focus-within:ring-1 focus-within:ring-mauve')
   searchBox.appendChild(icon('search', 'h-4 w-4 shrink-0 text-overlay1'))
-  searchInput = el('input', 'min-w-0 flex-1 bg-transparent text-sm text-text placeholder:text-overlay1 focus:outline-none')
+  searchInput = el('input', 'min-w-0 flex-1 bg-transparent text-sm pointer-coarse:text-[1rem] text-text placeholder:text-overlay1 focus:outline-none')
   searchInput.type = 'search'
   searchInput.placeholder = 'Search messages'
   searchInput.setAttribute('aria-label', 'Search messages')

@@ -113,7 +113,7 @@ function threadSummaryNode(m, ctx) {
 
 function editorNode(m, ctx) {
   const wrap = el('div', 'mt-1')
-  const box = el('textarea', 'w-full resize-y rounded-xl bg-surface0 px-3 py-2 font-mono text-[0.8125rem] text-text focus:outline-none focus:ring-1 focus:ring-mauve')
+  const box = el('textarea', 'w-full resize-y rounded-xl bg-surface0 px-3 py-2 font-mono text-[0.8125rem] pointer-coarse:text-[1rem] text-text focus:outline-none focus:ring-1 focus:ring-mauve')
   box.value = m.body || ''
   box.rows = Math.min(12, (m.body || '').split('\n').length + 1)
   box.setAttribute('aria-label', 'Edit the message')
@@ -254,7 +254,7 @@ export function messageNode(view, ctx) {
     const head = el('div', 'flex flex-wrap items-baseline gap-2')
     head.appendChild(el('span', 'text-message font-semibold ' + (author.kind === 'agent' ? 'text-lavender' : 'text-text'), author.display_name))
     if (author.kind === 'agent') {
-      head.appendChild(el('span', 'rounded bg-lavender/15 px-1 text-micro font-semibold uppercase tracking-widest text-lavender', 'Agent'))
+      head.appendChild(el('span', 'self-center rounded bg-lavender/15 pl-1 pr-[3px] text-micro font-semibold uppercase tracking-widest text-lavender', 'Agent'))
     }
     head.appendChild(timeNode(m.created_at, 'text-xs text-overlay1', stampLabel(m.created_at)))
     if (m.edited_at) head.appendChild(el('span', 'text-xs text-overlay1', 'edited'))
