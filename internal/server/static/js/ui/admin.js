@@ -550,7 +550,7 @@ function buildInvites() {
   const note = field('Note', { name: 'admin-invite-note', placeholder: 'new designer' })
   const expiryWrap = el('label', 'block min-w-0')
   expiryWrap.appendChild(el('span', 'mb-1 block text-xs font-medium text-subtext0', 'Expires'))
-  const expiry = el('select', 'h-9 w-full rounded-lg bg-surface0 px-3 text-sm text-text focus:outline-none focus:ring-1 focus:ring-mauve')
+  const expiry = el('select', 'h-9 w-full rounded-lg bg-surface0 px-3 text-sm pointer-coarse:text-[1rem] text-text focus:outline-none focus:ring-1 focus:ring-mauve')
   for (const [value, label] of [['86400', 'In 1 day'], ['604800', 'In 7 days'], ['2592000', 'In 30 days']]) {
     const option = el('option', null, label)
     option.value = value

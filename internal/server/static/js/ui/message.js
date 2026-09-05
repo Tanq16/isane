@@ -113,7 +113,7 @@ function threadSummaryNode(m, ctx) {
 
 function editorNode(m, ctx) {
   const wrap = el('div', 'mt-1')
-  const box = el('textarea', 'w-full resize-y rounded-xl bg-surface0 px-3 py-2 font-mono text-[0.8125rem] text-text focus:outline-none focus:ring-1 focus:ring-mauve')
+  const box = el('textarea', 'w-full resize-y rounded-xl bg-surface0 px-3 py-2 font-mono text-[0.8125rem] pointer-coarse:text-[1rem] text-text focus:outline-none focus:ring-1 focus:ring-mauve')
   box.value = m.body || ''
   box.rows = Math.min(12, (m.body || '').split('\n').length + 1)
   box.setAttribute('aria-label', 'Edit the message')

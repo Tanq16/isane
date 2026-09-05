@@ -426,7 +426,7 @@ export function createComposer(options) {
     attach.addEventListener('click', () => fileInput.click())
     bar.appendChild(attach)
 
-    textarea = el('textarea', 'max-h-80 min-h-9 flex-1 resize-none bg-transparent py-2 text-message text-text placeholder:text-overlay1 focus:outline-none')
+    textarea = el('textarea', 'max-h-80 min-h-9 flex-1 resize-none bg-transparent py-2 text-message pointer-coarse:text-[1rem] text-text placeholder:text-overlay1 focus:outline-none')
     textarea.rows = 1
     textarea.setAttribute('aria-label', options.fieldLabel || 'Write a message')
     bar.appendChild(textarea)
