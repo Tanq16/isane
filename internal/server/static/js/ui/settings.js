@@ -3,7 +3,7 @@ import { state, notify, user, upsertContainer } from '../store.js'
 import { currentEndpoint, enablePush, pushSupported } from '../push.js'
 import { muted, setMuted } from '../sound.js'
 import {
-  avatarNode, containerPath, dateLabel, drawIcons, el, field, icon, iconButton,
+  avatarNode, containerPath, dateLabel, drawIcons, el, field, icon,
   navigate, presenceDot, textButton,
 } from './dom.js'
 import { confirmModal, openModal } from './modal.js'
@@ -554,8 +554,28 @@ function sessionRow(s, onRevoke) {
   meta.appendChild(el('span', 'min-w-0 truncate', dateLabel(s.last_seen_at)))
   copy.appendChild(meta)
   row.appendChild(copy)
-  if (!s.current) row.appendChild(iconButton('log-out', 'Sign this device out', () => onRevoke(s)))
+  if (!s.current) row.appendChild(armedButton('Sign out', 'Confirm', () => onRevoke(s)))
   return row
+}
+
+function armedButton(label, armedLabel, run) {
+  const button = textButton(label, async () => {
+    if (button.dataset.armed !== '1') {
+      button.dataset.armed = '1'
+      button.textContent = armedLabel
+      button.className = 'h-9 shrink-0 rounded-lg bg-red px-3 text-sm font-semibold text-crust transition-colors hover:brightness-110 disabled:bg-surface1 disabled:text-overlay1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve'
+      return
+    }
+    button.disabled = true
+    await run()
+    button.dataset.armed = ''
+    button.textContent = label
+    button.className = base
+    button.disabled = false
+  }, 'ghost')
+  button.classList.add('shrink-0')
+  const base = button.className
+  return button
 }
 
 function sessionsSection(body, handle, onSignOut) {
@@ -564,14 +584,6 @@ function sessionsSection(body, handle, onSignOut) {
   body.appendChild(list)
 
   const revoke = async (s) => {
-    const ok = await confirmModal({
-      title: 'Sign out ' + deviceLabel(s.user_agent),
-      message: 'That device has to sign in again.',
-      confirmLabel: 'Sign out',
-      destructive: true,
-      icon: 'log-out',
-    })
-    if (!ok) return
     handle.clearError()
     try {
       await api.del('/api/auth/sessions/' + s.id)
@@ -579,6 +591,7 @@ function sessionsSection(body, handle, onSignOut) {
       await load()
     } catch (err) {
       handle.fail(err.message || 'Could not sign that device out.')
+      await load()
     }
   }
 
@@ -592,28 +605,17 @@ function sessionsSection(body, handle, onSignOut) {
     if (ok) onSignOut()
   }, 'secondary')
 
-  const others = textButton('Sign out everywhere else', async () => {
-    const ok = await confirmModal({
-      title: 'Sign out everywhere else',
-      message: 'Every other signed-in device is signed out.',
-      consequence: 'This device stays signed in.',
-      confirmLabel: 'Sign out',
-      destructive: true,
-      icon: 'log-out',
-    })
-    if (!ok) return
-    others.disabled = true
+  const others = armedButton('Sign out everywhere else', 'Confirm sign out everywhere else', async () => {
     handle.clearError()
     try {
       const result = await api.del('/api/auth/sessions')
       const count = result.revoked
       toast(count === 1 ? 'One other device was signed out' : count + ' other devices were signed out', { severity: 'success' })
-      await load()
     } catch (err) {
       handle.fail(err.message || 'Could not sign the other devices out.')
-      others.disabled = false
     }
-  }, 'ghost')
+    await load()
+  })
   others.classList.add('hidden')
 
   const actions = el('div', 'mt-3 flex items-center gap-2')

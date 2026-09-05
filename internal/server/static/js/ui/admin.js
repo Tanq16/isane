@@ -649,7 +649,7 @@ function actionCell(action) {
 }
 
 function buildAudit() {
-  const section = panel('Audit', 'Every administrative action, newest first.')
+  const section = panel('Audit', 'Administrative and account changes, newest first.')
   const list = el('div', 'min-w-0')
   const footer = el('div', 'mt-4 hidden text-center')
   const more = textButton('Load more', () => loadPage(cursor), 'secondary')
