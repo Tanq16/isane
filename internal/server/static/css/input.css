@@ -247,6 +247,7 @@
 .markdown-body {
     background-color: transparent;
     line-height: 1.55;
+    overflow-wrap: break-word;
 }
 
 .markdown-body h1,
