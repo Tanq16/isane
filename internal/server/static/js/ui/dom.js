@@ -5,6 +5,7 @@ const AVATAR_HUES = [
   'bg-lavender', 'bg-maroon', 'bg-sky', 'bg-flamingo', 'bg-yellow', 'bg-sapphire',
 ]
 const ICON_SCRIPT = '/static/vendor/lucide.min.js'
+const BRAND_MARK = '/static/icons/icon.svg'
 
 const pendingIcons = new Set()
 
@@ -14,6 +15,13 @@ export function el(tag, cls, text) {
   const node = document.createElement(tag)
   if (cls) node.className = cls
   if (text != null) node.textContent = text
+  return node
+}
+
+export function brandMark(cls) {
+  const node = el('img', 'shrink-0 ' + (cls || 'h-7 w-7'))
+  node.src = BRAND_MARK
+  node.alt = 'Isane'
   return node
 }
 

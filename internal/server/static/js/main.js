@@ -9,7 +9,7 @@ import * as composer from './ui/composer.js'
 import * as thread from './ui/thread.js'
 import * as call from './ui/call.js'
 import * as admin from './ui/admin.js'
-import { el, field, textButton } from './ui/dom.js'
+import { brandMark, el, field, textButton } from './ui/dom.js'
 import { closeModal, isModalOpen } from './ui/modal.js'
 import { openPicker } from './ui/picker.js'
 import { wireResize } from './ui/resize.js'
@@ -322,7 +322,7 @@ function onStateChange(keys) {
 function authForm(root, title, subtitle, fields, submitLabel, onSubmit) {
   const card = document.createElement('form')
   card.className = 'flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-mantle p-6 shadow-pop ring-1 ring-edge'
-  card.appendChild(el('span', 'font-display text-lg font-bold text-text', 'Isane'))
+  card.appendChild(brandMark('h-10 w-10'))
   card.appendChild(el('h1', 'text-message font-semibold text-text', title))
   if (subtitle) card.appendChild(el('p', '-mt-3 text-sm text-overlay1', subtitle))
 

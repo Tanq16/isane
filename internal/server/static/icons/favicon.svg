@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Isane">
-  <rect width="32" height="32" rx="7" ry="7" fill="#11111b"/>
-  <path d="M9 18 L9 26 L16 20.5 Z" fill="#cba6f7"/>
-  <rect x="6" y="7" width="20" height="14" rx="3" ry="3" fill="#cba6f7"/>
-  <circle cx="11.5" cy="14" r="1.7" fill="#11111b"/>
-  <circle cx="16" cy="14" r="1.7" fill="#89b4fa"/>
-  <circle cx="20.5" cy="14" r="1.7" fill="#11111b"/>
-</svg>
