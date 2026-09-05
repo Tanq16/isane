@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ type ctxKey int
 const (
 	ctxUser ctxKey = iota
 	ctxAgent
+	ctxSession
 )
 
 func WithUser(ctx context.Context, u store.User) context.Context {
@@ -42,6 +44,15 @@ func WithUser(ctx context.Context, u store.User) context.Context {
 func UserFrom(ctx context.Context) (store.User, bool) {
 	u, ok := ctx.Value(ctxUser).(store.User)
 	return u, ok
+}
+
+func WithSession(ctx context.Context, id uuid.UUID) context.Context {
+	return context.WithValue(ctx, ctxSession, id)
+}
+
+func SessionFrom(ctx context.Context) (uuid.UUID, bool) {
+	id, ok := ctx.Value(ctxSession).(uuid.UUID)
+	return id, ok
 }
 
 func WithAgent(ctx context.Context, a store.AgentInfo) context.Context {
@@ -168,6 +179,36 @@ func requestUser(w http.ResponseWriter, r *http.Request) (store.User, bool) {
 
 func errSignIn() error {
 	return fmt.Errorf("%w: sign in required", ErrUnauthorized)
+}
+
+const (
+	targetUser     = "user"
+	targetInvite   = "invite"
+	targetChannel  = "channel"
+	targetAgent    = "agent"
+	targetSettings = "settings"
+	targetSession  = "session"
+)
+
+func audit(r *http.Request, a *app.App, e store.AuditEvent) {
+	if u, ok := UserFrom(r.Context()); ok {
+		e.ActorID = &u.ID
+		e.ActorHandle = u.Handle
+	}
+	e.IP = clientIP(r, a.Cfg().Server.TrustedPrefixes())
+	e.UserAgent = optionalString(r.UserAgent())
+	if err := a.DB.CreateAuditEvent(r.Context(), e); err != nil {
+		a.Log.Error().Err(err).Str("action", e.Action).Msg("write audit event")
+	}
+}
+
+func auditDetail(v any) jsontext.Value {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		log.Error().Err(err).Msg("encode audit detail")
+		return nil
+	}
+	return raw
 }
 
 func nonNil[T any](s []T) []T {

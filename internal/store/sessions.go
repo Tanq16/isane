@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 	"uuid"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func (db *DB) CreateSession(ctx context.Context, s Session) error {
@@ -41,6 +43,37 @@ func (db *DB) TouchSession(ctx context.Context, id uuid.UUID, expiresAt time.Tim
 
 func (db *DB) DeleteSession(ctx context.Context, id uuid.UUID) error {
 	return db.execOne(ctx, "delete session", `delete from sessions where id = $1`, id)
+}
+
+func (db *DB) ListSessionsForUser(ctx context.Context, userID uuid.UUID, notBefore time.Time) ([]Session, error) {
+	rows, err := db.Pool.Query(ctx, `select id, user_id, created_at, last_seen_at, expires_at, user_agent, ip
+		from sessions where user_id = $1 and expires_at > now() and created_at > $2
+		order by last_seen_at desc`, userID, notBefore)
+	if err != nil {
+		return nil, fmt.Errorf("list sessions for user: %w", mapErr(err))
+	}
+	sessions, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Session, error) {
+		var s Session
+		err := row.Scan(&s.ID, &s.UserID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.UserAgent, &s.IP)
+		return s, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list sessions for user: %w", err)
+	}
+	return sessions, nil
+}
+
+func (db *DB) DeleteUserSession(ctx context.Context, userID, id uuid.UUID) error {
+	return db.execOne(ctx, "delete user session",
+		`delete from sessions where id = $1 and user_id = $2`, id, userID)
+}
+
+func (db *DB) DeleteSessionsForUserExcept(ctx context.Context, userID, keep uuid.UUID) (int64, error) {
+	tag, err := db.Pool.Exec(ctx, `delete from sessions where user_id = $1 and id <> $2`, userID, keep)
+	if err != nil {
+		return 0, fmt.Errorf("delete other sessions for user: %w", mapErr(err))
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (db *DB) DeleteSessionsForUser(ctx context.Context, userID uuid.UUID) error {

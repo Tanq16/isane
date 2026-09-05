@@ -17,6 +17,24 @@ const LEVELS = [
 
 const MIN_PASSWORD = 8
 
+const DEVICE_PLATFORMS = [
+  ['iPhone', 'iPhone'],
+  ['iPad', 'iPad'],
+  ['Android', 'Android'],
+  ['Macintosh', 'macOS'],
+  ['Windows', 'Windows'],
+  ['CrOS', 'ChromeOS'],
+  ['Linux', 'Linux'],
+]
+
+const DEVICE_BROWSERS = [
+  ['Edg/', 'Edge'],
+  ['OPR/', 'Opera'],
+  ['Firefox/', 'Firefox'],
+  ['Chrome/', 'Chrome'],
+  ['Safari/', 'Safari'],
+]
+
 export function mayManageChannels() {
   if (!state.me) return false
   return Boolean(state.me.is_admin || state.settings.allow_member_channels)
@@ -509,6 +527,117 @@ function pushSection(body) {
   body.appendChild(forget)
 }
 
+function deviceLabel(agent) {
+  const raw = String(agent || '').trim()
+  if (!raw) return 'Unknown device'
+  const parts = []
+  const platform = DEVICE_PLATFORMS.find(([needle]) => raw.includes(needle))
+  if (platform) parts.push(platform[1])
+  const browser = DEVICE_BROWSERS.find(([needle]) => raw.includes(needle))
+  if (browser) parts.push(browser[1])
+  return parts.length ? parts.join(', ') : raw
+}
+
+function sessionRow(s, onRevoke) {
+  const row = el('div', 'flex items-center gap-3 rounded-lg bg-surface0 px-3 py-2')
+  const copy = el('div', 'min-w-0 flex-1')
+  const head = el('div', 'flex min-w-0 items-center gap-2')
+  const name = el('span', 'min-w-0 truncate text-sm text-text', deviceLabel(s.user_agent))
+  if (s.user_agent) name.title = s.user_agent
+  head.appendChild(name)
+  if (s.current) {
+    head.appendChild(el('span', 'shrink-0 rounded-full bg-mauve/15 px-2 py-0.5 text-micro font-semibold uppercase tracking-widest text-mauve', 'this device'))
+  }
+  copy.appendChild(head)
+  const meta = el('div', 'flex min-w-0 items-center gap-2 text-xs text-overlay1')
+  meta.appendChild(el('span', 'shrink-0', s.ip || '-'))
+  meta.appendChild(el('span', 'min-w-0 truncate', dateLabel(s.last_seen_at)))
+  copy.appendChild(meta)
+  row.appendChild(copy)
+  if (!s.current) row.appendChild(armedButton('Sign out', 'Confirm', () => onRevoke(s)))
+  return row
+}
+
+function armedButton(label, armedLabel, run) {
+  const button = textButton(label, async () => {
+    if (button.dataset.armed !== '1') {
+      button.dataset.armed = '1'
+      button.textContent = armedLabel
+      button.className = 'h-9 shrink-0 rounded-lg bg-red px-3 text-sm font-semibold text-crust transition-colors hover:brightness-110 disabled:bg-surface1 disabled:text-overlay1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve'
+      return
+    }
+    button.disabled = true
+    await run()
+    button.dataset.armed = ''
+    button.textContent = label
+    button.className = base
+    button.disabled = false
+  }, 'ghost')
+  button.classList.add('shrink-0')
+  const base = button.className
+  return button
+}
+
+function sessionsSection(body, handle, onSignOut) {
+  body.appendChild(sectionLabel('Sessions'))
+  const list = el('div', 'space-y-1')
+  body.appendChild(list)
+
+  const revoke = async (s) => {
+    handle.clearError()
+    try {
+      await api.del('/api/auth/sessions/' + s.id)
+      toast('That device was signed out', { severity: 'success' })
+      await load()
+    } catch (err) {
+      handle.fail(err.message || 'Could not sign that device out.')
+      await load()
+    }
+  }
+
+  const signOut = textButton('Sign out', async () => {
+    const ok = await confirmModal({
+      title: 'Sign out',
+      message: 'Sign out of Isane on this device?',
+      confirmLabel: 'Sign out',
+      icon: 'log-out',
+    })
+    if (ok) onSignOut()
+  }, 'secondary')
+
+  const others = armedButton('Sign out everywhere else', 'Confirm sign out everywhere else', async () => {
+    handle.clearError()
+    try {
+      const result = await api.del('/api/auth/sessions')
+      const count = result.revoked
+      toast(count === 1 ? 'One other device was signed out' : count + ' other devices were signed out', { severity: 'success' })
+    } catch (err) {
+      handle.fail(err.message || 'Could not sign the other devices out.')
+    }
+    await load()
+  })
+  others.classList.add('hidden')
+
+  const actions = el('div', 'mt-3 flex items-center gap-2')
+  actions.append(signOut, others)
+  body.appendChild(actions)
+
+  async function load() {
+    try {
+      const sessions = await api.get('/api/auth/sessions')
+      list.replaceChildren()
+      for (const s of sessions) list.appendChild(sessionRow(s, revoke))
+      others.disabled = false
+      others.classList.toggle('hidden', sessions.length < 2)
+      drawIcons(list)
+    } catch (err) {
+      list.replaceChildren(el('p', 'text-sm text-red', err.message || 'Could not load your sessions.'))
+    }
+  }
+
+  load()
+}
+
 export function openUserSettings(onSignOut) {
   if (!state.me) return
   openModal({
@@ -520,16 +649,7 @@ export function openUserSettings(onSignOut) {
       passwordSection(body, handle)
       pushSection(body)
       readingSection(body)
-      body.appendChild(sectionLabel('Session'))
-      body.appendChild(textButton('Sign out', async () => {
-        const ok = await confirmModal({
-          title: 'Sign out',
-          message: 'Sign out of Isane on this device?',
-          confirmLabel: 'Sign out',
-          icon: 'log-out',
-        })
-        if (ok) onSignOut()
-      }, 'secondary'))
+      sessionsSection(body, handle, onSignOut)
     },
   })
 }

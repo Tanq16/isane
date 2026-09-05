@@ -15,7 +15,11 @@ import (
 	"github.com/tanq16/isane/internal/store"
 )
 
-const defaultInviteTTL = 7 * 24 * time.Hour
+const (
+	defaultInviteTTL = 7 * 24 * time.Hour
+	defaultAuditPage = 50
+	maxAuditPage     = 100
+)
 
 type Admin struct {
 	app *app.App
@@ -78,7 +82,13 @@ type adminRetention struct {
 	MessageDays       int        `json:"message_days"`
 	RecordingDays     int        `json:"recording_days"`
 	StagedUploadHours int        `json:"staged_upload_hours"`
+	AuditDays         int        `json:"audit_days"`
 	LastRunAt         *time.Time `json:"last_run_at,omitempty"`
+}
+
+type adminAuditPage struct {
+	Events     []store.AuditEvent `json:"events"`
+	NextBefore *uuid.UUID         `json:"next_before"`
 }
 
 func (h *Admin) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +127,12 @@ func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, created.Directory()))
+	audit(r, h.app, store.AuditEvent{
+		Action:      "user.create",
+		TargetType:  new(targetUser),
+		TargetID:    &created.ID,
+		TargetLabel: &created.Handle,
+	})
 	WriteJSON(w, http.StatusCreated, created)
 }
 
@@ -142,6 +158,12 @@ func (h *Admin) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.publishUser(r, target.ID)
+	audit(r, h.app, store.AuditEvent{
+		Action:      "user.deactivate",
+		TargetType:  new(targetUser),
+		TargetID:    &target.ID,
+		TargetLabel: &target.Handle,
+	})
 	writeOK(w)
 }
 
@@ -172,6 +194,12 @@ func (h *Admin) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	audit(r, h.app, store.AuditEvent{
+		Action:      "user.password_reset",
+		TargetType:  new(targetUser),
+		TargetID:    &target.ID,
+		TargetLabel: &target.Handle,
+	})
 	writeOK(w)
 }
 
@@ -202,6 +230,13 @@ func (h *Admin) SetAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.publishUser(r, target.ID)
+	audit(r, h.app, store.AuditEvent{
+		Action:      "user.admin_set",
+		TargetType:  new(targetUser),
+		TargetID:    &target.ID,
+		TargetLabel: &target.Handle,
+		Detail:      auditDetail(map[string]any{"is_admin": req.IsAdmin}),
+	})
 	writeOK(w)
 }
 
@@ -254,11 +289,17 @@ func (h *Admin) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	out := inviteView(stored)
 	out.URL = h.publicURL("/invite/" + raw)
+	audit(r, h.app, store.AuditEvent{
+		Action:      "invite.create",
+		TargetType:  new(targetInvite),
+		TargetLabel: &out.ID,
+	})
 	WriteJSON(w, http.StatusCreated, out)
 }
 
 func (h *Admin) RevokeInvite(w http.ResponseWriter, r *http.Request) {
-	hash, err := hex.DecodeString(r.PathValue("id"))
+	id := r.PathValue("id")
+	hash, err := hex.DecodeString(id)
 	if err != nil {
 		WriteError(w, badRequestf("id must be an invite id in hex"))
 		return
@@ -267,6 +308,11 @@ func (h *Admin) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	audit(r, h.app, store.AuditEvent{
+		Action:      "invite.revoke",
+		TargetType:  new(targetInvite),
+		TargetLabel: &id,
+	})
 	writeOK(w)
 }
 
@@ -280,30 +326,40 @@ func (h *Admin) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Admin) ArchiveChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := pathUUID(r, "id")
-	if err != nil {
+	c, ok := h.channel(w, r)
+	if !ok {
+		return
+	}
+	if err := h.app.DB.ArchiveChannel(r.Context(), c.ID); err != nil {
 		WriteError(w, err)
 		return
 	}
-	if err := h.app.DB.ArchiveChannel(r.Context(), id); err != nil {
-		WriteError(w, err)
-		return
-	}
-	h.publishChannel(r, id)
+	h.publishChannel(r, c.ID)
+	audit(r, h.app, store.AuditEvent{
+		Action:      "channel.archive",
+		TargetType:  new(targetChannel),
+		TargetID:    &c.ID,
+		TargetLabel: c.Slug,
+	})
 	writeOK(w)
 }
 
 func (h *Admin) UnarchiveChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := pathUUID(r, "id")
-	if err != nil {
+	c, ok := h.channel(w, r)
+	if !ok {
+		return
+	}
+	if err := h.app.DB.UnarchiveChannel(r.Context(), c.ID); err != nil {
 		WriteError(w, err)
 		return
 	}
-	if err := h.app.DB.UnarchiveChannel(r.Context(), id); err != nil {
-		WriteError(w, err)
-		return
-	}
-	h.publishChannel(r, id)
+	h.publishChannel(r, c.ID)
+	audit(r, h.app, store.AuditEvent{
+		Action:      "channel.unarchive",
+		TargetType:  new(targetChannel),
+		TargetID:    &c.ID,
+		TargetLabel: c.Slug,
+	})
 	writeOK(w)
 }
 
@@ -343,6 +399,12 @@ func (h *Admin) ReserveAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, info.User.Directory()))
+	audit(r, h.app, store.AuditEvent{
+		Action:      "agent.reserve",
+		TargetType:  new(targetAgent),
+		TargetID:    &info.User.ID,
+		TargetLabel: &info.User.Handle,
+	})
 	WriteJSON(w, http.StatusCreated, adminAgentReserved{Agent: info, ClaimToken: raw})
 }
 
@@ -355,6 +417,12 @@ func (h *Admin) DeregisterAgent(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	audit(r, h.app, store.AuditEvent{
+		Action:      "agent.deregister",
+		TargetType:  new(targetAgent),
+		TargetID:    &info.User.ID,
+		TargetLabel: &info.User.Handle,
+	})
 	writeOK(w)
 }
 
@@ -376,6 +444,12 @@ func (h *Admin) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		h.publishUser(r, info.User.ID)
 	}
+	audit(r, h.app, store.AuditEvent{
+		Action:      "agent.delete",
+		TargetType:  new(targetAgent),
+		TargetID:    &info.User.ID,
+		TargetLabel: &info.User.Handle,
+	})
 	WriteJSON(w, http.StatusOK, adminAgentDeleted{HandleFreed: freed})
 }
 
@@ -398,9 +472,29 @@ func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
 		MessageDays:       h.app.Cfg().Retention.MessageDays,
 		RecordingDays:     h.app.Cfg().Retention.RecordingDays,
 		StagedUploadHours: h.app.Cfg().Retention.StagedUploadHours,
+		AuditDays:         h.app.Cfg().Retention.AuditDays,
 	}
 	if !last.IsZero() {
 		out.LastRunAt = &last
+	}
+	WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Admin) Audit(w http.ResponseWriter, r *http.Request) {
+	before, err := queryUUID(r, "before")
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	limit := queryLimit(r, defaultAuditPage, maxAuditPage)
+	events, err := h.app.DB.ListAuditEvents(r.Context(), before, limit)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	out := adminAuditPage{Events: nonNil(events)}
+	if len(events) == limit {
+		out.NextBefore = &events[len(events)-1].ID
 	}
 	WriteJSON(w, http.StatusOK, out)
 }
@@ -439,6 +533,24 @@ func (h *Admin) human(w http.ResponseWriter, r *http.Request) (store.User, bool)
 		return store.User{}, false
 	}
 	return u, true
+}
+
+func (h *Admin) channel(w http.ResponseWriter, r *http.Request) (store.Container, bool) {
+	id, err := pathUUID(r, "id")
+	if err != nil {
+		WriteError(w, err)
+		return store.Container{}, false
+	}
+	c, err := h.app.DB.GetContainer(r.Context(), id)
+	if err != nil {
+		WriteError(w, err)
+		return store.Container{}, false
+	}
+	if c.Kind != store.ContainerChannel {
+		WriteError(w, badRequestf("%s is not a channel", id))
+		return store.Container{}, false
+	}
+	return c, true
 }
 
 func (h *Admin) agent(w http.ResponseWriter, r *http.Request) (store.AgentInfo, bool) {

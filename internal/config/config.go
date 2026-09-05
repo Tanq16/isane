@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"reflect"
 	"strconv"
@@ -25,10 +26,15 @@ type Config struct {
 }
 
 type Server struct {
-	Bind      string `yaml:"bind"`
-	PublicURL string `yaml:"public_url"`
-	Insecure  bool   `yaml:"insecure"`
+	Bind           string   `yaml:"bind"`
+	PublicURL      string   `yaml:"public_url"`
+	Insecure       bool     `yaml:"insecure"`
+	TrustedProxies []string `yaml:"trusted_proxies"`
+
+	trusted []netip.Prefix
 }
+
+func (s Server) TrustedPrefixes() []netip.Prefix { return s.trusted }
 
 type Database struct {
 	URL string `yaml:"url"`
@@ -57,6 +63,7 @@ type Retention struct {
 	MessageDays       int `yaml:"message_days"`
 	RecordingDays     int `yaml:"recording_days"`
 	StagedUploadHours int `yaml:"staged_upload_hours"`
+	AuditDays         int `yaml:"audit_days"`
 }
 
 type Agents struct {
@@ -108,6 +115,7 @@ func Default() Config {
 			MessageDays:       0,
 			RecordingDays:     90,
 			StagedUploadHours: 24,
+			AuditDays:         90,
 		},
 		Agents: Agents{JobTimeout: 5 * time.Minute},
 		MediaQuality: MediaQuality{
@@ -141,10 +149,41 @@ func Load(path string) (*Config, error) {
 	if err := applyEnv(reflect.ValueOf(&cfg).Elem(), nil); err != nil {
 		return nil, err
 	}
+	if err := cfg.resolveTrustedProxies(); err != nil {
+		return nil, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func (c *Config) resolveTrustedProxies() error {
+	prefixes := make([]netip.Prefix, 0, len(c.Server.TrustedProxies))
+	for _, raw := range c.Server.TrustedProxies {
+		entry := strings.TrimSpace(raw)
+		if entry == "" {
+			continue
+		}
+		prefix, err := parseTrustedProxy(entry)
+		if err != nil {
+			return fmt.Errorf("server.trusted_proxies: %q is not an IP address or a CIDR block", entry)
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	c.Server.trusted = prefixes
+	return nil
+}
+
+func parseTrustedProxy(entry string) (netip.Prefix, error) {
+	if prefix, err := netip.ParsePrefix(entry); err == nil {
+		return prefix, nil
+	}
+	addr, err := netip.ParseAddr(entry)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	return netip.PrefixFrom(addr, addr.BitLen()), nil
 }
 
 func (c Config) Validate() error {
@@ -185,6 +224,10 @@ func applyEnv(v reflect.Value, path []string) error {
 		}
 		switch field.Kind() {
 		case reflect.String, reflect.Bool, reflect.Int, reflect.Int32, reflect.Int64:
+		case reflect.Slice:
+			if field.Type().Elem().Kind() != reflect.String {
+				continue
+			}
 		default:
 			continue
 		}
@@ -224,6 +267,14 @@ func setField(field reflect.Value, raw string) error {
 			return err
 		}
 		field.SetInt(n)
+	case reflect.Slice:
+		var out []string
+		for part := range strings.SplitSeq(raw, ",") {
+			if value := strings.TrimSpace(part); value != "" {
+				out = append(out, value)
+			}
+		}
+		field.Set(reflect.ValueOf(out))
 	}
 	return nil
 }

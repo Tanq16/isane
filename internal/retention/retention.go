@@ -42,6 +42,14 @@ func (s *Sweeper) Run(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 
+	var auditEvents int64
+	if days := s.cfg.Retention.AuditDays; days > 0 {
+		auditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("delete audit events: %w", err))
+		}
+	}
+
 	var messages int64
 	if days := s.cfg.Retention.MessageDays; days > 0 {
 		messages, err = s.db.DeleteMessagesOlderThan(ctx, daysAgo(days))
@@ -62,6 +70,7 @@ func (s *Sweeper) Run(ctx context.Context) error {
 	s.log.Info().
 		Int("attachments", attachments).
 		Int("recordings", recordings).
+		Int64("audit_events", auditEvents).
 		Int64("messages", messages).
 		Msg("retention sweep complete")
 	return errors.Join(errs...)

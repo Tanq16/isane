@@ -54,19 +54,28 @@ func (h *Hub) SetHandler(handler Handler) {
 	h.handler = handler
 }
 
+func (h *Hub) SetOriginCheck(allowed func(*http.Request) bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.upgrader.CheckOrigin = allowed
+}
+
 func (h *Hub) OnPresenceChange(fn func(userID uuid.UUID, online bool)) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.presence = append(h.presence, fn)
 }
 
-func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, u store.User) {
-	ws, err := h.upgrader.Upgrade(w, r, nil)
+func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, u store.User, sessionID uuid.UUID) {
+	h.mu.RLock()
+	upgrader := h.upgrader
+	h.mu.RUnlock()
+	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.log.Debug().Err(err).Str("user", u.Handle).Msg("websocket upgrade failed")
 		return
 	}
-	c := newConn(h, ws, u)
+	c := newConn(h, ws, u, sessionID)
 	h.add(c)
 	go c.writePump()
 	c.readPump()
@@ -135,6 +144,28 @@ func (h *Hub) EndpointVisible(userID uuid.UUID, endpoint string, within time.Dur
 		}
 	}
 	return false
+}
+
+func (h *Hub) CloseSession(userID, sessionID uuid.UUID) {
+	h.closeUserConns(userID, func(id uuid.UUID) bool { return id == sessionID })
+}
+
+func (h *Hub) CloseSessionsExcept(userID, keep uuid.UUID) {
+	h.closeUserConns(userID, func(id uuid.UUID) bool { return id != keep })
+}
+
+func (h *Hub) closeUserConns(userID uuid.UUID, match func(sessionID uuid.UUID) bool) {
+	h.mu.RLock()
+	var targets []*Conn
+	for c := range h.conns[userID] {
+		if match(c.session) {
+			targets = append(targets, c)
+		}
+	}
+	h.mu.RUnlock()
+	for _, c := range targets {
+		c.close()
+	}
 }
 
 func (h *Hub) Close() {

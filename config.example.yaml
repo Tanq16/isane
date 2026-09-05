@@ -2,6 +2,7 @@ server:
   bind: 0.0.0.0:8080
   public_url: https://chat.example.com
   insecure: false
+  trusted_proxies: []
 
 database:
   url: postgres://chat:PASSWORD@postgres:5432/chat?sslmode=disable
@@ -26,6 +27,7 @@ retention:
   message_days: 0
   recording_days: 90
   staged_upload_hours: 24
+  audit_days: 90
 
 agents:
   job_timeout: 5m

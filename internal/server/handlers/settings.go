@@ -5,6 +5,7 @@ import (
 
 	"github.com/tanq16/isane/internal/app"
 	"github.com/tanq16/isane/internal/socket"
+	"github.com/tanq16/isane/internal/store"
 )
 
 type Settings struct {
@@ -44,5 +45,10 @@ func (h *Settings) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeSettings, s))
+	audit(r, h.app, store.AuditEvent{
+		Action:     "settings.update",
+		TargetType: new(targetSettings),
+		Detail:     auditDetail(map[string]any{"allow_member_channels": req.AllowMemberChannels}),
+	})
 	WriteJSON(w, http.StatusOK, s)
 }
