@@ -94,6 +94,12 @@ func (h *Containers) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, c))
+	audit(r, h.app, store.AuditEvent{
+		Action:      "channel.create",
+		TargetType:  new(targetChannel),
+		TargetID:    &c.ID,
+		TargetLabel: c.Slug,
+	})
 	WriteJSON(w, http.StatusCreated, view)
 }
 

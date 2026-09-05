@@ -10,6 +10,7 @@ const SECTIONS = [
   ['agents', 'Agents', 'bot'],
   ['channels', 'Channels', 'hash'],
   ['invites', 'Invites', 'ticket'],
+  ['audit', 'Audit', 'scroll-text'],
   ['stats', 'Stats', 'chart-column'],
 ]
 
@@ -621,6 +622,78 @@ function buildInvites() {
   return section
 }
 
+function detailValue(value) {
+  if (value == null) return '-'
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function detailCell(detail) {
+  const pairs = Object.entries(detail || {})
+  if (!pairs.length) return ''
+  const text = pairs.map(([key, value]) => humanKey(key) + ': ' + detailValue(value)).join(', ')
+  const node = el('span', 'text-overlay1', text)
+  node.title = text
+  return node
+}
+
+function actionCell(action) {
+  const raw = String(action || '')
+  const dot = raw.indexOf('.')
+  if (dot < 0) return el('span', 'text-subtext0', humanKey(raw))
+  const wrap = el('span', 'flex items-baseline gap-1.5')
+  wrap.appendChild(el('span', 'text-overlay1', raw.slice(0, dot)))
+  wrap.appendChild(el('span', 'text-text', humanKey(raw.slice(dot + 1))))
+  return wrap
+}
+
+function buildAudit() {
+  const section = panel('Audit', 'Every administrative action, newest first.')
+  const list = el('div', 'min-w-0')
+  const footer = el('div', 'mt-4 hidden text-center')
+  const more = textButton('Load more', () => loadPage(cursor), 'secondary')
+  footer.appendChild(more)
+  section.body.append(list, footer)
+
+  let tbody = null
+  let cursor = null
+
+  async function loadPage(before) {
+    section.clear()
+    more.disabled = true
+    try {
+      const page = await api.get('/api/admin/audit', { before })
+      if (!before) {
+        if (page.events.length) {
+          const t = table(['Time', 'Actor', 'Action', 'Target', 'Detail'])
+          tbody = t.tbody
+          list.replaceChildren(t.wrap)
+        } else {
+          list.replaceChildren(emptyState('Nothing has been recorded yet.'))
+        }
+      }
+      for (const event of page.events) {
+        tbody.appendChild(row([
+          dateLabel(event.at),
+          '@' + event.actor_handle,
+          actionCell(event.action),
+          event.target_label || '',
+          detailCell(event.detail),
+        ]))
+      }
+      cursor = page.next_before
+      footer.classList.toggle('hidden', !cursor)
+    } catch (err) {
+      section.fail(err)
+    }
+    more.disabled = false
+  }
+
+  section.load = () => loadPage(null)
+  return section
+}
+
 function flatten(source, prefix) {
   const out = []
   for (const [key, value] of Object.entries(source || {})) {
@@ -676,6 +749,7 @@ function buildStats() {
         ['Messages', policy.message_days, 'days'],
         ['Recordings', policy.recording_days, 'days'],
         ['Staged uploads', policy.staged_upload_hours, 'hours'],
+        ['Audit log', policy.audit_days, 'days'],
       ]) {
         const line = el('div', 'flex items-center justify-between gap-4 rounded-xl bg-surface0 px-4 py-3')
         line.appendChild(el('span', 'text-sm text-subtext0', label))
@@ -776,6 +850,7 @@ export function mount(root) {
   builders.set('agents', buildAgents())
   builders.set('channels', buildChannels())
   builders.set('invites', buildInvites())
+  builders.set('audit', buildAudit())
   builders.set('stats', buildStats())
 
   window.addEventListener('popstate', render)

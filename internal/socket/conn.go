@@ -22,28 +22,30 @@ const (
 )
 
 type Conn struct {
-	hub   *Hub
-	ws    *websocket.Conn
-	user  store.User
-	out   chan Frame
-	done  chan struct{}
-	close func()
-	ctx   context.Context
+	hub     *Hub
+	ws      *websocket.Conn
+	user    store.User
+	session uuid.UUID
+	out     chan Frame
+	done    chan struct{}
+	close   func()
+	ctx     context.Context
 
 	lastSeen atomic.Int64
 	endpoint atomic.Pointer[string]
 	visible  atomic.Bool
 }
 
-func newConn(h *Hub, ws *websocket.Conn, u store.User) *Conn {
+func newConn(h *Hub, ws *websocket.Conn, u store.User, sessionID uuid.UUID) *Conn {
 	ctx, cancel := context.WithCancel(h.ctx)
 	c := &Conn{
-		hub:  h,
-		ws:   ws,
-		user: u,
-		out:  make(chan Frame, sendBuffer),
-		done: make(chan struct{}),
-		ctx:  ctx,
+		hub:     h,
+		ws:      ws,
+		user:    u,
+		session: sessionID,
+		out:     make(chan Frame, sendBuffer),
+		done:    make(chan struct{}),
+		ctx:     ctx,
 	}
 	c.close = sync.OnceFunc(func() {
 		close(c.done)

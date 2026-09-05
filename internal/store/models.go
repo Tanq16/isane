@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json/jsontext"
 	"net/netip"
 	"time"
 	"uuid"
@@ -136,6 +137,20 @@ type Session struct {
 	ExpiresAt  time.Time
 	UserAgent  *string
 	IP         *netip.Addr
+}
+
+type AuditEvent struct {
+	ID          uuid.UUID      `json:"id"`
+	At          time.Time      `json:"at"`
+	ActorID     *uuid.UUID     `json:"actor_id"`
+	ActorHandle string         `json:"actor_handle"`
+	Action      string         `json:"action"`
+	TargetType  *string        `json:"target_type"`
+	TargetID    *uuid.UUID     `json:"target_id"`
+	TargetLabel *string        `json:"target_label"`
+	Detail      jsontext.Value `json:"detail"`
+	IP          *netip.Addr    `json:"ip"`
+	UserAgent   *string        `json:"user_agent"`
 }
 
 type Invite struct {

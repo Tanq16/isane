@@ -23,6 +23,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/auth/me", s.user(sessions.Me))
 	mux.Handle("PATCH /api/auth/me", s.user(sessions.UpdateProfile))
 	mux.Handle("POST /api/auth/password", s.user(sessions.ChangePassword))
+	mux.Handle("GET /api/auth/sessions", s.user(sessions.ListSessions))
+	mux.Handle("DELETE /api/auth/sessions", s.user(sessions.RevokeOtherSessions))
+	mux.Handle("DELETE /api/auth/sessions/{id}", s.user(sessions.RevokeSession))
 
 	mux.Handle("GET /api/settings", s.user(settings.Get))
 	mux.Handle("PUT /api/settings", s.adminOnly(settings.Update))
@@ -85,6 +88,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/agents/{handle}", s.adminOnly(admin.DeleteAgent))
 	mux.Handle("GET /api/admin/stats", s.adminOnly(admin.Stats))
 	mux.Handle("GET /api/admin/retention", s.adminOnly(admin.Retention))
+	mux.Handle("GET /api/admin/audit", s.adminOnly(admin.Audit))
 	mux.Handle("GET /api/health", http.HandlerFunc(s.health))
 	mux.Handle("GET /api/version", http.HandlerFunc(s.version))
 
@@ -113,5 +117,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		handlers.WriteError(w, handlers.ErrUnauthorized)
 		return
 	}
-	s.app.Hub.ServeWS(w, r, u)
+	sessionID, ok := handlers.SessionFrom(r.Context())
+	if !ok {
+		handlers.WriteError(w, handlers.ErrUnauthorized)
+		return
+	}
+	s.app.Hub.ServeWS(w, r, u, sessionID)
 }

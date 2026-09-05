@@ -64,18 +64,26 @@ func (s *Server) sameOrigin(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		want := strings.TrimSuffix(s.app.Cfg().Server.PublicURL, "/")
-		if r.Header.Get("Origin") != want {
+		if !s.originAllowed(r) {
 			s.log.Warn().
 				Str("request_id", requestIDFrom(r.Context())).
 				Str("origin", r.Header.Get("Origin")).
 				Str("path", r.URL.Path).
 				Msg("rejected a cross-origin request")
-			handlers.WriteError(w, fmt.Errorf("%w: this request must come from %s", handlers.ErrForbidden, want))
+			handlers.WriteError(w, fmt.Errorf("%w: this request must come from %s",
+				handlers.ErrForbidden, s.publicOrigin()))
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) originAllowed(r *http.Request) bool {
+	return r.Header.Get("Origin") == s.publicOrigin()
+}
+
+func (s *Server) publicOrigin() string {
+	return strings.TrimSuffix(s.app.Cfg().Server.PublicURL, "/")
 }
 
 func originChecked(r *http.Request) bool {
@@ -177,7 +185,8 @@ func (s *Server) session(next http.Handler) http.Handler {
 				auth.SetSession(w, raw, expires, s.secureCookies())
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(handlers.WithUser(r.Context(), u)))
+		ctx := handlers.WithSession(handlers.WithUser(r.Context(), u), sess.ID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

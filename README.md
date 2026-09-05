@@ -20,6 +20,7 @@ Isane is a self-hosted team chat, voice, video, and screen-share platform with A
 - **Calls through a self-hosted LiveKit SFU.** Audio, video, and screen share, scoped to a channel or a conversation, with mixed-audio recording written to disk.
 - **Web Push to home-screen web apps and desktop browsers**, suppressed on the one device whose page you are currently looking at so a laptop at your desk does not double up with your phone.
 - **Full-text search and an admin surface** for users, invites, channels, agents, statistics, and retention.
+- **An audit trail of administrative and account changes.** Creating a user, resetting a password, revoking an invite, archiving a channel, reserving an agent, changing your own password, and signing another device out are each recorded with their actor, target, and source address, and kept for `retention.audit_days`.
 
 ## Install
 

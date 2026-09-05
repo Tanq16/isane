@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,10 @@ import (
 	"github.com/tanq16/isane/internal/store"
 )
 
-const minPasswordLength = 8
+const (
+	minPasswordLength  = 8
+	forwardedForHeader = "X-Forwarded-For"
+)
 
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
@@ -70,6 +74,20 @@ type passwordRequest struct {
 	NewPassword     string `json:"new_password"`
 }
 
+type sessionView struct {
+	ID         uuid.UUID   `json:"id"`
+	Current    bool        `json:"current"`
+	CreatedAt  time.Time   `json:"created_at"`
+	LastSeenAt time.Time   `json:"last_seen_at"`
+	ExpiresAt  time.Time   `json:"expires_at"`
+	IP         *netip.Addr `json:"ip"`
+	UserAgent  *string     `json:"user_agent"`
+}
+
+type revokedBody struct {
+	Revoked int64 `json:"revoked"`
+}
+
 func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := ReadJSON(r, &req); err != nil {
@@ -81,7 +99,7 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, badRequestf("handle or email and password are required"))
 		return
 	}
-	source, account := requestKey(r), strings.ToLower(ident)
+	source, account := requestKey(r, h.trusted()), strings.ToLower(ident)
 	if wait := max(h.sources.retryAfter(source), h.accounts.retryAfter(account)); wait > 0 {
 		writeRetryAfter(w, wait, "too many sign-in attempts, try again shortly")
 		return
@@ -173,6 +191,13 @@ func (h *Auth) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, updated.Directory()))
+	audit(r, h.app, store.AuditEvent{
+		Action:      "profile.update",
+		TargetType:  new(targetUser),
+		TargetID:    &u.ID,
+		TargetLabel: &u.Handle,
+		Detail:      auditDetail(map[string]any{"fields": changedProfileFields(u, updated)}),
+	})
 	WriteJSON(w, http.StatusOK, updated)
 }
 
@@ -196,7 +221,7 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	source := requestKey(r)
+	source := requestKey(r, h.trusted())
 	if wait := h.sources.retryAfter(source); wait > 0 {
 		writeRetryAfter(w, wait, "too many invite attempts, try again shortly")
 		return
@@ -275,11 +300,93 @@ func (h *Auth) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	if current, ok := SessionFrom(r.Context()); ok {
+		h.app.Hub.CloseSessionsExcept(u.ID, current)
+	}
 	if err := h.startSession(w, r, u); err != nil {
 		WriteError(w, err)
 		return
 	}
+	audit(r, h.app, store.AuditEvent{
+		Action:      "password.change",
+		TargetType:  new(targetUser),
+		TargetID:    &u.ID,
+		TargetLabel: &u.Handle,
+	})
 	writeOK(w)
+}
+
+func (h *Auth) ListSessions(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	current, _ := SessionFrom(r.Context())
+	sessions, err := h.app.DB.ListSessionsForUser(r.Context(), u.ID, time.Now().Add(-auth.SessionMaxAge))
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	out := make([]sessionView, 0, len(sessions))
+	for _, s := range sessions {
+		out = append(out, sessionView{
+			ID:         s.ID,
+			Current:    s.ID == current,
+			CreatedAt:  s.CreatedAt,
+			LastSeenAt: s.LastSeenAt,
+			ExpiresAt:  s.ExpiresAt,
+			IP:         s.IP,
+			UserAgent:  s.UserAgent,
+		})
+	}
+	WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Auth) RevokeSession(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := pathUUID(r, "id")
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	if err := h.app.DB.DeleteUserSession(r.Context(), u.ID, id); err != nil {
+		WriteError(w, err)
+		return
+	}
+	h.app.Hub.CloseSession(u.ID, id)
+	audit(r, h.app, store.AuditEvent{
+		Action:     "session.revoke",
+		TargetType: new(targetSession),
+		TargetID:   &id,
+	})
+	writeOK(w)
+}
+
+func (h *Auth) RevokeOtherSessions(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	current, ok := SessionFrom(r.Context())
+	if !ok {
+		WriteError(w, errSignIn())
+		return
+	}
+	revoked, err := h.app.DB.DeleteSessionsForUserExcept(r.Context(), u.ID, current)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	h.app.Hub.CloseSessionsExcept(u.ID, current)
+	audit(r, h.app, store.AuditEvent{
+		Action:     "session.revoke_others",
+		TargetType: new(targetSession),
+		Detail:     auditDetail(map[string]any{"revoked": revoked}),
+	})
+	WriteJSON(w, http.StatusOK, revokedBody{Revoked: revoked})
 }
 
 func (h *Auth) startSession(w http.ResponseWriter, r *http.Request, u store.User) error {
@@ -294,7 +401,7 @@ func (h *Auth) startSession(w http.ResponseWriter, r *http.Request, u store.User
 		UserID:    u.ID,
 		ExpiresAt: expires,
 		UserAgent: optionalString(r.UserAgent()),
-		IP:        clientIP(r),
+		IP:        clientIP(r, h.trusted()),
 	}
 	if err := h.app.DB.CreateSession(r.Context(), sess); err != nil {
 		return fmt.Errorf("create session: %w", err)
@@ -307,8 +414,33 @@ func (h *Auth) secure() bool {
 	return !h.app.Cfg().Server.Insecure
 }
 
+func (h *Auth) trusted() []netip.Prefix {
+	return h.app.Cfg().Server.TrustedPrefixes()
+}
+
 func errInvalidLogin() error {
 	return fmt.Errorf("%w: invalid handle or password", ErrUnauthorized)
+}
+
+func changedProfileFields(before, after store.User) []string {
+	fields := make([]string, 0, 3)
+	if before.DisplayName != after.DisplayName {
+		fields = append(fields, "display_name")
+	}
+	if !sameUUID(before.AvatarID, after.AvatarID) {
+		fields = append(fields, "avatar_id")
+	}
+	if before.MarkReadOnOpen != after.MarkReadOnOpen {
+		fields = append(fields, "mark_read_on_open")
+	}
+	return fields
+}
+
+func sameUUID(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func optionalString(s string) *string {
@@ -318,21 +450,53 @@ func optionalString(s string) *string {
 	return &s
 }
 
-func requestKey(r *http.Request) string {
-	if addr := clientIP(r); addr != nil {
+func requestKey(r *http.Request, trusted []netip.Prefix) string {
+	if addr := clientIP(r, trusted); addr != nil {
 		return "ip:" + addr.String()
 	}
 	return "ip:" + r.RemoteAddr
 }
 
-func clientIP(r *http.Request) *netip.Addr {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
+func clientIP(r *http.Request, trusted []netip.Prefix) *netip.Addr {
+	peer := parseAddr(r.RemoteAddr)
+	if peer == nil || !trustedAddr(trusted, *peer) {
+		return peer
+	}
+	var chain []string
+	for _, value := range r.Header.Values(forwardedForHeader) {
+		chain = append(chain, strings.Split(value, ",")...)
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		addr := parseAddr(chain[i])
+		if addr != nil && !trustedAddr(trusted, *addr) {
+			return addr
+		}
+	}
+	return peer
+}
+
+func parseAddr(raw string) *netip.Addr {
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return nil
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		unmapped := addr.Unmap()
+		return &unmapped
+	}
+	if split, _, err := net.SplitHostPort(host); err == nil {
+		host = split
+	} else if bracketed, ok := strings.CutPrefix(host, "["); ok {
+		host, _, _ = strings.Cut(bracketed, "]")
 	}
 	addr, err := netip.ParseAddr(host)
 	if err != nil {
 		return nil
 	}
-	return &addr
+	unmapped := addr.Unmap()
+	return &unmapped
+}
+
+func trustedAddr(trusted []netip.Prefix, addr netip.Addr) bool {
+	return slices.ContainsFunc(trusted, func(p netip.Prefix) bool { return p.Contains(addr) })
 }

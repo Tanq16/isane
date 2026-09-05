@@ -145,13 +145,14 @@ The first start against an empty `users` table prints a one-time invite URL. Ope
 
 ## Configuration
 
-`config.yaml` is read at start. Every scalar value may be overridden by an environment variable named `ISANE_` followed by the YAML path uppercased and joined with underscores, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
+`config.yaml` is read at start. Every scalar value may be overridden by an environment variable named `ISANE_` followed by the YAML path uppercased and joined with underscores, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. A list of strings takes the same form with its entries separated by commas. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
 
 | Key | Default | Holds |
 |---|---|---|
 | `server.bind` | `0.0.0.0:8080` | Address the HTTP server listens on |
 | `server.public_url` | `http://localhost:8080` | Origin the browser reaches. Every write is rejected with 403 when the browser's `Origin` does not match it exactly, so an alias hostname or a second port needs its own deployment |
 | `server.insecure` | `false` | Development mode, which disables push because push needs a trusted certificate |
+| `server.trusted_proxies` | `[]` | List of CIDR blocks, or bare IP addresses, whose `X-Forwarded-For` header is believed. An empty list ignores the header entirely and records the peer address instead. Running the application in Docker behind a reverse proxy on the host makes the Docker bridge gateway the peer, so the bridge subnet is what has to be trusted |
 | `database.url` | required | Postgres connection string |
 | `push.vapid_public_key` | empty | Served to the browser by `GET /api/push/vapid-key` |
 | `push.vapid_private_key` | empty | Push stays off while either key is empty |
@@ -166,6 +167,7 @@ The first start against an empty `users` table prints a one-time invite URL. Ope
 | `retention.message_days` | `0` | Days before a message is hard-deleted, where 0 disables it |
 | `retention.recording_days` | `90` | Days before a call recording is deleted |
 | `retention.staged_upload_hours` | `24` | Hours before an upload that never reached a message is swept, unless it is in use as a user's avatar |
+| `retention.audit_days` | `90` | Days before an audit event is deleted, where 0 keeps them forever |
 | `agents.job_timeout` | `5m` | How long a dispatched agent job may run before it is failed |
 | `media_quality` | see `config.example.yaml` | Client publish settings, delivered to the browser in the `ready` frame |
 
@@ -193,11 +195,12 @@ gunzip -c backup/db-2026-09-01.sql.gz | docker compose exec -T postgres pg_resto
 
 ## Retention
 
-A daily job runs three sweeps in order:
+A daily job runs four sweeps in order:
 
 1. Staged attachments older than `retention.staged_upload_hours` with no message, deleted along with their files. An attachment in use as a user's avatar is exempt and is swept once it is replaced.
 2. Recordings older than `retention.recording_days`, deleted along with their `call_recordings` rows.
-3. If `retention.message_days` is non-zero, messages older than that are hard-deleted and the attachments orphaned by it are swept.
+3. Audit events older than `retention.audit_days`, deleted from `audit_events`.
+4. If `retention.message_days` is non-zero, messages older than that are hard-deleted and the attachments orphaned by it are swept.
 
 `retention.message_days: 0` disables message deletion and is the default. Deleting messages leaves `seq` gaps, which clients tolerate because they page by cursor rather than counting.
 
