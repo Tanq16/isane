@@ -1,6 +1,7 @@
 const VAPID_KEY_URL = '/api/push/vapid-key';
 const SUBSCRIBE_URL = '/api/push/subscribe';
 const ICON_URL = '/static/icons/icon-192.png';
+const BADGE_URL = '/static/icons/badge-96.png';
 const VIBRATE = [200, 100, 200];
 
 function decodeKey(value) {
@@ -28,7 +29,7 @@ async function present(event) {
     const options = {
         body: n.body || '',
         icon: ICON_URL,
-        badge: ICON_URL,
+        badge: BADGE_URL,
         vibrate: VIBRATE,
         silent: false,
         requireInteraction: true,
