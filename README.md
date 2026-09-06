@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="internal/server/static/icons/icon.svg" alt="Isane Logo" width="200">
+  <img src=".github/assets/logo.svg" alt="Isane Logo" width="275">
   <h1>Isane</h1>
 
   <a href="https://github.com/Tanq16/isane/actions/workflows/build.yaml"><img alt="Build Workflow" src="https://github.com/Tanq16/isane/actions/workflows/build.yaml/badge.svg"></a><br><br>

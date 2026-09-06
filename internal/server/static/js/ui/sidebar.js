@@ -3,8 +3,8 @@ import { state, subscribe, notify, user } from '../store.js'
 import { plainText } from '../render.js'
 import { currentTheme, toggleTheme } from '../theme.js'
 import {
-  avatarNode, containerLabel, containerPath, conversationTitle, drawIcons, el, icon,
-  iconButton, navigate, presenceDot,
+  avatarNode, brandMark, containerLabel, containerPath, conversationTitle, drawIcons, el,
+  icon, iconButton, navigate, presenceDot,
 } from './dom.js'
 import { openPicker } from './picker.js'
 import { mayManageChannels, openChannelSettings, openCreateChannel, openUserSettings } from './settings.js'
@@ -344,7 +344,7 @@ export function mount(root) {
   panelEl = el('div', 'flex h-full w-full min-w-60 flex-col px-2 py-2')
 
   const head = el('div', 'flex h-8 shrink-0 items-center gap-1 px-2')
-  head.appendChild(el('span', 'min-w-0 flex-1 truncate font-display text-lg font-bold text-text', 'Isane'))
+  head.appendChild(brandMark('mr-auto h-7 w-7'))
   head.appendChild(iconButton('x', 'Close the channel list', closeDrawer, 'md:hidden'))
   panelEl.appendChild(head)
 
