@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: tanq16/isane:latest
     restart: unless-stopped
     ports: ["127.0.0.1:${APP_PORT:-8080}:8080"]
     extra_hosts: ["host.docker.internal:host-gateway"]

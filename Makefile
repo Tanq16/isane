@@ -1,7 +1,8 @@
-.PHONY: help assets verify-assets font build build-agent build-agent-for build-agent-all docker run clean
+.PHONY: help assets verify-assets font build build-agent build-agent-for build-agent-all docker run clean version
 
-APP_NAME   := isane
-AGENT_NAME := isane-agent
+APP_NAME    := isane
+AGENT_NAME  := isane-agent
+DOCKER_USER := tanq16
 
 VERSION ?= dev-build
 GOOS    ?= $(shell go env GOOS)
@@ -122,8 +123,8 @@ build-agent-all: ## Build every agent daemon platform binary
 	@$(MAKE) --no-print-directory build-agent-for GOOS=darwin GOARCH=amd64
 	@$(MAKE) --no-print-directory build-agent-for GOOS=darwin GOARCH=arm64
 
-docker: ## Build the container image
-	@docker build --build-arg VERSION=$(VERSION) -t $(APP_NAME):$(VERSION) -t $(APP_NAME):latest .
+docker: ## Build the container image compose runs
+	@docker build --build-arg VERSION=$(VERSION) -t $(DOCKER_USER)/$(APP_NAME):$(VERSION) -t $(DOCKER_USER)/$(APP_NAME):latest .
 
 run: assets ## Run against http://localhost:8080 with debug logging
 	@go run . serve --debug
@@ -132,3 +133,20 @@ clean: ## Remove the binaries, the vendored assets, and the compiled stylesheet
 	@rm -f $(APP_NAME) $(AGENT_NAME) $(AGENT_NAME)-* $(CSS_DIR)/app.css
 	@rm -rf $(VENDOR_DIR) dist
 	@echo "$(GREEN)Cleaned$(NC)"
+
+version: ## Print the next version, derived from the last commit message
+	@LATEST_TAG=$$(git tag --sort=-v:refname | head -n1 || echo "0.0.0"); \
+	LATEST_TAG=$${LATEST_TAG#v}; \
+	MAJOR=$$(echo "$$LATEST_TAG" | cut -d. -f1); \
+	MINOR=$$(echo "$$LATEST_TAG" | cut -d. -f2); \
+	PATCH=$$(echo "$$LATEST_TAG" | cut -d. -f3); \
+	MAJOR=$${MAJOR:-0}; MINOR=$${MINOR:-0}; PATCH=$${PATCH:-0}; \
+	COMMIT_MSG="$$(git log -1 --pretty=%B)"; \
+	if echo "$$COMMIT_MSG" | grep -q "\[major-release\]"; then \
+		MAJOR=$$((MAJOR + 1)); MINOR=0; PATCH=0; \
+	elif echo "$$COMMIT_MSG" | grep -q "\[minor-release\]"; then \
+		MINOR=$$((MINOR + 1)); PATCH=0; \
+	else \
+		PATCH=$$((PATCH + 1)); \
+	fi; \
+	echo "v$${MAJOR}.$${MINOR}.$${PATCH}"
