@@ -2,7 +2,7 @@
   <img src=".github/assets/logo.svg" alt="Isane Logo" width="275">
   <h1>Isane</h1>
 
-  <a href="https://github.com/Tanq16/isane/actions/workflows/build.yaml"><img alt="Build Workflow" src="https://github.com/Tanq16/isane/actions/workflows/build.yaml/badge.svg"></a><br><br>
+  <a href="https://github.com/Tanq16/isane/actions/workflows/release.yaml"><img alt="Release Workflow" src="https://github.com/Tanq16/isane/actions/workflows/release.yaml/badge.svg"></a>&nbsp;<a href="https://github.com/Tanq16/isane/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/Tanq16/isane"></a>&nbsp;<a href="https://hub.docker.com/r/tanq16/isane"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/tanq16/isane"></a><br><br>
   <a href="#features">Features</a> &bull; <a href="#install">Install</a> &bull; <a href="#usage">Usage</a> &bull; <a href="#notes">Notes</a>
 </div>
 
@@ -26,7 +26,7 @@ Isane is a self-hosted team chat, voice, video, and screen-share platform with A
 
 ### Docker
 
-There is no published image yet, so the compose stack builds the application from this repository. It runs five containers: the application, Postgres, LiveKit, LiveKit egress, and Redis.
+The server is published as `tanq16/isane` on Docker Hub, for `linux/amd64` and `linux/arm64`. There is no one-container run command, because a deployment is five containers: the application, Postgres, LiveKit, LiveKit egress, and Redis. The compose file in this repository wires them together and pulls the published image.
 
 ```bash
 git clone https://github.com/Tanq16/isane.git && cd isane
@@ -38,7 +38,7 @@ cp egress.example.yaml egress.yaml
 Fill in the secrets and create the data directories, then:
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 The application listens on `127.0.0.1:8080` and expects a reverse proxy in front of it holding a trusted certificate, because Web Push and service workers do not work without one. `Caddyfile.example` is a working configuration. The container runs as UID and GID 10001, so `./data/media` must be owned by that user before the first start.
@@ -55,17 +55,19 @@ make build
 
 The build vendors the pinned frontend assets into `internal/server/static/vendor/`, verifies each download against the digest its publisher signed, compiles the Tailwind stylesheet, and produces a static `./isane` with the whole frontend embedded. No page in this application ever makes an external request, so every library and font is fetched at build time and compiled into the binary.
 
+`make docker` builds the same tree into `tanq16/isane:latest`, which is the tag `compose.yaml` runs, so a stack can be brought up from source without pulling.
+
 ## Usage
 
 The first start against an empty database prints a one-time invite URL to stdout and to the log. Opening it creates the first account with admin rights, and everything after that happens in the browser.
 
 There is no open signup and no email delivery. An admin creates an invite from `/admin`, which displays its URL once, and hands it over out of band. Password resets go the same way, which is the correct trade for a team of twenty.
 
-**Agents.** An admin reserves a handle from `/admin`, which displays a claim token once. The owner's daemon registers with that token from their own machine, and the agent moves to serving. Mentioning `@handle` dispatches a job carrying the triggering message, and the answer comes back as an ordinary message in the channel. An agent sees only the message that mentioned it unless it registered with history allowed. `make build-agent` produces `isane-agent`, the reference daemon the owner runs, and the protocol it speaks is in [docs/agent-daemon.md](docs/agent-daemon.md).
+**Agents.** An admin reserves a handle from `/admin`, which displays a claim token once. The owner's daemon registers with that token from their own machine, and the agent moves to serving. Mentioning `@handle` dispatches a job carrying the triggering message, and the answer comes back as an ordinary message in the channel. An agent sees only the message that mentioned it unless it registered with history allowed. The reference daemon is `isane-agent`, published on the [releases page](https://github.com/Tanq16/isane/releases) for Linux and macOS on amd64 and arm64, or built with `make build-agent`. The protocol it speaks is in [docs/agent-daemon.md](docs/agent-daemon.md).
 
 **Calls.** There is one call type. Turning a camera off already stops the capture track and publishes no video, so an audio call costs no video bandwidth without being modelled as a separate thing.
 
-**Local development.** `make run` serves `http://localhost:8080` with no certificate at all. `localhost` is a secure context by definition, so service workers and push subscriptions work there with no TLS setup. They do not work against a self-signed certificate on an IP address, which is why `server.insecure` is a development affordance and never a deployment mode.
+**Local development.** `make run` serves `http://localhost:8080` with no certificate at all, and needs three things in place first: a reachable Postgres, a `config.yaml` carrying its connection string in `database.url`, and a `media.root` this user can write, since the `/media` default is a path inside the container. `localhost` is a secure context by definition, so service workers and push subscriptions work there with no TLS setup. They do not work against a self-signed certificate on an IP address, which is why `server.insecure` is a development affordance and never a deployment mode.
 
 Configuration lives in `config.yaml`, and every scalar key may be overridden by an environment variable named by uppercasing the YAML path and joining the segments with underscores, prefixed with `ISANE_`, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. `config.example.yaml` carries every key and [docs/deployment.md](docs/deployment.md) documents the defaults.
 

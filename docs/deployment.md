@@ -94,14 +94,14 @@ The first output is `push.vapid_private_key` and the second is `push.vapid_publi
 
 **3. Fill in the config files.**
 
-`.env` holds the Postgres password, which compose reads into both the database and the application's `ISANE_DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
+Create `.env` beside `compose.yaml`. It holds the Postgres password, which compose reads into both the database and the application's `ISANE_DATABASE_URL`, and this host's public IP, which compose passes to LiveKit as `NODE_IP`:
 
 ```
 POSTGRES_PASSWORD=<the first generated secret>
 PUBLIC_IP=<the address your domain resolves to>
 ```
 
-`APP_PORT` is the one other variable compose reads, defaulting to `8080`. Set it when something else on the host already holds that port; the container still listens on 8080 and only the loopback publish moves, so `Caddyfile` is the only other file that changes.
+`APP_PORT` is the one other variable compose reads, defaulting to `8080`. Set it when something else on the host already holds that port; the container still listens on 8080 and only the loopback publish moves. Two other files follow it: the `reverse_proxy` address in `Caddyfile`, and `webhook.urls` in `livekit.yaml`, because LiveKit runs on the host network and reaches the application through that published loopback port. A webhook left pointing at the old port costs participant join and leave tracking, call end, and recording finalization, while signaling and media keep working, so the stack looks healthy until somebody leaves a call.
 
 `PUBLIC_IP` is the address LiveKit advertises to clients as its ICE and TURN candidate, so it must be the public address your domain resolves to rather than the host's private interface. Compose refuses to start without it. Setting it is also what keeps the deployment off third-party infrastructure: LiveKit's `use_external_ip` discovers the address by querying `global.stun.twilio.com` and `stun.l.google.com`, and supplying the address directly skips that lookup. `NODE_IP` overrides `rtc.node_ip` in `livekit.yaml`, so either place works and the environment wins.
 
@@ -128,14 +128,24 @@ sudo chown 10001:10001 config.yaml && sudo chmod 600 config.yaml
 **5. Start the stack.**
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-**6. Point Caddy at it.**
+**6. Trust the proxy.**
+
+The application runs in a container and Caddy runs on the host, so the peer address of every request is the compose bridge gateway. Until `server.trusted_proxies` names that bridge, every session row and every audit event records the gateway instead of the client. The subnet only exists once the stack has started, which is why this follows step 5:
+
+```bash
+docker network inspect isane_default -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'
+```
+
+Put that CIDR in `server.trusted_proxies` as a single-entry list, then `sudo chown 10001:10001 config.yaml && sudo chmod 600 config.yaml && docker compose restart app`. Leaving the list empty is safe rather than wrong, since an empty list ignores `X-Forwarded-For` entirely, but the addresses it records are useless.
+
+**7. Point Caddy at it.**
 
 Copy `Caddyfile.example` into the host Caddy configuration, replace `chat.example.com` with the real hostname, and reload Caddy. Caddy v2 proxies WebSocket upgrades through `reverse_proxy` with no extra directive, so both the application socket at `/ws` and LiveKit signaling under `/livekit` traverse it.
 
-**7. Claim the first account.**
+**8. Claim the first account.**
 
 ```bash
 docker compose logs app | grep invite
