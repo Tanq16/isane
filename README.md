@@ -67,7 +67,7 @@ There is no open signup and no email delivery. An admin creates an invite from `
 
 **Calls.** There is one call type. Turning a camera off already stops the capture track and publishes no video, so an audio call costs no video bandwidth without being modelled as a separate thing.
 
-**Local development.** `make run` serves `http://localhost:8080` with no certificate at all. `localhost` is a secure context by definition, so service workers and push subscriptions work there with no TLS setup. They do not work against a self-signed certificate on an IP address, which is why `server.insecure` is a development affordance and never a deployment mode.
+**Local development.** `make run` serves `http://localhost:8080` with no certificate at all, and needs three things in place first: a reachable Postgres, a `config.yaml` carrying its connection string in `database.url`, and a `media.root` this user can write, since the `/media` default is a path inside the container. `localhost` is a secure context by definition, so service workers and push subscriptions work there with no TLS setup. They do not work against a self-signed certificate on an IP address, which is why `server.insecure` is a development affordance and never a deployment mode.
 
 Configuration lives in `config.yaml`, and every scalar key may be overridden by an environment variable named by uppercasing the YAML path and joining the segments with underscores, prefixed with `ISANE_`, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. `config.example.yaml` carries every key and [docs/deployment.md](docs/deployment.md) documents the defaults.
 
