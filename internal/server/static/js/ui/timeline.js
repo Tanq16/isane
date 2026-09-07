@@ -466,6 +466,7 @@ function jumpTo(seq) {
   navigate(path + '?m=' + seq)
   if (listEl.querySelector('[data-seq="' + seq + '"]')) {
     highlight(seq)
+    markOnOpen(cid, seq)
     return
   }
   mountedContainer = null
@@ -492,6 +493,7 @@ function markOnOpen(cid, upTo) {
   const c = state.containers.get(cid)
   const last = c ? (c.last_seq || 0) : 0
   const seq = upTo && upTo < last ? upTo : last
+  if (seq <= sentSeq) return
   markRead(cid, seq)
   if (seq < last) return
   clearTimeout(dividerTimer)
