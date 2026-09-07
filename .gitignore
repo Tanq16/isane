@@ -1,6 +1,7 @@
 /isane
 /isane-agent
 /isane-agent-*
+/.env/
 /data/
 /config.yaml
 /livekit.yaml

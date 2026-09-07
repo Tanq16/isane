@@ -31,7 +31,7 @@ One VPS running Docker, with Caddy on the host as a system binary. Caddy termina
 
 LiveKit and egress run on the host network, which is what LiveKit's own documentation asks for. Publishing three hundred UDP ports instead spawns one `docker-proxy` process per port unless the Docker daemon is reconfigured host-wide, and that reconfiguration restarts every other container on the machine.
 
-The consequence is that LiveKit's HTTP API binds `0.0.0.0:7880` whether or not you want it to, exactly as it does under Element's own deployment, and the firewall is the only thing keeping it private. Caddy reaches it over loopback.
+The consequence is that LiveKit's HTTP API binds `0.0.0.0:7880` whether or not you want it to, and the firewall is the only thing keeping it private. Caddy reaches it over loopback.
 
 Every other container port binds to `127.0.0.1`, except LiveKit's media, ICE/TCP, and TURN ports, which clients must reach directly.
 
