@@ -353,6 +353,15 @@ function render() {
   reconcile(list)
   if (stick) scrollEl.scrollTop = scrollEl.scrollHeight
   if (jumpTarget) highlight(jumpTarget)
+  if (!readTimer && newestSeq(list) > seenSeq) scheduleRead()
+}
+
+function newestSeq(list) {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const view = list[i]
+    if (view.kind === 'message' && view.m.seq) return view.m.seq
+  }
+  return 0
 }
 
 function highlight(seq) {
@@ -381,6 +390,7 @@ async function openContainer(cid) {
     }
     p.loading = false
     notify('messages')
+    markOnOpen(cid, jump)
     return
   }
 
@@ -456,6 +466,7 @@ function jumpTo(seq) {
   navigate(path + '?m=' + seq)
   if (listEl.querySelector('[data-seq="' + seq + '"]')) {
     highlight(seq)
+    markOnOpen(cid, seq)
     return
   }
   mountedContainer = null
@@ -477,10 +488,14 @@ function autoRead() {
   return !state.me || state.me.mark_read_on_open !== false
 }
 
-function markOnOpen(cid) {
+function markOnOpen(cid, upTo) {
   if (!autoRead() || dividerSeq < 0 || cid !== state.current.containerId) return
   const c = state.containers.get(cid)
-  markRead(cid, c ? (c.last_seq || 0) : 0)
+  const last = c ? (c.last_seq || 0) : 0
+  const seq = upTo && upTo < last ? upTo : last
+  if (seq <= sentSeq) return
+  markRead(cid, seq)
+  if (seq < last) return
   clearTimeout(dividerTimer)
   dividerTimer = setTimeout(() => {
     dividerTimer = 0
@@ -490,11 +505,26 @@ function markOnOpen(cid) {
   }, DIVIDER_LINGER)
 }
 
+function scanVisible() {
+  const box = scrollEl.getBoundingClientRect()
+  for (const node of nodes.values()) {
+    const seq = Number(node.dataset.seq) || 0
+    if (seq <= seenSeq) continue
+    const rect = node.getBoundingClientRect()
+    if (!rect.height) continue
+    const shown = Math.min(rect.bottom, box.bottom) - Math.max(rect.top, box.top)
+    if (shown / rect.height >= 0.5) seenSeq = seq
+  }
+}
+
 function flushRead() {
+  readTimer = 0
   if (!autoRead()) return
   const cid = state.current.containerId
-  if (!cid || seenSeq <= sentSeq) return
+  if (!cid) return
   if (document.visibilityState !== 'visible') return
+  scanVisible()
+  if (seenSeq <= sentSeq) return
   markRead(cid, seenSeq)
 }
 
