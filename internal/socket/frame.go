@@ -11,15 +11,14 @@ import (
 )
 
 const (
-	TypeHello      = "hello"
-	TypeSend       = "send"
-	TypeEdit       = "edit"
-	TypeDelete     = "delete"
-	TypeRead       = "read"
-	TypeTyping     = "typing"
-	TypeThreadSub  = "thread_sub"
-	TypeVisibility = "visibility"
-	TypePing       = "ping"
+	TypeHello     = "hello"
+	TypeSend      = "send"
+	TypeEdit      = "edit"
+	TypeDelete    = "delete"
+	TypeRead      = "read"
+	TypeTyping    = "typing"
+	TypeThreadSub = "thread_sub"
+	TypePing      = "ping"
 
 	TypeReady           = "ready"
 	TypeMessage         = "message"
@@ -66,13 +65,7 @@ func NewFrame(t string, d any) Frame {
 }
 
 type HelloPayload struct {
-	Cursors      map[uuid.UUID]int64 `json:"cursors"`
-	PushEndpoint string              `json:"push_endpoint,omitempty"`
-	Visible      bool                `json:"visible"`
-}
-
-type VisibilityPayload struct {
-	Visible bool `json:"visible"`
+	Cursors map[uuid.UUID]int64 `json:"cursors"`
 }
 
 type SendPayload struct {

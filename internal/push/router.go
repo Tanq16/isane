@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 	"uuid"
 
 	"github.com/rs/zerolog"
@@ -15,30 +14,21 @@ import (
 	"github.com/tanq16/isane/internal/store"
 )
 
-const (
-	socketWindow = 60 * time.Second
-	sendWorkers  = 8
-)
-
-type Presence interface {
-	EndpointVisible(userID uuid.UUID, endpoint string, within time.Duration) bool
-}
+const sendWorkers = 8
 
 type Router struct {
-	cfg      *config.Config
-	db       *store.DB
-	presence Presence
-	log      zerolog.Logger
-	client   *vapidClient
+	cfg    *config.Config
+	db     *store.DB
+	log    zerolog.Logger
+	client *vapidClient
 }
 
-func New(cfg *config.Config, db *store.DB, presence Presence, log zerolog.Logger) *Router {
+func New(cfg *config.Config, db *store.DB, log zerolog.Logger) *Router {
 	return &Router{
-		cfg:      cfg,
-		db:       db,
-		presence: presence,
-		log:      log,
-		client:   newVAPIDClient(),
+		cfg:    cfg,
+		db:     db,
+		log:    log,
+		client: newVAPIDClient(),
 	}
 }
 
@@ -167,26 +157,19 @@ func (r *Router) targets(ctx context.Context, userID uuid.UUID, m store.Message,
 	if err != nil {
 		return nil, fmt.Errorf("list push subscriptions: %w", err)
 	}
-	hidden := make([]store.PushSubscription, 0, len(subs))
-	for _, s := range subs {
-		if r.presence.EndpointVisible(userID, s.Endpoint, socketWindow) {
-			continue
-		}
-		hidden = append(hidden, s)
-	}
-	if len(hidden) == 0 {
+	if len(subs) == 0 {
 		return nil, nil
 	}
-	badge, err := r.db.TotalMentions(ctx, userID)
+	badge, err := r.db.UnreadTotal(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("count unread mentions: %w", err)
+		return nil, fmt.Errorf("count unread total: %w", err)
 	}
 	body, err := json.Marshal(buildPayload(r.cfg.Server.PublicURL, m, author, c, badge))
 	if err != nil {
 		return nil, fmt.Errorf("encode push payload: %w", err)
 	}
-	out := make([]target, 0, len(hidden))
-	for _, s := range hidden {
+	out := make([]target, 0, len(subs))
+	for _, s := range subs {
 		out = append(out, target{sub: s, body: bytes.Clone(body)})
 	}
 	return out, nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"sync"
-	"sync/atomic"
 	"time"
 	"uuid"
 
@@ -30,10 +29,6 @@ type Conn struct {
 	done    chan struct{}
 	close   func()
 	ctx     context.Context
-
-	lastSeen atomic.Int64
-	endpoint atomic.Pointer[string]
-	visible  atomic.Bool
 }
 
 func newConn(h *Hub, ws *websocket.Conn, u store.User, sessionID uuid.UUID) *Conn {
@@ -51,21 +46,12 @@ func newConn(h *Hub, ws *websocket.Conn, u store.User, sessionID uuid.UUID) *Con
 		close(c.done)
 		cancel()
 	})
-	c.visible.Store(true)
-	c.touch()
 	return c
 }
 
 func (c *Conn) UserID() uuid.UUID { return c.user.ID }
 
 func (c *Conn) User() store.User { return c.user }
-
-func (c *Conn) PushEndpoint() string {
-	if s := c.endpoint.Load(); s != nil {
-		return *s
-	}
-	return ""
-}
 
 func (c *Conn) Send(f Frame) {
 	select {
@@ -76,24 +62,11 @@ func (c *Conn) Send(f Frame) {
 	}
 }
 
-func (c *Conn) Visible() bool { return c.visible.Load() }
-
-func (c *Conn) setPushEndpoint(endpoint string) { c.endpoint.Store(&endpoint) }
-
-func (c *Conn) setVisible(visible bool) { c.visible.Store(visible) }
-
-func (c *Conn) touch() { c.lastSeen.Store(time.Now().UnixNano()) }
-
-func (c *Conn) seenWithin(d time.Duration) bool {
-	return time.Since(time.Unix(0, c.lastSeen.Load())) <= d
-}
-
 func (c *Conn) readPump() {
 	defer c.close()
 	c.ws.SetReadLimit(maxFrameBytes)
 	_ = c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error {
-		c.touch()
 		return c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	})
 	for {
@@ -102,7 +75,6 @@ func (c *Conn) readPump() {
 			c.hub.log.Debug().Err(err).Str("user", c.user.Handle).Msg("socket closed")
 			return
 		}
-		c.touch()
 		_ = c.ws.SetReadDeadline(time.Now().Add(pongWait))
 		var f Frame
 		if err := json.Unmarshal(data, &f); err != nil {

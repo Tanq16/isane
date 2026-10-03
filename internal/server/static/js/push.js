@@ -1,7 +1,5 @@
 import { get, post } from './api.js'
 
-const endpointListeners = new Set()
-
 let registration = null
 let endpoint = null
 let vapidKey = null
@@ -29,11 +27,6 @@ export function currentRegistration() {
   return registration
 }
 
-export function onEndpoint(fn) {
-  endpointListeners.add(fn)
-  return () => endpointListeners.delete(fn)
-}
-
 function decodeKey(base64) {
   const padded = String(base64).replace(/-/g, '+').replace(/_/g, '/')
   const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4))
@@ -56,13 +49,6 @@ async function upsert(subscription) {
     endpoint,
     keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
   })
-  for (const fn of Array.from(endpointListeners)) {
-    try {
-      fn(endpoint)
-    } catch (err) {
-      console.error('push endpoint listener failed', err)
-    }
-  }
 }
 
 async function ensureSubscription() {
