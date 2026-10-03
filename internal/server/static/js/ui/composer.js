@@ -2,7 +2,7 @@ import * as api from '../api.js'
 import * as socket from '../socket.js'
 import { state, subscribe, notify, user, mergeMessage } from '../store.js'
 import { renderMarkdown } from '../render.js'
-import { drawIcons, el, icon } from './dom.js'
+import { drawIcons, el, icon, touchPrimary } from './dom.js'
 
 const TYPING_INTERVAL = 3000
 const MENTION_PATTERN = /(^|\s)@([a-z0-9_-]*)$/i
@@ -401,10 +401,10 @@ export function createComposer(options) {
     mentionEl.setAttribute('aria-label', 'Mention suggestions')
     fieldEl.appendChild(mentionEl)
 
-    replyEl = el('div', 'hidden h-9 items-center gap-2 rounded-t-xl bg-surface1 px-3 text-xs')
+    replyEl = el('div', 'hidden h-9 flex items-center gap-2 rounded-t-xl bg-surface1 px-3 text-xs')
     fieldEl.appendChild(replyEl)
 
-    chipsEl = el('div', 'hidden flex-wrap gap-2 px-3 pt-3')
+    chipsEl = el('div', 'hidden flex flex-wrap gap-2 px-3 pt-3')
     fieldEl.appendChild(chipsEl)
 
     const bar = el('div', 'flex items-end gap-1 px-2 py-1.5')
@@ -428,6 +428,7 @@ export function createComposer(options) {
 
     textarea = el('textarea', 'max-h-80 min-h-9 flex-1 resize-none bg-transparent py-2 text-message pointer-coarse:text-[1rem] text-text placeholder:text-overlay1 focus:outline-none')
     textarea.rows = 1
+    textarea.enterKeyHint = touchPrimary() ? 'enter' : 'send'
     textarea.setAttribute('aria-label', options.fieldLabel || 'Write a message')
     bar.appendChild(textarea)
 
@@ -442,8 +443,9 @@ export function createComposer(options) {
 
     sendButton = el('button', 'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mauve transition-colors hover:bg-surface1 disabled:text-overlay0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
     sendButton.type = 'button'
-    sendButton.title = 'Send. Shift and Enter adds a line'
-    sendButton.setAttribute('aria-label', 'Send. Shift and Enter adds a line')
+    const sendLabel = touchPrimary() ? 'Send' : 'Send. Shift and Enter adds a line'
+    sendButton.title = sendLabel
+    sendButton.setAttribute('aria-label', sendLabel)
     sendButton.disabled = true
     sendButton.appendChild(icon('send-horizontal', 'h-5 w-5'))
     sendButton.addEventListener('click', submit)
@@ -497,7 +499,7 @@ export function createComposer(options) {
           return
         }
       }
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter' && !e.shiftKey && !touchPrimary()) {
         e.preventDefault()
         submit()
         return

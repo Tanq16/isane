@@ -2,6 +2,7 @@ const SOUND_URL = '/static/vendor/notification.mp3'
 const MUTED_KEY = 'isane:sound-muted'
 
 let element = null
+let lastError = ''
 
 export function muted() {
   try {
@@ -18,6 +19,10 @@ export function setMuted(value) {
   } catch {}
 }
 
+export function soundError() {
+  return lastError
+}
+
 export function play() {
   if (muted()) return
   if (!element) {
@@ -26,5 +31,11 @@ export function play() {
   }
   element.currentTime = 0
   const started = element.play()
-  if (started && typeof started.catch === 'function') started.catch(() => {})
+  if (started && typeof started.then === 'function') {
+    started.then(() => {
+      lastError = ''
+    }, (err) => {
+      lastError = (err && err.name) || 'failed'
+    })
+  }
 }

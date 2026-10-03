@@ -1,6 +1,5 @@
 import { get } from './api.js'
-import { state, notify, upsertContainer, upsertMessage, findMessage, loadMessages } from './store.js'
-import { currentEndpoint, onEndpoint } from './push.js'
+import { state, notify, upsertContainer, upsertMessage, findMessage, loadMessages, containerUnread } from './store.js'
 import { play } from './sound.js'
 
 const RECONNECT_MIN = 1000
@@ -12,6 +11,7 @@ const OUTBOX_LIMIT = 200
 const BACKFILL_PAGES = 40
 
 const listeners = new Map()
+const replayedThrough = new Map()
 
 let ws = null
 let started = false
@@ -21,7 +21,6 @@ let pingTimer = null
 let offlineTimer = null
 let awaitingPong = false
 let outbox = []
-let helloEndpoint = null
 let hiddenAt = 0
 
 export function isLive() {
@@ -112,14 +111,8 @@ function hello() {
   for (const [id, container] of state.containers) {
     if (typeof container.last_seq === 'number') cursors[id] = container.last_seq
   }
-  helloEndpoint = currentEndpoint()
-  write('hello', { cursors, push_endpoint: helloEndpoint, visible: pageVisible() })
+  write('hello', { cursors })
 }
-
-onEndpoint((endpoint) => {
-  if (!isLive() || endpoint === helloEndpoint) return
-  hello()
-})
 
 function drain() {
   const queue = outbox
@@ -189,7 +182,6 @@ function revive() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (isLive()) write('visibility', { visible: pageVisible() })
   if (!pageVisible()) {
     hiddenAt = Date.now()
     return
@@ -294,7 +286,10 @@ function onReady(d) {
     for (const u of d.users) state.users.set(u.id, Object.assign({}, state.users.get(u.id) || {}, u))
   }
   if (Array.isArray(d.containers)) {
-    for (const c of d.containers) upsertContainer(c)
+    for (const c of d.containers) {
+      replayedThrough.set(c.id, c.last_seq ?? 0)
+      upsertContainer(c)
+    }
   }
   if (Array.isArray(d.presence)) {
     state.presence = new Set(d.presence)
@@ -353,13 +348,17 @@ async function backfill(gaps) {
   }
 }
 
+function wasReplayed(m) {
+  return (m.seq ?? 0) <= (replayedThrough.get(m.container_id) ?? 0)
+}
+
 function onMessage(m) {
   const fresh = upsertMessage(m)
   const container = state.containers.get(m.container_id)
   if (container) {
     if ((m.seq ?? 0) > (container.last_seq ?? 0)) container.last_seq = m.seq
     const mine = state.me && m.author_id === state.me.id
-    if (fresh && !mine && !m.thread_root_id && state.current.containerId !== m.container_id) {
+    if (fresh && !mine && !wasReplayed(m) && !m.thread_root_id && state.current.containerId !== m.container_id) {
       container.unread = (container.unread ?? 0) + 1
       if (state.me && Array.isArray(m.mentions) && m.mentions.includes(state.me.id)) {
         container.mentions = (container.mentions ?? 0) + 1
@@ -397,6 +396,7 @@ function shouldAnnounce(container, m) {
 function announce(m, container) {
   if (!container) return
   if (state.me && m.author_id === state.me.id) return
+  if (wasReplayed(m)) return
   if (pageVisible() && state.current.containerId === m.container_id) return
   if (!shouldAnnounce(container, m)) return
   play()
@@ -422,7 +422,7 @@ function onRead(d) {
   const container = state.containers.get(d.container_id)
   if (!container) return
   container.last_read_seq = d.seq ?? 0
-  container.unread = Math.max(0, (container.last_seq ?? 0) - (d.seq ?? 0))
+  container.unread = containerUnread(container, d.seq ?? 0)
   if ((d.seq ?? 0) >= (container.last_seq ?? 0)) container.mentions = 0
   notify('containers')
 }

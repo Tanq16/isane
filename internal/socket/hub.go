@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"slices"
 	"sync"
-	"time"
 	"uuid"
 
 	"github.com/gorilla/websocket"
@@ -132,20 +131,6 @@ func (h *Hub) OnlineUsers() []uuid.UUID {
 	return out
 }
 
-func (h *Hub) EndpointVisible(userID uuid.UUID, endpoint string, within time.Duration) bool {
-	if endpoint == "" {
-		return false
-	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for c := range h.conns[userID] {
-		if c.PushEndpoint() == endpoint && c.seenWithin(within) && c.Visible() {
-			return true
-		}
-	}
-	return false
-}
-
 func (h *Hub) CloseSession(userID, sessionID uuid.UUID) {
 	h.closeUserConns(userID, func(id uuid.UUID) bool { return id == sessionID })
 }
@@ -242,17 +227,7 @@ func (h *Hub) dispatch(c *Conn, f Frame) {
 	var err error
 	switch f.T {
 	case TypeHello:
-		var p HelloPayload
-		if err = decode(f, &p); err == nil {
-			c.setPushEndpoint(p.PushEndpoint)
-			c.setVisible(p.Visible)
-			err = handler.Hello(ctx, c, p)
-		}
-	case TypeVisibility:
-		var p VisibilityPayload
-		if err = decode(f, &p); err == nil {
-			c.setVisible(p.Visible)
-		}
+		err = handle(ctx, c, f, handler.Hello)
 	case TypeSend:
 		err = handle(ctx, c, f, handler.Send)
 	case TypeEdit:

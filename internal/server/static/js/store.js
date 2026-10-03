@@ -57,6 +57,18 @@ export function unreadTotal() {
   return total
 }
 
+export function containerUnread(c, seq) {
+  const last = c.last_seq ?? 0
+  if (seq >= last) return 0
+  const list = state.messages.get(c.id) ?? []
+  if (!list.length || (list[0].seq ?? 0) > seq) return Math.max(0, last - seq)
+  let unread = 0
+  for (const m of list) {
+    if ((m.seq ?? 0) > seq && !m.thread_root_id && !m.deleted_at) unread++
+  }
+  return unread
+}
+
 export function user(id) {
   const found = id ? state.users.get(id) : null
   if (found) return found

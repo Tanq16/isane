@@ -1,7 +1,7 @@
 import * as api from '../api.js'
 import { state, notify, user, upsertContainer } from '../store.js'
 import { currentEndpoint, enablePush, pushSupported } from '../push.js'
-import { muted, setMuted } from '../sound.js'
+import { muted, setMuted, soundError } from '../sound.js'
 import {
   avatarNode, containerPath, dateLabel, drawIcons, el, field, icon,
   navigate, presenceDot, textButton,
@@ -448,6 +448,11 @@ function toggleRow(body, label, isOn, onChange) {
 
 function soundRow(body) {
   toggleRow(body, 'Play a sound for a new message', () => !muted(), (next) => setMuted(!next))
+  const failure = soundError()
+  if (failure) {
+    body.appendChild(el('p', 'my-2 text-xs text-red',
+      'The last sound did not play. This browser reported ' + failure + '.'))
+  }
 }
 
 function readingSection(body) {

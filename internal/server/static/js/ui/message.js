@@ -2,7 +2,7 @@ import * as socket from '../socket.js'
 import { state, user, findMessage } from '../store.js'
 import { renderInto, plainText } from '../render.js'
 import { recordingPlayer } from './audio.js'
-import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode } from './dom.js'
+import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode, touchPrimary } from './dom.js'
 import { confirmModal } from './modal.js'
 
 export const GROUP_WINDOW = 7 * 60 * 1000
@@ -116,6 +116,7 @@ function editorNode(m, ctx) {
   const box = el('textarea', 'w-full resize-y rounded-xl bg-surface0 px-3 py-2 font-mono text-[0.8125rem] pointer-coarse:text-[1rem] text-text focus:outline-none focus:ring-1 focus:ring-mauve')
   box.value = m.body || ''
   box.rows = Math.min(12, (m.body || '').split('\n').length + 1)
+  box.enterKeyHint = touchPrimary() ? 'enter' : 'done'
   box.setAttribute('aria-label', 'Edit the message')
 
   const commit = () => {
@@ -139,7 +140,7 @@ function editorNode(m, ctx) {
       e.preventDefault()
       abandon()
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !touchPrimary()) {
       e.preventDefault()
       commit()
     }

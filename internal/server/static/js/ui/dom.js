@@ -6,6 +6,7 @@ const AVATAR_HUES = [
 ]
 const ICON_SCRIPT = '/static/vendor/lucide.min.js'
 const BRAND_MARK = '/static/icons/icon.svg'
+const coarsePointer = window.matchMedia('(pointer: coarse)')
 
 const pendingIcons = new Set()
 
@@ -16,6 +17,10 @@ export function el(tag, cls, text) {
   if (cls) node.className = cls
   if (text != null) node.textContent = text
   return node
+}
+
+export function touchPrimary() {
+  return coarsePointer.matches
 }
 
 export function brandMark(cls) {

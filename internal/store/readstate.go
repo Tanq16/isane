@@ -51,19 +51,34 @@ func (db *DB) UnreadCounts(ctx context.Context, userID, containerID uuid.UUID) (
 	return unread, mentions, nil
 }
 
-func (db *DB) TotalMentions(ctx context.Context, userID uuid.UUID) (int64, error) {
+func (db *DB) UnreadTotal(ctx context.Context, userID uuid.UUID) (int64, error) {
 	var n int64
-	err := db.Pool.QueryRow(ctx, `select count(*)
-		from mentions m
-		join messages msg on msg.id = m.message_id
-		join containers c on c.id = msg.container_id
+	err := db.Pool.QueryRow(ctx, `select coalesce(sum(case
+			when mc.n > 0 then mc.n
+			when c.kind = 'conversation' then uc.n
+			else 0 end), 0)::bigint
+		from containers c
 		left join read_markers r on r.container_id = c.id and r.user_id = $1
-		where m.user_id = $1
-		  and msg.deleted_at is null
-		  and msg.seq > coalesce(r.last_read_seq, 0)
-		  and `+containerVisibleSQL, userID).Scan(&n)
+		left join lateral (
+			select count(*) as n
+			from mentions mn
+			join messages msg on msg.id = mn.message_id
+			where mn.user_id = $1
+			  and msg.container_id = c.id
+			  and msg.seq > coalesce(r.last_read_seq, 0)
+			  and msg.deleted_at is null
+		) mc on true
+		left join lateral (
+			select count(*) as n
+			from messages m
+			where m.container_id = c.id
+			  and m.thread_root_id is null
+			  and m.seq > coalesce(r.last_read_seq, 0)
+			  and m.deleted_at is null
+		) uc on true
+		where `+containerVisibleSQL, userID).Scan(&n)
 	if err != nil {
-		return 0, fmt.Errorf("count mentions: %w", mapErr(err))
+		return 0, fmt.Errorf("count unread total: %w", mapErr(err))
 	}
 	return n, nil
 }

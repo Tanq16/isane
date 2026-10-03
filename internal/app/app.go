@@ -60,7 +60,7 @@ func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logg
 	a := &App{
 		DB:        db,
 		Hub:       hub,
-		Push:      push.New(cfg, db, hub, log),
+		Push:      push.New(cfg, db, log),
 		Calls:     calls.New(cfg, log),
 		Media:     mediaSvc,
 		Agents:    agents.New(cfg, db, log),
