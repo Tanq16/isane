@@ -1,5 +1,5 @@
 import * as socket from '../socket.js'
-import { state, subscribe, notify, user, loadMessages } from '../store.js'
+import { state, subscribe, notify, user, loadMessages, containerUnread } from '../store.js'
 import {
   containerLabel, dayLabel, drawIcons, el, emptyState, icon, iconButton, navigate,
 } from './dom.js'
@@ -10,6 +10,8 @@ import { openChannelSettings } from './settings.js'
 const PAGE = 50
 const NEAR_TOP = 300
 const NEAR_BOTTOM = 120
+const STICK_SLACK = 16
+const GESTURE_LINGER = 400
 const DIVIDER_LINGER = 4500
 
 let scrollEl = null
@@ -28,6 +30,8 @@ let headerSignature = ''
 let observer = null
 let frame = 0
 let atBottom = true
+let gesturing = false
+let gestureTimer = 0
 let readTimer = 0
 let seenSeq = 0
 let sentSeq = 0
@@ -68,6 +72,25 @@ function scheduleRender() {
     frame = 0
     render()
   })
+}
+
+function pinToBottom() {
+  if (gesturing) return
+  const target = scrollEl.scrollHeight - scrollEl.clientHeight
+  if (Math.abs(scrollEl.scrollTop - target) <= 1) return
+  scrollEl.scrollTop = target
+}
+
+function holdGesture() {
+  gesturing = true
+  clearTimeout(gestureTimer)
+  gestureTimer = setTimeout(releaseGesture, GESTURE_LINGER)
+}
+
+function releaseGesture() {
+  clearTimeout(gestureTimer)
+  gestureTimer = 0
+  gesturing = false
 }
 
 function currentContainer() {
@@ -321,6 +344,11 @@ function syncJumpFromUrl() {
   if (seq) jumpTo(seq)
 }
 
+function tailKey() {
+  const last = listEl.lastElementChild
+  return last ? last.dataset.key : ''
+}
+
 function render() {
   const cid = state.current.containerId
   if (cid !== mountedContainer) {
@@ -330,6 +358,7 @@ function render() {
     editing.clear()
     listEl.replaceChildren()
     atBottom = true
+    releaseGesture()
     seenSeq = 0
     const c = cid ? state.containers.get(cid) : null
     sentSeq = c ? (c.last_read_seq || 0) : 0
@@ -350,8 +379,9 @@ function render() {
   emptyEl.textContent = cid ? 'No messages yet. Say something.' : 'Pick a channel to start reading.'
   emptyEl.classList.toggle('hidden', hasRows)
   const stick = atBottom
+  const previousTail = tailKey()
   reconcile(list)
-  if (stick) scrollEl.scrollTop = scrollEl.scrollHeight
+  if (stick && tailKey() !== previousTail) pinToBottom()
   if (jumpTarget) highlight(jumpTarget)
   if (!readTimer && newestSeq(list) > seenSeq) scheduleRead()
 }
@@ -396,7 +426,7 @@ async function openContainer(cid) {
 
   if (p.loaded) {
     render()
-    scrollEl.scrollTop = scrollEl.scrollHeight
+    pinToBottom()
     markOnOpen(cid)
     return
   }
@@ -412,7 +442,7 @@ async function openContainer(cid) {
   p.loading = false
   atBottom = true
   render()
-  scrollEl.scrollTop = scrollEl.scrollHeight
+  pinToBottom()
   markOnOpen(cid)
 }
 
@@ -479,8 +509,8 @@ function markRead(cid, seq) {
   const c = state.containers.get(cid)
   if (!c) return
   c.last_read_seq = seq
-  c.unread = Math.max(0, (c.last_seq || 0) - seq)
-  if (c.unread === 0) c.mentions = 0
+  c.unread = containerUnread(c, seq)
+  if (seq >= (c.last_seq || 0)) c.mentions = 0
   notify('containers')
 }
 
@@ -569,15 +599,22 @@ export function mount(root) {
   )
 
   const pin = new ResizeObserver(() => {
-    if (atBottom) scrollEl.scrollTop = scrollEl.scrollHeight
+    if (atBottom) pinToBottom()
   })
   pin.observe(listEl)
-  pin.observe(scrollEl)
+
+  scrollEl.addEventListener('wheel', holdGesture, { passive: true })
+  scrollEl.addEventListener('touchstart', holdGesture, { passive: true })
+  scrollEl.addEventListener('pointerdown', holdGesture, { passive: true })
+  scrollEl.addEventListener('scrollend', releaseGesture)
 
   scrollEl.addEventListener('scroll', () => {
-    atBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < NEAR_BOTTOM
+    const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+    const nearBottom = distance < NEAR_BOTTOM
+    atBottom = distance < STICK_SLACK
+    if (gesturing) holdGesture()
     if (scrollEl.scrollTop < NEAR_TOP) loadOlder()
-    if (atBottom) loadNewer()
+    if (nearBottom) loadNewer()
   })
 
   document.addEventListener('visibilitychange', () => {
@@ -590,6 +627,7 @@ export function mount(root) {
   })
 
   socket.on('message', (m) => {
+    if (m.thread_root_id) return
     if (m.container_id === state.current.containerId && m.author_id === (state.me && state.me.id)) atBottom = true
   })
 
