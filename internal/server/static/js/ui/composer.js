@@ -83,8 +83,11 @@ export function createComposer(options) {
   function chipNode(entry, index) {
     const chip = el('div', 'flex h-6 items-center gap-1 rounded-full bg-surface1 pl-2.5 pr-1 text-xs')
     chip.appendChild(el('span', 'max-w-40 truncate text-subtext0', entry.name))
-    if (entry.error) chip.appendChild(el('span', 'shrink-0 text-red', 'failed'))
-    else if (!entry.attachment) chip.appendChild(el('span', 'shrink-0 text-yellow', Math.round(entry.progress * 100) + '%'))
+    if (entry.error) {
+      const reason = el('span', 'max-w-48 truncate text-red', entry.error)
+      reason.title = entry.error
+      chip.appendChild(reason)
+    } else if (!entry.attachment) chip.appendChild(el('span', 'shrink-0 text-yellow', Math.round(entry.progress * 100) + '%'))
     else chip.appendChild(icon('check', 'h-3.5 w-3.5 shrink-0 text-green'))
     const remove = el('button', 'grid h-5 w-5 shrink-0 place-items-center rounded-full text-overlay1 transition-colors hover:text-red')
     remove.type = 'button'
@@ -92,12 +95,18 @@ export function createComposer(options) {
     remove.setAttribute('aria-label', 'Remove ' + entry.name)
     remove.appendChild(icon('x', 'h-3.5 w-3.5'))
     remove.addEventListener('click', () => {
+      entry.cancel.abort()
       attachments.splice(index, 1)
       renderChips()
       updateSendState()
     })
     chip.appendChild(remove)
     return chip
+  }
+
+  function dropAttachments() {
+    for (const entry of attachments) entry.cancel.abort()
+    attachments = []
   }
 
   function renderChips() {
@@ -271,14 +280,14 @@ export function createComposer(options) {
 
   async function addFiles(files) {
     for (const file of files) {
-      const entry = { name: file.name, progress: 0, attachment: null, error: null }
+      const entry = { name: file.name, progress: 0, attachment: null, error: null, cancel: new AbortController() }
       attachments.push(entry)
       renderChips()
       try {
         entry.attachment = await api.upload(file, (p) => {
           entry.progress = p
           renderChips()
-        })
+        }, entry.cancel.signal)
       } catch (err) {
         entry.error = err.message || 'upload failed'
       }
@@ -330,7 +339,7 @@ export function createComposer(options) {
     state.pending.set(clientId, optimistic)
 
     textarea.value = ''
-    attachments = []
+    dropAttachments()
     lastTyping = 0
     if (options.replyTo) state.current.replyToId = null
     writeDraft(draftKey(), '')
@@ -374,7 +383,7 @@ export function createComposer(options) {
       if (mountedKey) writeDraft(mountedKey, textarea.value)
       mountedKey = key
       textarea.value = readDraft(key)
-      attachments = []
+      dropAttachments()
       closeMentions()
       renderChips()
       if (previewOpen) setPreview(true)
