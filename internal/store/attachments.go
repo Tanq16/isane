@@ -74,11 +74,11 @@ func (db *DB) SetAttachmentState(ctx context.Context, id uuid.UUID, state Attach
 		`update attachments set state = $2, error = $3 where id = $1`, id, state, errText)
 }
 
-func (db *DB) FinishAttachment(ctx context.Context, id uuid.UUID, mime string, sizeBytes int64, width, height, durationMs *int, thumbPath *string) error {
+func (db *DB) FinishAttachment(ctx context.Context, id uuid.UUID, kind AttachmentKind, mime string, sizeBytes int64, width, height, durationMs *int, thumbPath *string) error {
 	return db.execOne(ctx, "finish attachment", `update attachments
-		set mime = $2, size_bytes = $3, width = $4, height = $5, duration_ms = $6, thumb_path = $7,
+		set kind = $2, mime = $3, size_bytes = $4, width = $5, height = $6, duration_ms = $7, thumb_path = $8,
 		    state = 'ready', error = null
-		where id = $1`, id, mime, sizeBytes, width, height, durationMs, thumbPath)
+		where id = $1`, id, kind, mime, sizeBytes, width, height, durationMs, thumbPath)
 }
 
 func (db *DB) ListStagedBefore(ctx context.Context, cutoff time.Time) ([]Attachment, error) {
