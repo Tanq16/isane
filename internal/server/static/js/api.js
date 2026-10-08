@@ -86,7 +86,7 @@ export async function del(path, body) {
   return request('DELETE', path, body)
 }
 
-export async function upload(file, onProgress) {
+export async function upload(file, onProgress, signal) {
   return new Promise((resolve, fail) => {
     const form = new FormData()
     form.append('file', file, file.name)
@@ -108,6 +108,7 @@ export async function upload(file, onProgress) {
     }
     xhr.onerror = () => fail(new ApiError(0, null, 'network unreachable'))
     xhr.onabort = () => fail(new ApiError(0, null, 'upload cancelled'))
+    if (signal) signal.addEventListener('abort', () => xhr.abort(), { once: true })
     xhr.send(form)
   })
 }
