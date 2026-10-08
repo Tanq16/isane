@@ -37,6 +37,11 @@ func (s *Sweeper) Run(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("sweep staged attachments: %w", err))
 	}
 
+	orphanUploads, err := s.media.SweepUploads(ctx)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("sweep orphan uploads: %w", err))
+	}
+
 	recordings, err := s.sweepRecordings(ctx)
 	if err != nil {
 		errs = append(errs, err)
@@ -69,6 +74,7 @@ func (s *Sweeper) Run(ctx context.Context) error {
 	}
 	s.log.Info().
 		Int("attachments", attachments).
+		Int("orphan_uploads", orphanUploads).
 		Int("recordings", recordings).
 		Int64("audit_events", auditEvents).
 		Int64("messages", messages).

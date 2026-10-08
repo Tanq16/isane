@@ -89,6 +89,18 @@ func (db *DB) ListStagedBefore(ctx context.Context, cutoff time.Time) ([]Attachm
 		order by created_at`, cutoff)
 }
 
+func (db *DB) ExistingAttachmentIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := db.Pool.Query(ctx, `select id from attachments where id = any($1::uuid[])`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("existing attachment ids: %w", err)
+	}
+	found, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("existing attachment ids: %w", err)
+	}
+	return found, nil
+}
+
 func (db *DB) DeleteAttachment(ctx context.Context, id uuid.UUID) error {
 	if _, err := db.Pool.Exec(ctx, `delete from attachments where id = $1`, id); err != nil {
 		return fmt.Errorf("delete attachment: %w", mapErr(err))
