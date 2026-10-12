@@ -28,7 +28,7 @@ const SIDEBAR_FALLBACK = 240
 const PANE_MIN = 280
 const PANE_MAX = 560
 const PANE_FALLBACK = 380
-const HANDLE_WIDTH = 4
+const HANDLE_WIDTH = 8
 const COLUMN_MIN = 400
 
 let awaitingContainers = false
