@@ -69,6 +69,21 @@ export function containerUnread(c, seq) {
   return unread
 }
 
+export function watchSends(match) {
+  let known = new Set()
+  return () => {
+    const seen = new Set()
+    let fresh = false
+    for (const p of state.pending.values()) {
+      if (!p.pending || !match(p)) continue
+      seen.add(p.client_id)
+      if (!known.has(p.client_id)) fresh = true
+    }
+    known = seen
+    return fresh
+  }
+}
+
 export function user(id) {
   const found = id ? state.users.get(id) : null
   if (found) return found

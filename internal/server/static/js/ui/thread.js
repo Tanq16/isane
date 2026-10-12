@@ -1,7 +1,8 @@
 import * as socket from '../socket.js'
-import { state, subscribe, notify, user, findMessage, loadThread } from '../store.js'
+import { state, subscribe, notify, user, findMessage, loadThread, watchSends } from '../store.js'
 import { containerLabel, containerPath, drawIcons, el, icon, iconButton, navigate } from './dom.js'
 import { createComposer } from './composer.js'
+import { followBottom } from './follow.js'
 import { GROUP_WINDOW, messageNode, messageSignature } from './message.js'
 
 const PAGE = 100
@@ -15,6 +16,7 @@ let listEl = null
 let composerEl = null
 let noticeEl = null
 let composer = null
+let follower = null
 
 const nodes = new Map()
 const signatures = new WeakMap()
@@ -25,6 +27,8 @@ const editing = new Set()
 let mountedRoot = null
 let headerSignature = ''
 let frame = 0
+
+const sentHere = watchSends((p) => Boolean(p.thread_root_id) && p.thread_root_id === state.current.threadRootId)
 
 const ctx = {
   showThread: false,
@@ -240,6 +244,7 @@ function render() {
     nodes.clear()
     editing.clear()
     listEl.replaceChildren()
+    follower.unfollow()
     load(rootId)
     queueMicrotask(() => composer.focus())
   }
@@ -275,6 +280,8 @@ export function mount(root) {
   listEl = el('div', 'flex flex-col pb-4')
   bodyEl.appendChild(listEl)
   panel.appendChild(bodyEl)
+  follower = followBottom(bodyEl)
+  follower.observe(listEl)
 
   noticeEl = el('p', 'hidden px-4 py-3 text-sm text-overlay1',
     'This channel is archived. History stays readable and new replies are blocked.')
@@ -308,6 +315,9 @@ export function mount(root) {
     close()
   })
 
-  subscribe(scheduleRender)
+  subscribe((keys) => {
+    if (keys.includes('pending') && sentHere()) follower.follow()
+    scheduleRender()
+  })
   render()
 }

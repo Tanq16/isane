@@ -1,17 +1,16 @@
 import * as socket from '../socket.js'
-import { state, subscribe, notify, user, loadMessages, containerUnread } from '../store.js'
+import { state, subscribe, notify, user, loadMessages, containerUnread, watchSends } from '../store.js'
 import {
   containerLabel, dayLabel, drawIcons, el, emptyState, icon, iconButton, navigate,
 } from './dom.js'
 import * as call from './call.js'
+import { followBottom } from './follow.js'
 import { GROUP_WINDOW, messageNode, messageSignature } from './message.js'
 import { openChannelSettings } from './settings.js'
 
 const PAGE = 50
 const NEAR_TOP = 300
 const NEAR_BOTTOM = 120
-const STICK_SLACK = 16
-const GESTURE_LINGER = 400
 const DIVIDER_LINGER = 4500
 
 let scrollEl = null
@@ -28,10 +27,9 @@ const editing = new Set()
 let mountedContainer = null
 let headerSignature = ''
 let observer = null
+let follower = null
 let frame = 0
-let atBottom = true
-let gesturing = false
-let gestureTimer = 0
+let landing = false
 let readTimer = 0
 let seenSeq = 0
 let sentSeq = 0
@@ -40,6 +38,8 @@ let dividerTimer = 0
 let jumpTarget = 0
 let handledJump = ''
 let readSidebarWidth = () => 0
+
+const sentHere = watchSends((p) => p.container_id === state.current.containerId && !p.thread_root_id)
 
 const ctx = {
   showThread: true,
@@ -74,23 +74,17 @@ function scheduleRender() {
   })
 }
 
-function pinToBottom() {
-  if (gesturing) return
-  const target = scrollEl.scrollHeight - scrollEl.clientHeight
-  if (Math.abs(scrollEl.scrollTop - target) <= 1) return
-  scrollEl.scrollTop = target
+function landingTop(bottom) {
+  const divider = landing ? nodes.get('new') : null
+  if (!divider || !divider.isConnected) return bottom
+  const top = divider.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
+  return Math.min(bottom, top)
 }
 
-function holdGesture() {
-  gesturing = true
-  clearTimeout(gestureTimer)
-  gestureTimer = setTimeout(releaseGesture, GESTURE_LINGER)
-}
-
-function releaseGesture() {
-  clearTimeout(gestureTimer)
-  gestureTimer = 0
-  gesturing = false
+function endLanding() {
+  if (!landing) return
+  landing = false
+  follower.refresh()
 }
 
 function currentContainer() {
@@ -344,11 +338,6 @@ function syncJumpFromUrl() {
   if (seq) jumpTo(seq)
 }
 
-function tailKey() {
-  const last = listEl.lastElementChild
-  return last ? last.dataset.key : ''
-}
-
 function render() {
   const cid = state.current.containerId
   if (cid !== mountedContainer) {
@@ -357,8 +346,7 @@ function render() {
     nodes.clear()
     editing.clear()
     listEl.replaceChildren()
-    atBottom = true
-    releaseGesture()
+    follower.unfollow()
     seenSeq = 0
     const c = cid ? state.containers.get(cid) : null
     sentSeq = c ? (c.last_read_seq || 0) : 0
@@ -366,6 +354,7 @@ function render() {
     dividerTimer = 0
     if (autoRead()) dividerSeq = c && (c.unread || 0) > 0 ? sentSeq : -1
     else dividerSeq = c ? sentSeq : -1
+    landing = dividerSeq >= 0
     renderHeader()
     if (cid) openContainer(cid)
     return
@@ -378,10 +367,7 @@ function render() {
   const hasRows = list.some((view) => view.kind === 'message')
   emptyEl.textContent = cid ? 'No messages yet. Say something.' : 'Pick a channel to start reading.'
   emptyEl.classList.toggle('hidden', hasRows)
-  const stick = atBottom
-  const previousTail = tailKey()
   reconcile(list)
-  if (stick && tailKey() !== previousTail) pinToBottom()
   if (jumpTarget) highlight(jumpTarget)
   if (!readTimer && newestSeq(list) > seenSeq) scheduleRead()
 }
@@ -398,51 +384,47 @@ function highlight(seq) {
   const target = listEl.querySelector('[data-seq="' + seq + '"]')
   if (!target) return
   jumpTarget = 0
+  landing = false
   target.scrollIntoView({ block: 'center' })
+  follower.refresh()
   target.classList.add('bg-yellow/10')
   setTimeout(() => target.classList.remove('bg-yellow/10'), 2000)
 }
 
-async function openContainer(cid) {
+async function loadFirst(cid, around) {
   const p = pageState(cid)
-  const jump = Number(new URLSearchParams(location.search).get('m')) || 0
-
-  if (jump) {
-    p.loading = true
-    try {
-      const page = await loadMessages(cid, { around: jump, limit: PAGE })
-      p.hasOlder = page.length >= PAGE
-      p.loaded = true
-      jumpTarget = jump
-      atBottom = false
-    } catch {
-      p.hasOlder = false
-    }
-    p.loading = false
-    notify('messages')
-    markOnOpen(cid, jump)
-    return
-  }
-
-  if (p.loaded) {
-    render()
-    pinToBottom()
-    markOnOpen(cid)
-    return
-  }
-
   p.loading = true
   try {
-    const page = await loadMessages(cid, { limit: PAGE })
-    p.hasOlder = page.length >= PAGE
+    const page = await loadMessages(cid, around ? { around, limit: PAGE } : { limit: PAGE })
+    p.hasOlder = Boolean(around) || page.length >= PAGE
+    p.hasNewer = Boolean(around)
     p.loaded = true
   } catch {
     p.hasOlder = false
   }
   p.loading = false
-  atBottom = true
+}
+
+async function openContainer(cid) {
+  const jump = Number(urlJump()) || 0
+
+  if (jump) {
+    await loadFirst(cid, jump)
+    if (cid !== mountedContainer) return
+    if (pageState(cid).loaded) jumpTarget = jump
+    notify('messages')
+    markOnOpen(cid, jump)
+    return
+  }
+
+  if (!pageState(cid).loaded) {
+    const c = state.containers.get(cid)
+    const unread = c && dividerSeq >= 0 ? (c.last_seq || 0) - dividerSeq : 0
+    await loadFirst(cid, unread > PAGE ? dividerSeq + 1 : 0)
+    if (cid !== mountedContainer) return
+  }
   render()
-  pinToBottom()
+  follower.follow()
   markOnOpen(cid)
 }
 
@@ -455,7 +437,6 @@ async function loadOlder() {
   if (!list.length) return
 
   p.loading = true
-  const previousHeight = scrollEl.scrollHeight
   try {
     const page = await loadMessages(cid, { before: list[0].seq, limit: PAGE })
     p.hasOlder = page.length >= PAGE
@@ -463,8 +444,14 @@ async function loadOlder() {
     p.hasOlder = false
   }
   p.loading = false
+  if (cid !== mountedContainer) return
+  const edge = scrollEl.getBoundingClientRect().top
+  const anchor = Array.from(listEl.querySelectorAll('[data-seq]')).find((node) => node.getBoundingClientRect().bottom > edge)
+  const key = anchor ? anchor.dataset.key : ''
+  const top = anchor ? anchor.getBoundingClientRect().top : 0
   render()
-  scrollEl.scrollTop += scrollEl.scrollHeight - previousHeight
+  const moved = nodes.get(key)
+  if (moved && moved.isConnected) scrollEl.scrollTop += moved.getBoundingClientRect().top - top
 }
 
 async function loadNewer() {
@@ -480,7 +467,9 @@ async function loadNewer() {
 
   p.loading = true
   try {
-    await loadMessages(cid, { after: newest, limit: PAGE })
+    const page = await loadMessages(cid, { after: newest, limit: PAGE })
+    p.hasNewer = page.length >= PAGE
+    if (page.length) follower.unfollow()
   } catch {
     p.hasNewer = false
   }
@@ -530,6 +519,7 @@ function markOnOpen(cid, upTo) {
   dividerTimer = setTimeout(() => {
     dividerTimer = 0
     if (cid !== state.current.containerId) return
+    endLanding()
     dividerSeq = -1
     render()
   }, DIVIDER_LINGER)
@@ -561,6 +551,7 @@ function flushRead() {
 function dismissDivider() {
   const cid = state.current.containerId
   if (!cid) return
+  endLanding()
   const c = state.containers.get(cid)
   markRead(cid, c ? (c.last_seq || 0) : 0)
   dividerSeq = autoRead() ? -1 : sentSeq
@@ -598,23 +589,13 @@ export function mount(root) {
     { root: scrollEl, threshold: 0.5 }
   )
 
-  const pin = new ResizeObserver(() => {
-    if (atBottom) pinToBottom()
-  })
-  pin.observe(listEl)
-
-  scrollEl.addEventListener('wheel', holdGesture, { passive: true })
-  scrollEl.addEventListener('touchstart', holdGesture, { passive: true })
-  scrollEl.addEventListener('pointerdown', holdGesture, { passive: true })
-  scrollEl.addEventListener('scrollend', releaseGesture)
+  follower = followBottom(scrollEl, { target: landingTop, onGesture: endLanding })
+  follower.observe(listEl)
+  follower.observe(activityEl)
 
   scrollEl.addEventListener('scroll', () => {
-    const distance = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
-    const nearBottom = distance < NEAR_BOTTOM
-    atBottom = distance < STICK_SLACK
-    if (gesturing) holdGesture()
     if (scrollEl.scrollTop < NEAR_TOP) loadOlder()
-    if (nearBottom) loadNewer()
+    if (scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < NEAR_BOTTOM) loadNewer()
   })
 
   document.addEventListener('visibilitychange', () => {
@@ -626,11 +607,12 @@ export function mount(root) {
     syncJumpFromUrl()
   })
 
-  socket.on('message', (m) => {
-    if (m.thread_root_id) return
-    if (m.container_id === state.current.containerId && m.author_id === (state.me && state.me.id)) atBottom = true
+  subscribe((keys) => {
+    if (keys.includes('pending') && sentHere()) {
+      landing = false
+      follower.follow()
+    }
+    scheduleRender()
   })
-
-  subscribe(scheduleRender)
   render()
 }
