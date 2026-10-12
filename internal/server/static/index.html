@@ -35,32 +35,32 @@
     <button id="push-banner-dismiss" type="button" class="shrink-0 rounded-lg px-3 py-1.5 text-sm text-overlay1 transition-colors hover:text-text">Not now</button>
 </div>
 
-<div id="app" class="group flex min-h-0 flex-1" data-drawer="closed" data-sidebar="open" data-thread="closed" data-call="hidden">
+<div id="app" class="group flex min-h-0 flex-1 md:py-2 md:pr-2 md:data-[sidebar=closed]:pl-2" data-drawer="closed" data-sidebar="open" data-thread="closed" data-call="hidden">
     <div id="drawer-scrim" class="fixed inset-0 z-40 hidden bg-scrim backdrop-blur-sm group-data-[drawer=open]:block md:hidden"></div>
 
     <aside id="sidebar" aria-label="Channels and conversations"
         class="fixed inset-y-0 left-0 z-50 w-72 shrink-0 -translate-x-full overflow-hidden bg-crust transition-transform duration-200 ease-out group-data-[drawer=open]:translate-x-0 md:static md:z-auto md:w-[var(--sidebar-width)] md:translate-x-0 md:transition-none"></aside>
 
     <div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize the channel list" tabindex="0"
-        class="hidden w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none md:group-data-[sidebar=open]:block"></div>
+        class="hidden w-2 shrink-0 cursor-col-resize rounded-full bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none md:group-data-[sidebar=open]:block"></div>
 
-    <main id="main" class="flex min-w-0 flex-1 flex-col bg-mantle">
+    <main id="main" class="flex min-w-0 flex-1 flex-col bg-mantle md:rounded-xl">
         <header id="timeline-header" class="flex h-12 w-full min-w-0 shrink-0 items-center gap-2 border-b border-surface0 px-4"></header>
         <div id="timeline" class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"></div>
         <div id="composer" class="shrink-0"></div>
     </main>
 
     <div id="thread-resize" role="separator" aria-orientation="vertical" aria-label="Resize the thread panel" tabindex="0"
-        class="hidden w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none xl:group-data-[thread=open]:block"></div>
+        class="hidden w-2 shrink-0 cursor-col-resize rounded-full bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none xl:group-data-[thread=open]:block"></div>
 
     <section id="thread-pane" role="dialog" aria-label="Thread"
-        class="fixed inset-0 z-30 hidden overflow-hidden bg-mantle group-data-[thread=open]:block xl:static xl:z-auto xl:w-[var(--thread-width)] xl:shrink-0 xl:border-l xl:border-surface0"></section>
+        class="fixed inset-0 z-30 hidden overflow-hidden bg-mantle group-data-[thread=open]:block xl:static xl:z-auto xl:w-[var(--thread-width)] xl:shrink-0 xl:rounded-xl"></section>
 
     <div id="call-resize" role="separator" aria-orientation="vertical" aria-label="Resize the call panel" tabindex="0"
-        class="hidden w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none xl:group-data-[call=docked]:block"></div>
+        class="hidden w-2 shrink-0 cursor-col-resize rounded-full bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none xl:group-data-[call=docked]:block"></div>
 
     <section id="call-pane" role="dialog" aria-label="Call"
-        class="fixed inset-0 z-30 hidden overflow-hidden bg-crust group-data-[call=docked]:block group-data-[call=expanded]:block xl:group-data-[call=docked]:static xl:group-data-[call=docked]:z-auto xl:group-data-[call=docked]:w-[var(--call-width)] xl:group-data-[call=docked]:shrink-0 xl:group-data-[call=docked]:border-l xl:group-data-[call=docked]:border-surface0"></section>
+        class="fixed inset-0 z-30 hidden overflow-hidden bg-crust group-data-[call=docked]:block group-data-[call=expanded]:block xl:group-data-[call=docked]:static xl:group-data-[call=docked]:z-auto xl:group-data-[call=docked]:w-[var(--call-width)] xl:group-data-[call=docked]:shrink-0 xl:group-data-[call=docked]:rounded-xl xl:group-data-[call=docked]:bg-mantle"></section>
 </div>
 
 <div id="admin-root" class="hidden min-h-0 flex-1 overflow-hidden bg-crust"></div>

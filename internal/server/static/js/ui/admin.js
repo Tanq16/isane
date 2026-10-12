@@ -838,7 +838,7 @@ export function mount(root) {
   gateEl.classList.add('hidden')
   page.appendChild(gateEl)
 
-  shellEl = el('div', 'hidden min-h-0 flex-1 overflow-y-auto bg-mantle')
+  shellEl = el('div', 'hidden min-h-0 flex-1 overflow-y-auto bg-mantle md:mx-2 md:mb-2 md:rounded-xl')
   contentEl = el('div', 'min-w-0 px-4 py-6 sm:px-6')
   shellEl.appendChild(contentEl)
   page.appendChild(shellEl)
