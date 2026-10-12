@@ -153,6 +153,10 @@ docker compose logs app | grep invite
 
 The first start against an empty `users` table prints a one-time invite URL. Opening it creates the first account with `is_admin` set. The URL is not persisted anywhere else, so a lost one means dropping the `users` table and restarting.
 
+## Updating
+
+An update is `docker compose pull && docker compose up -d`, which replaces the application container with the newer published image and applies any new migrations on start, leaving `data/postgres` and `data/media` in place. `docker compose build app` no longer builds anything, because `compose.yaml` names a published image rather than this directory, and `make docker` is what tags a local build under that same name.
+
 ## Configuration
 
 `config.yaml` is read at start. Every scalar value may be overridden by an environment variable named `ISANE_` followed by the YAML path uppercased and joined with underscores, so `push.vapid_private_key` becomes `ISANE_PUSH_VAPID_PRIVATE_KEY`. A list of strings takes the same form with its entries separated by commas. The `media_quality.video.simulcast_layers` list is the one value with no environment form.
