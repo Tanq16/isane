@@ -24,6 +24,7 @@ const (
 	attachmentCSP   = "default-src 'none'; sandbox"
 
 	maxConcurrentUploads = 3
+	uploadStall          = 60 * time.Second
 )
 
 type Media struct {
@@ -68,6 +69,11 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer h.release(u.ID)
 	r.Body = http.MaxBytesReader(w, r.Body, h.app.Cfg().Media.MaxUploadBytes)
+	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(time.Now().Add(uploadStall)); err == nil {
+		r.Body = stallReader{body: r.Body, rc: rc}
+		defer rc.SetReadDeadline(time.Time{})
+	}
 	parts, err := r.MultipartReader()
 	if err != nil {
 		WriteError(w, badRequestf("expected a multipart upload"))
@@ -224,7 +230,26 @@ func serveFile(w http.ResponseWriter, r *http.Request, f *os.File, name, mimeTyp
 	http.ServeContent(w, r, name, info.ModTime(), f)
 }
 
+type stallReader struct {
+	body io.ReadCloser
+	rc   *http.ResponseController
+}
+
+func (s stallReader) Read(p []byte) (int, error) {
+	if err := s.rc.SetReadDeadline(time.Now().Add(uploadStall)); err != nil {
+		return 0, err
+	}
+	return s.body.Read(p)
+}
+
+func (s stallReader) Close() error { return s.body.Close() }
+
 func writeUploadError(w http.ResponseWriter, err error) {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		WriteJSON(w, http.StatusRequestTimeout,
+			errorBody{Error: fmt.Sprintf("the upload sent nothing for %s and was dropped", uploadStall)})
+		return
+	}
 	if tooLarge, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		WriteJSON(w, http.StatusRequestEntityTooLarge,
 			errorBody{Error: fmt.Sprintf("upload exceeds the %d byte limit", tooLarge.Limit)})

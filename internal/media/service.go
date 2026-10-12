@@ -2,6 +2,7 @@ package media
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -152,7 +153,7 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 	if info, statErr := os.Stat(s.abs(a.StoragePath)); statErr == nil {
 		size = info.Size()
 	}
-	if err := s.db.FinishAttachment(ctx, id, res.mime, size, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
+	if err := s.db.FinishAttachment(ctx, id, cmp.Or(res.kind, a.Kind), res.mime, size, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
 		return a, fmt.Errorf("finish attachment: %w", err)
 	}
 	a, err = s.db.GetAttachment(ctx, id)
@@ -163,6 +164,7 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 }
 
 type result struct {
+	kind       store.AttachmentKind
 	mime       string
 	width      *int
 	height     *int

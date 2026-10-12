@@ -32,6 +32,13 @@ func (s *Service) processVideo(ctx context.Context, a store.Attachment) (result,
 	if err != nil {
 		return result{}, err
 	}
+	if len(probed.Streams) == 0 {
+		return result{
+			kind:       store.AttachmentAudio,
+			mime:       "audio/" + strings.TrimPrefix(a.Mime, "video/"),
+			durationMs: probed.duration(),
+		}, nil
+	}
 	res := result{mime: a.Mime, durationMs: probed.duration()}
 
 	poster := s.abs(filepath.Join(thumbsDir, a.ID.String()+".png"))
@@ -95,7 +102,7 @@ func posterSize(path string) (int, int, error) {
 }
 
 func (s *Service) probeStream(ctx context.Context, path string) (probeResult, error) {
-	return s.probe(ctx, path, "-select_streams", "v:0",
+	return s.probe(ctx, path, "-select_streams", "V:0",
 		"-show_entries", "stream=width,height,duration:format=duration")
 }
 

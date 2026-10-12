@@ -1,14 +1,48 @@
 import * as socket from '../socket.js'
 import { state, user, findMessage } from '../store.js'
 import { renderInto, plainText } from '../render.js'
-import { recordingPlayer } from './audio.js'
+import { audioPlayer, recordingPlayer } from './audio.js'
 import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode, touchPrimary } from './dom.js'
-import { confirmModal } from './modal.js'
+import { confirmModal, openModal } from './modal.js'
 
 export const GROUP_WINDOW = 7 * 60 * 1000
 
 function mentionsMe(m) {
   return Boolean(state.me && Array.isArray(m.mentions) && m.mentions.includes(state.me.id))
+}
+
+function openMedia(a, href) {
+  const download = el('a', 'inline-flex h-9 items-center gap-2 rounded-lg bg-surface0 px-3 text-sm text-subtext0 transition-colors hover:bg-surface1 hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
+  download.href = href
+  download.download = a.original_name || ''
+  download.append(icon('download', 'h-4 w-4'), el('span', '', 'Download'))
+  openModal({
+    title: a.original_name || (a.kind === 'video' ? 'Video' : 'Image'),
+    icon: a.kind === 'video' ? 'film' : 'image',
+    width: 'max-w-5xl',
+    build(body) {
+      const media = el(a.kind === 'video' ? 'video' : 'img', 'mx-auto block max-h-[75dvh] max-w-full rounded-xl' + (a.kind === 'video' ? ' w-full bg-crust' : ''))
+      if (a.kind === 'video') {
+        media.controls = true
+        media.autoplay = true
+        media.playsInline = true
+        media.poster = href + '/thumb'
+      } else {
+        media.alt = a.original_name || ''
+      }
+      media.src = href
+      body.appendChild(media)
+    },
+    actions: [download],
+  })
+}
+
+function opensMedia(node, a, href) {
+  node.addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    openMedia(a, href)
+  })
 }
 
 function attachmentNode(a) {
@@ -31,8 +65,7 @@ function attachmentNode(a) {
   if (a.kind === 'image') {
     const link = el('a', 'mt-2 block max-w-md overflow-hidden rounded-xl ring-1 ring-edge')
     link.href = href
-    link.target = '_blank'
-    link.rel = 'noreferrer'
+    opensMedia(link, a, href)
     const img = el('img', 'block h-auto w-full')
     img.src = href + '/thumb'
     img.alt = a.original_name || ''
@@ -46,27 +79,30 @@ function attachmentNode(a) {
   }
 
   if (a.kind === 'video') {
-    const video = el('video', 'mt-2 block w-full max-w-md rounded-xl ring-1 ring-edge')
-    video.controls = true
+    const link = el('a', 'relative mt-2 block w-full max-w-md overflow-hidden rounded-xl ring-1 ring-edge')
+    link.href = href
+    link.setAttribute('aria-label', 'Play ' + (a.original_name || 'the video'))
+    const video = el('video', 'block h-auto w-full')
     video.preload = 'metadata'
+    video.muted = true
+    video.playsInline = true
     video.poster = href + '/thumb'
     video.src = href
     if (a.width && a.height) {
       video.width = a.width
       video.height = a.height
     }
-    return video
+    const play = el('span', 'absolute inset-0 grid place-items-center')
+    const disc = el('span', 'grid h-12 w-12 place-items-center rounded-full bg-crust/70 text-text')
+    disc.appendChild(icon('play', 'h-6 w-6'))
+    play.appendChild(disc)
+    link.append(video, play)
+    opensMedia(link, a, href)
+    return link
   }
 
   if (a.kind === 'audio') {
-    const wrap = el('div', 'mt-2 max-w-md rounded-xl bg-base p-2')
-    wrap.appendChild(el('p', 'truncate text-xs text-subtext0', a.original_name || 'Audio'))
-    const audio = el('audio', 'mt-1 w-full')
-    audio.controls = true
-    audio.preload = 'metadata'
-    audio.src = href
-    wrap.appendChild(audio)
-    return wrap
+    return audioPlayer({ src: href, download: href, name: a.original_name || 'Audio', durationMs: a.duration_ms, noun: 'audio', cls: 'mt-2' })
   }
 
   const row = el('a', 'mt-2 flex max-w-md items-center gap-3 rounded-xl bg-base px-3 py-2 transition-colors hover:bg-surface0')
