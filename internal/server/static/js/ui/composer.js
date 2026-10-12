@@ -2,10 +2,39 @@ import * as api from '../api.js'
 import * as socket from '../socket.js'
 import { state, subscribe, notify, user, mergeMessage } from '../store.js'
 import { renderMarkdown } from '../render.js'
+import { clockLabel } from './audio.js'
+import { MIC_DENIED } from './call.js'
 import { drawIcons, el, icon, touchPrimary } from './dom.js'
+import { toast } from './toast.js'
 
 const TYPING_INTERVAL = 3000
 const MENTION_PATTERN = /(^|\s)@([a-z0-9_-]*)$/i
+
+const VOICE_FORMATS = [
+  { mime: 'audio/webm;codecs=opus', ext: 'webm' },
+  { mime: 'audio/mp4', ext: 'm4a' },
+  { mime: 'audio/ogg;codecs=opus', ext: 'ogg' },
+]
+const MIC_IDLE = 'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-overlay1 transition-colors hover:text-text disabled:text-overlay0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve'
+const MIC_LIVE = 'flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-red/15 px-2.5 text-red transition-colors hover:bg-red/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve'
+
+function voiceFormat() {
+  if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null
+  return VOICE_FORMATS.find((f) => MediaRecorder.isTypeSupported(f.mime)) || null
+}
+
+function voiceNoteName(ext) {
+  const d = new Date()
+  const parts = [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()]
+  return 'voice-note-' + parts.map((n) => String(n).padStart(2, '0')).join('-') + '.' + ext
+}
+
+function micError(err) {
+  const name = err && err.name
+  if (name === 'NotAllowedError' || name === 'SecurityError') return MIC_DENIED
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone was found.'
+  return err && err.message ? 'Could not record. ' + err.message : 'Could not record.'
+}
 
 function mentionScore(entry, q) {
   const handle = entry.handle.toLowerCase()
@@ -47,9 +76,12 @@ export function createComposer(options) {
   let noticeEl = null
   let mentionEl = null
   let fileInput = null
+  let micButton = null
+  let micClock = null
 
   let mountedKey = null
   let attachments = []
+  let recording = null
   let previewOpen = false
   let mentionOpen = false
   let mentionIndex = 0
@@ -296,6 +328,100 @@ export function createComposer(options) {
     }
   }
 
+  function paintMic() {
+    const live = Boolean(recording && recording.recorder)
+    micButton.className = live ? MIC_LIVE : MIC_IDLE
+    micButton.disabled = Boolean(recording && !recording.recorder)
+    micButton.title = live ? 'Stop and attach the voice note' : 'Record a voice note'
+    micButton.setAttribute('aria-label', micButton.title)
+    micButton.replaceChildren(live ? icon('square', 'h-3.5 w-3.5 fill-current') : icon('mic', 'h-5 w-5'))
+    micClock = live ? el('span', 'text-xs font-medium tabular-nums', clockLabel(Date.now() - recording.started)) : null
+    if (micClock) micButton.appendChild(micClock)
+    drawIcons(micButton)
+  }
+
+  function releaseMic(session) {
+    for (const track of session.stream.getTracks()) track.stop()
+  }
+
+  function tickRecording(session) {
+    if (recording !== session) return
+    if (!fieldEl.offsetParent) {
+      stopRecording(false)
+      return
+    }
+    micClock.textContent = clockLabel(Date.now() - session.started)
+  }
+
+  function finishRecording(session) {
+    clearInterval(session.timer)
+    releaseMic(session)
+    if (recording === session) {
+      recording = null
+      paintMic()
+    }
+    if (!session.keep || session.key !== mountedKey) return
+    const type = session.recorder.mimeType || session.format.mime
+    const blob = new Blob(session.chunks, { type })
+    if (!blob.size) {
+      toast('Nothing was recorded.', { severity: 'warning' })
+      return
+    }
+    addFiles([new File([blob], voiceNoteName(session.format.ext), { type })])
+  }
+
+  function stopRecording(keep) {
+    const session = recording
+    if (!session) return
+    recording = null
+    session.keep = keep
+    clearInterval(session.timer)
+    paintMic()
+    if (session.recorder && session.recorder.state !== 'inactive') session.recorder.stop()
+  }
+
+  async function startRecording() {
+    const format = voiceFormat()
+    if (!format) {
+      toast('This browser cannot record voice notes.', { severity: 'error' })
+      return
+    }
+    const session = { key: mountedKey, format, stream: null, recorder: null, chunks: [], started: 0, timer: 0, keep: true }
+    recording = session
+    paintMic()
+    try {
+      session.stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (err) {
+      if (recording === session) {
+        recording = null
+        paintMic()
+      }
+      toast(micError(err), { severity: 'error' })
+      return
+    }
+    if (recording !== session) {
+      releaseMic(session)
+      return
+    }
+    try {
+      session.recorder = new MediaRecorder(session.stream, { mimeType: format.mime })
+      session.recorder.addEventListener('dataavailable', (e) => {
+        if (e.data.size) session.chunks.push(e.data)
+      })
+      session.recorder.addEventListener('stop', () => finishRecording(session))
+      session.recorder.start()
+    } catch (err) {
+      recording = null
+      releaseMic(session)
+      paintMic()
+      toast(micError(err), { severity: 'error' })
+      return
+    }
+    session.started = Date.now()
+    session.timer = setInterval(() => tickRecording(session), 1000)
+    paintMic()
+  }
+
   function maybeTyping() {
     const t = target()
     if (!t.containerId) return
@@ -383,6 +509,7 @@ export function createComposer(options) {
       if (mountedKey) writeDraft(mountedKey, textarea.value)
       mountedKey = key
       textarea.value = readDraft(key)
+      stopRecording(false)
       dropAttachments()
       closeMentions()
       renderChips()
@@ -434,6 +561,15 @@ export function createComposer(options) {
     attach.appendChild(icon('paperclip', 'h-5 w-5'))
     attach.addEventListener('click', () => fileInput.click())
     bar.appendChild(attach)
+
+    micButton = el('button')
+    micButton.type = 'button'
+    micButton.addEventListener('click', () => {
+      if (recording) stopRecording(true)
+      else startRecording()
+    })
+    paintMic()
+    bar.appendChild(micButton)
 
     textarea = el('textarea', 'max-h-80 min-h-9 flex-1 resize-none bg-transparent py-2 text-message pointer-coarse:text-[1rem] text-text placeholder:text-overlay1 focus:outline-none')
     textarea.rows = 1

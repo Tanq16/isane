@@ -22,7 +22,7 @@ const CALL_ERRORS = {
   publish: 'Could not publish your microphone.',
 }
 
-const MIC_DENIED = 'Isane needs microphone access. Allow it in your device settings, then try again.'
+export const MIC_DENIED = 'Isane needs microphone access. Allow it in your device settings, then try again.'
 
 const STRIP_QUERY = '(min-width: 48rem)'
 const MAX_STAGE_TILES = 8
