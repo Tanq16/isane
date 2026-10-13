@@ -19,9 +19,9 @@ function openMedia(a, href) {
   openModal({
     title: a.original_name || (a.kind === 'video' ? 'Video' : 'Image'),
     icon: a.kind === 'video' ? 'film' : 'image',
-    width: 'max-w-5xl',
+    fill: true,
     build(body) {
-      const media = el(a.kind === 'video' ? 'video' : 'img', 'mx-auto block max-h-[75dvh] max-w-full rounded-xl' + (a.kind === 'video' ? ' w-full bg-crust' : ''))
+      const media = el(a.kind === 'video' ? 'video' : 'img', 'block h-full w-full object-contain')
       if (a.kind === 'video') {
         media.controls = true
         media.autoplay = true

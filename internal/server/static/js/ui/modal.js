@@ -19,7 +19,9 @@ export function openModal(spec) {
 
   const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null
   const scrim = el('div', 'fixed inset-0 flex justify-center overflow-y-auto bg-scrim p-4 backdrop-blur-sm sm:p-6')
-  const panel = el('div', 'my-auto h-fit w-full ' + (spec.width || 'max-w-md') + ' overflow-hidden rounded-2xl bg-mantle shadow-pop ring-1 ring-edge')
+  const panel = el('div', spec.fill
+    ? 'flex h-full w-full flex-col overflow-hidden rounded-2xl bg-mantle ring-1 ring-edge'
+    : 'my-auto h-fit w-full ' + (spec.width || 'max-w-md') + ' overflow-hidden rounded-2xl bg-mantle shadow-pop ring-1 ring-edge')
   panel.setAttribute('role', 'dialog')
   panel.setAttribute('aria-modal', 'true')
 
@@ -33,7 +35,7 @@ export function openModal(spec) {
   head.appendChild(iconButton('x', 'Close', () => handle.close()))
   panel.appendChild(head)
 
-  const body = el('div', 'px-4 pb-4')
+  const body = el('div', spec.fill ? 'min-h-0 flex-1 px-4 pb-4' : 'px-4 pb-4')
   panel.appendChild(body)
 
   const error = el('p', 'hidden px-4 pb-2 text-sm text-red')
