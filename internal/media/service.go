@@ -182,11 +182,7 @@ func (s *Service) derive(ctx context.Context, a store.Attachment) (result, error
 }
 
 func (s *Service) Open(a store.Attachment) (*os.File, error) {
-	f, err := os.Open(s.abs(a.StoragePath))
-	if err != nil {
-		return nil, fmt.Errorf("open attachment %s: %w", a.ID, err)
-	}
-	return f, nil
+	return os.Open(s.abs(a.StoragePath))
 }
 
 func (s *Service) OpenThumb(a store.Attachment) (*os.File, error) {
@@ -292,7 +288,7 @@ func removeFile(path string) error {
 		return nil
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %w", path, err)
+		return err
 	}
 	return nil
 }
