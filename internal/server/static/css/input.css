@@ -488,12 +488,6 @@ pre:hover .copy-code-btn, .copy-code-btn:focus-visible { opacity: 1; }
 .callout.note { background-color: color-mix(in oklab, var(--ctp-mauve) 12%, transparent); }
 .callout.note .callout-icon { color: var(--ctp-mauve); }
 
-.seek {
-    appearance: none;
-    height: 4px;
-    border-radius: 9999px;
-    background: linear-gradient(to right, var(--ctp-mauve) var(--seek, 0%), var(--ctp-surface1) var(--seek, 0%));
-}
 .seek::-webkit-slider-thumb {
     appearance: none;
     width: 10px;
