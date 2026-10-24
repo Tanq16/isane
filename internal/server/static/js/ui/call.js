@@ -4,7 +4,6 @@ import * as socket from '../socket.js'
 import { drawIcons, icon, iconButton } from './dom.js'
 import { toast } from './toast.js'
 
-const IDLE_DIM_MS = 240000
 
 const TONES = {
   on: 'bg-surface0 text-text hover:bg-surface1',
@@ -55,7 +54,6 @@ let controlsEl = null
 let audioSinkEl = null
 let audioButtonEl = null
 let statusEl = null
-let dimEl = null
 
 const tiles = new Map()
 
@@ -67,7 +65,6 @@ let micOn = true
 let cameraOn = false
 let screenOn = false
 let wakeLock = null
-let idleTimer = 0
 let frame = 0
 let statusText = ''
 let dismissed = false
@@ -191,13 +188,6 @@ async function releaseWakeLock() {
     await wakeLock.release()
   } catch {}
   wakeLock = null
-}
-
-function resetIdle() {
-  dimEl.classList.add('hidden')
-  clearTimeout(idleTimer)
-  if (!joined) return
-  idleTimer = setTimeout(() => dimEl.classList.remove('hidden'), IDLE_DIM_MS)
 }
 
 function tileKey(identity, source) {
@@ -368,7 +358,6 @@ async function join(call, mic) {
     screenOn = false
     statusText = ''
     await acquireWakeLock()
-    resetIdle()
   } catch (err) {
     mic.stop()
     statusText = ''
@@ -421,8 +410,6 @@ function teardown() {
     overflowEl = null
   }
   audioSinkEl.replaceChildren()
-  clearTimeout(idleTimer)
-  dimEl.classList.add('hidden')
   releaseWakeLock()
   notify('calls')
   render()
@@ -699,9 +686,6 @@ export function mount(root) {
   body.appendChild(stageEl)
   panelEl.appendChild(body)
 
-  dimEl = el('div', 'absolute inset-0 z-10 hidden bg-scrim')
-  panelEl.appendChild(dimEl)
-
   controlsEl = el('div', 'flex shrink-0 items-center justify-center gap-2 border-t border-surface0 px-3 py-2')
   panelEl.appendChild(controlsEl)
 
@@ -727,12 +711,6 @@ export function mount(root) {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && joined) acquireWakeLock()
   })
-
-  for (const event of ['pointerdown', 'pointermove', 'keydown', 'touchstart']) {
-    window.addEventListener(event, () => {
-      if (joined) resetIdle()
-    }, { passive: true })
-  }
 
   socket.on('call_ended', (d) => {
     if (activeCall && d.call_id === activeCall.id) leave()
