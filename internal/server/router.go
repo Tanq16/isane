@@ -115,12 +115,12 @@ func (s *Server) agent(h http.HandlerFunc) http.Handler {
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	u, ok := handlers.UserFrom(r.Context())
 	if !ok {
-		handlers.WriteError(w, handlers.ErrUnauthorized)
+		handlers.WriteError(w, r, handlers.ErrUnauthorized)
 		return
 	}
 	sessionID, ok := handlers.SessionFrom(r.Context())
 	if !ok {
-		handlers.WriteError(w, handlers.ErrUnauthorized)
+		handlers.WriteError(w, r, handlers.ErrUnauthorized)
 		return
 	}
 	s.app.Hub.ServeWS(w, r, u, sessionID)

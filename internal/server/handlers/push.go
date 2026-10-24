@@ -44,11 +44,11 @@ func (h *Push) Subscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	var body subscribeBody
 	if err := ReadJSON(r, &body); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if body.Endpoint == "" || body.Keys.P256dh == "" || body.Keys.Auth == "" {
-		WriteError(w, badRequestf("endpoint, keys.p256dh, and keys.auth are required"))
+		WriteError(w, r, badRequestf("endpoint, keys.p256dh, and keys.auth are required"))
 		return
 	}
 	sub := store.PushSubscription{
@@ -62,7 +62,7 @@ func (h *Push) Subscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := h.app.DB.UpsertPushSubscription(r.Context(), sub)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, out)
@@ -78,7 +78,7 @@ func (h *Push) Unsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.DeletePushSubscription(r.Context(), u.ID, body.Endpoint); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	writeOK(w)
@@ -94,7 +94,7 @@ func (h *Push) SetEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.SetPushSubscriptionEnabled(r.Context(), u.ID, body.Endpoint, body.Enabled); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	writeOK(w)
@@ -112,11 +112,11 @@ func (h *Push) available(w http.ResponseWriter) bool {
 func readEndpoint(w http.ResponseWriter, r *http.Request) (endpointBody, bool) {
 	var body endpointBody
 	if err := ReadJSON(r, &body); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return body, false
 	}
 	if body.Endpoint == "" {
-		WriteError(w, badRequestf("endpoint is required"))
+		WriteError(w, r, badRequestf("endpoint is required"))
 		return body, false
 	}
 	return body, true

@@ -56,41 +56,41 @@ func (h *Containers) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.requireChannelManagement(r.Context(), u, "creates"); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var req channelRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	slug := strings.ToLower(strings.TrimSpace(req.Slug))
 	if !slugPattern.MatchString(slug) {
-		WriteError(w, badRequestf("slug must match ^[a-z0-9][a-z0-9-]{0,63}$"))
+		WriteError(w, r, badRequestf("slug must match ^[a-z0-9][a-z0-9-]{0,63}$"))
 		return
 	}
 	name, err := boundedField("name", req.Name, maxNameLength)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	topic, err := boundedTopic(req.Topic)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	c, err := h.app.DB.CreateChannel(r.Context(), slug, name, topic, u.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			WriteError(w, conflictf("a channel with the slug %s already exists", slug))
+			WriteError(w, r, conflictf("a channel with the slug %s already exists", slug))
 			return
 		}
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	view, err := h.app.DB.ContainerView(r.Context(), u.ID, c.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, c))
@@ -109,51 +109,51 @@ func (h *Containers) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.requireChannelManagement(r.Context(), u, "edits"); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var req channelUpdate
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if req.Slug != nil {
-		WriteError(w, badRequestf("slug cannot be changed"))
+		WriteError(w, r, badRequestf("slug cannot be changed"))
 		return
 	}
 	c, err := h.app.DB.GetContainer(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if c.Kind != store.ContainerChannel {
-		WriteError(w, badRequestf("only a channel carries a name and a topic"))
+		WriteError(w, r, badRequestf("only a channel carries a name and a topic"))
 		return
 	}
 	name, err := boundedField("name", req.Name, maxNameLength)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	topic := c.Topic
 	if req.Topic != nil {
 		if topic, err = boundedTopic(req.Topic); err != nil {
-			WriteError(w, err)
+			WriteError(w, r, err)
 			return
 		}
 	}
 	if err := h.app.DB.UpdateChannel(r.Context(), id, name, topic); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	updated, err := h.app.DB.GetContainer(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeContainer, updated))
@@ -167,16 +167,16 @@ func (h *Containers) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := containerFor(r.Context(), h.app, id, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	view, err := h.app.DB.ContainerView(r.Context(), u.ID, id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, view)
@@ -211,7 +211,7 @@ func (h *Containers) List(w http.ResponseWriter, r *http.Request) {
 	}
 	views, err := h.app.DB.ContainerViews(r.Context(), u.ID, queryBool(r, "include_archived"))
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(views))
@@ -224,17 +224,17 @@ func (h *Containers) SetRead(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var req readRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	read, err := h.app.MarkRead(r.Context(), u.ID, id, req.Seq)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, read)
@@ -247,32 +247,32 @@ func (h *Containers) SetNotificationPref(w http.ResponseWriter, r *http.Request)
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := containerFor(r.Context(), h.app, id, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var req notificationPrefRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	level := store.NotificationLevel(req.Level)
 	switch level {
 	case store.LevelAll, store.LevelMentions, store.LevelNone:
 	default:
-		WriteError(w, badRequestf("level must be one of all, mentions, none"))
+		WriteError(w, r, badRequestf("level must be one of all, mentions, none"))
 		return
 	}
 	if err := h.app.DB.SetNotificationPref(r.Context(), u.ID, id, level); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	view, err := h.app.DB.ContainerView(r.Context(), u.ID, id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, view)
@@ -285,7 +285,7 @@ func (h *Containers) CreateConversation(w http.ResponseWriter, r *http.Request) 
 	}
 	var req conversationRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	seen := map[uuid.UUID]bool{u.ID: true}
@@ -297,31 +297,31 @@ func (h *Containers) CreateConversation(w http.ResponseWriter, r *http.Request) 
 		seen[id] = true
 		p, err := h.app.DB.GetUser(r.Context(), id)
 		if err != nil {
-			WriteError(w, err)
+			WriteError(w, r, err)
 			return
 		}
 		if p.Kind != store.UserHuman {
-			WriteError(w, badRequestf("agent @%s cannot join a conversation", p.Handle))
+			WriteError(w, r, badRequestf("agent @%s cannot join a conversation", p.Handle))
 			return
 		}
 		if !p.Active() {
-			WriteError(w, badRequestf("@%s is deactivated", p.Handle))
+			WriteError(w, r, badRequestf("@%s is deactivated", p.Handle))
 			return
 		}
 		participants = append(participants, id)
 	}
 	if len(participants) < 2 {
-		WriteError(w, badRequestf("user_ids must name at least one other user"))
+		WriteError(w, r, badRequestf("user_ids must name at least one other user"))
 		return
 	}
 	c, err := h.app.DB.GetOrCreateConversation(r.Context(), participants, u.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	view, err := h.app.DB.ContainerView(r.Context(), u.ID, c.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToUsers(participants, socket.NewFrame(socket.TypeContainer, c))
@@ -331,7 +331,7 @@ func (h *Containers) CreateConversation(w http.ResponseWriter, r *http.Request) 
 func (h *Containers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.app.DB.ListDirectory(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(users))

@@ -94,7 +94,7 @@ type adminAuditPage struct {
 func (h *Admin) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.app.DB.ListUsers(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(users))
@@ -103,17 +103,17 @@ func (h *Admin) ListUsers(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var req adminUserRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
 	if !handlePattern.MatchString(handle) {
-		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
+		WriteError(w, r, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
 	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	created, err := h.app.DB.CreateUser(r.Context(), store.User{
@@ -123,7 +123,7 @@ func (h *Admin) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:       optionalString(strings.TrimSpace(req.Email)),
 	})
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, created.Directory()))
@@ -146,15 +146,15 @@ func (h *Admin) DeactivateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if target.ID == admin.ID {
-		WriteError(w, conflictf("an administrator cannot deactivate their own account"))
+		WriteError(w, r, conflictf("an administrator cannot deactivate their own account"))
 		return
 	}
 	if err := h.app.DB.DeactivateUser(r.Context(), target.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.publishUser(r, target.ID)
@@ -174,24 +174,24 @@ func (h *Admin) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	var req adminPasswordRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if len(req.Password) < minPasswordLength {
-		WriteError(w, badRequestf("password must be at least %d characters", minPasswordLength))
+		WriteError(w, r, badRequestf("password must be at least %d characters", minPasswordLength))
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		WriteError(w, fmt.Errorf("hash password: %w", err))
+		WriteError(w, r, fmt.Errorf("hash password: %w", err))
 		return
 	}
 	if err := h.app.DB.SetPassword(r.Context(), target.ID, hash); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	audit(r, h.app, store.AuditEvent{
@@ -214,19 +214,19 @@ func (h *Admin) SetAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req adminFlagRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if target.ID == admin.ID && !req.IsAdmin {
-		WriteError(w, conflictf("an administrator cannot drop their own administrator flag"))
+		WriteError(w, r, conflictf("an administrator cannot drop their own administrator flag"))
 		return
 	}
 	if err := h.app.DB.SetAdmin(r.Context(), target.ID, req.IsAdmin); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.DB.DeleteSessionsForUser(r.Context(), target.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.publishUser(r, target.ID)
@@ -243,7 +243,7 @@ func (h *Admin) SetAdmin(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) ListInvites(w http.ResponseWriter, r *http.Request) {
 	invites, err := h.app.DB.ListInvites(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	out := make([]adminInvite, 0, len(invites))
@@ -260,7 +260,7 @@ func (h *Admin) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	var req adminInviteRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	ttl := time.Duration(req.ExpiresIn) * time.Second
@@ -269,7 +269,7 @@ func (h *Admin) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, hash, err := auth.NewToken()
 	if err != nil {
-		WriteError(w, fmt.Errorf("mint invite token: %w", err))
+		WriteError(w, r, fmt.Errorf("mint invite token: %w", err))
 		return
 	}
 	err = h.app.DB.CreateInvite(r.Context(), store.Invite{
@@ -279,12 +279,12 @@ func (h *Admin) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: time.Now().Add(ttl),
 	})
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	stored, err := h.app.DB.GetInvite(r.Context(), hash)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	out := inviteView(stored)
@@ -301,11 +301,11 @@ func (h *Admin) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	hash, err := hex.DecodeString(id)
 	if err != nil {
-		WriteError(w, badRequestf("id must be an invite id in hex"))
+		WriteError(w, r, badRequestf("id must be an invite id in hex"))
 		return
 	}
 	if err := h.app.DB.RevokeInvite(r.Context(), hash); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	audit(r, h.app, store.AuditEvent{
@@ -319,7 +319,7 @@ func (h *Admin) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) ListChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := h.app.DB.ListChannels(r.Context(), true)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(channels))
@@ -331,7 +331,7 @@ func (h *Admin) ArchiveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.ArchiveChannel(r.Context(), c.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.publishChannel(r, c.ID)
@@ -350,7 +350,7 @@ func (h *Admin) UnarchiveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.UnarchiveChannel(r.Context(), c.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.publishChannel(r, c.ID)
@@ -366,7 +366,7 @@ func (h *Admin) UnarchiveChannel(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) ListAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := h.app.DB.ListAgents(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(agents))
@@ -375,27 +375,27 @@ func (h *Admin) ListAgents(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) ReserveAgent(w http.ResponseWriter, r *http.Request) {
 	var req adminAgentRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
 	if !handlePattern.MatchString(handle) {
-		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
+		WriteError(w, r, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
 	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	raw, hash, err := auth.NewToken()
 	if err != nil {
-		WriteError(w, fmt.Errorf("mint claim token: %w", err))
+		WriteError(w, r, fmt.Errorf("mint claim token: %w", err))
 		return
 	}
 	info, err := h.app.DB.ReserveAgent(r.Context(), handle, displayName, hash)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, info.User.Directory()))
@@ -414,7 +414,7 @@ func (h *Admin) DeregisterAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.Agents.Deregister(r.Context(), info); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Log.Info().Str("agent", info.User.Handle).Msg("agent deregistered")
@@ -434,7 +434,7 @@ func (h *Admin) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	freed, err := h.app.DB.DeleteAgent(r.Context(), info.User.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if freed {
@@ -457,7 +457,7 @@ func (h *Admin) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) Stats(w http.ResponseWriter, r *http.Request) {
 	stats, err := h.app.DB.Stats(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, adminStats{Stats: stats, MediaTools: h.app.Media.Tools()})
@@ -466,7 +466,7 @@ func (h *Admin) Stats(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
 	last, err := h.app.Retention.LastRun(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	out := adminRetention{
@@ -484,13 +484,13 @@ func (h *Admin) Retention(w http.ResponseWriter, r *http.Request) {
 func (h *Admin) Audit(w http.ResponseWriter, r *http.Request) {
 	before, err := queryUUID(r, "before")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	limit := queryLimit(r, defaultAuditPage, maxAuditPage)
 	events, err := h.app.DB.ListAuditEvents(r.Context(), before, limit)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	out := adminAuditPage{Events: nonNil(events)}
@@ -521,16 +521,16 @@ func (h *Admin) publishChannel(r *http.Request, id uuid.UUID) {
 func (h *Admin) human(w http.ResponseWriter, r *http.Request) (store.User, bool) {
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.User{}, false
 	}
 	u, err := h.app.DB.GetUser(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.User{}, false
 	}
 	if u.Kind != store.UserHuman {
-		WriteError(w, badRequestf("%s is an agent and is managed through the agent endpoints", u.Handle))
+		WriteError(w, r, badRequestf("%s is an agent and is managed through the agent endpoints", u.Handle))
 		return store.User{}, false
 	}
 	return u, true
@@ -539,16 +539,16 @@ func (h *Admin) human(w http.ResponseWriter, r *http.Request) (store.User, bool)
 func (h *Admin) channel(w http.ResponseWriter, r *http.Request) (store.Container, bool) {
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Container{}, false
 	}
 	c, err := h.app.DB.GetContainer(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Container{}, false
 	}
 	if c.Kind != store.ContainerChannel {
-		WriteError(w, badRequestf("%s is not a channel", id))
+		WriteError(w, r, badRequestf("%s is not a channel", id))
 		return store.Container{}, false
 	}
 	return c, true
@@ -557,7 +557,7 @@ func (h *Admin) channel(w http.ResponseWriter, r *http.Request) (store.Container
 func (h *Admin) agent(w http.ResponseWriter, r *http.Request) (store.AgentInfo, bool) {
 	info, err := h.app.DB.AgentByHandle(r.Context(), r.PathValue("handle"))
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.AgentInfo{}, false
 	}
 	return info, true

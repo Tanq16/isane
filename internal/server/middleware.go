@@ -70,7 +70,7 @@ func (s *Server) sameOrigin(next http.Handler) http.Handler {
 				Str("origin", r.Header.Get("Origin")).
 				Str("path", r.URL.Path).
 				Msg("rejected a cross-origin request")
-			handlers.WriteError(w, fmt.Errorf("%w: this request must come from %s",
+			handlers.WriteError(w, r, fmt.Errorf("%w: this request must come from %s",
 				handlers.ErrForbidden, s.publicOrigin()))
 			return
 		}
@@ -195,13 +195,13 @@ func (s *Server) agentAuth(next http.Handler) http.Handler {
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), bearerPrefix)
 		handle := strings.TrimSpace(r.Header.Get(agentHandleHeader))
 		if !ok || token == "" || handle == "" {
-			handlers.WriteError(w, fmt.Errorf("%w: agent claim token required", handlers.ErrUnauthorized))
+			handlers.WriteError(w, r, fmt.Errorf("%w: agent claim token required", handlers.ErrUnauthorized))
 			return
 		}
 		info, err := s.app.Agents.Authenticate(r.Context(), handle, token)
 		if err != nil {
 			s.log.Warn().Err(err).Str("handle", handle).Msg("agent authentication failed")
-			handlers.WriteError(w, fmt.Errorf("%w: invalid agent claim token", handlers.ErrUnauthorized))
+			handlers.WriteError(w, r, fmt.Errorf("%w: invalid agent claim token", handlers.ErrUnauthorized))
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(handlers.WithAgent(r.Context(), info)))

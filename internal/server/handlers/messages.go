@@ -46,27 +46,27 @@ func (h *Messages) List(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := containerFor(r.Context(), h.app, id, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	limit := queryLimit(r, defaultPageLimit, maxPageLimit)
 	before, hasBefore, err := queryInt64(r, "before")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	after, hasAfter, err := queryInt64(r, "after")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	around, hasAround, err := queryInt64(r, "around")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var msgs []store.Message
@@ -81,7 +81,7 @@ func (h *Messages) List(w http.ResponseWriter, r *http.Request) {
 		msgs, err = h.app.DB.TimelineLatest(r.Context(), id, limit)
 	}
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(msgs))
@@ -93,34 +93,34 @@ func (h *Messages) Post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if u.Kind == store.UserAgent {
-		WriteError(w, forbiddenf("an agent posts only as a job result"))
+		WriteError(w, r, forbiddenf("an agent posts only as a job result"))
 		return
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	c, err := containerFor(r.Context(), h.app, id, u.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if c.ArchivedAt != nil {
-		WriteError(w, conflictf("this channel is archived"))
+		WriteError(w, r, conflictf("this channel is archived"))
 		return
 	}
 	var req postMessageRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if req.ClientID == "" {
-		WriteError(w, badRequestf("client_id is required"))
+		WriteError(w, r, badRequestf("client_id is required"))
 		return
 	}
 	if strings.TrimSpace(req.Body) == "" && len(req.AttachmentIDs) == 0 {
-		WriteError(w, badRequestf("a message needs a body or an attachment"))
+		WriteError(w, r, badRequestf("a message needs a body or an attachment"))
 		return
 	}
 	m, err := h.app.PostMessage(r.Context(), u, socket.SendPayload{
@@ -132,7 +132,7 @@ func (h *Messages) Post(w http.ResponseWriter, r *http.Request) {
 		AttachmentIDs: req.AttachmentIDs,
 	})
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusCreated, m)
@@ -145,17 +145,17 @@ func (h *Messages) Edit(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var req editMessageRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	edited, err := h.app.EditMessage(r.Context(), u, id, req.Body)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, edited)
@@ -168,11 +168,11 @@ func (h *Messages) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := h.app.DeleteMessage(r.Context(), u, id); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	writeOK(w)
@@ -185,31 +185,31 @@ func (h *Messages) Thread(w http.ResponseWriter, r *http.Request) {
 	}
 	rootID, err := pathUUID(r, "root_id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	root, err := h.app.DB.GetMessage(r.Context(), rootID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := containerFor(r.Context(), h.app, root.ContainerID, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	after, _, err := queryInt64(r, "after")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	msgs, err := h.app.DB.ThreadMessages(r.Context(), rootID, after, queryLimit(r, defaultPageLimit, maxPageLimit))
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	sub, subscribed, err := h.app.DB.ThreadSubscription(r.Context(), u.ID, rootID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	body := threadResponse{Root: root, Messages: nonNil(msgs)}
@@ -226,12 +226,12 @@ func (h *Messages) FollowedThreads(w http.ResponseWriter, r *http.Request) {
 	}
 	before, err := queryTime(r, "before")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	threads, err := h.app.DB.FollowedThreads(r.Context(), u.ID, before)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(threads))
@@ -250,32 +250,32 @@ func (h *Messages) Subscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	rootID, err := pathUUID(r, "root_id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	root, err := h.app.DB.GetMessage(r.Context(), rootID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := containerFor(r.Context(), h.app, root.ContainerID, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var req subscriptionRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	state := store.ThreadSubState(req.State)
 	switch state {
 	case store.ThreadSubscribed, store.ThreadMuted:
 	default:
-		WriteError(w, badRequestf("state must be one of subscribed, muted"))
+		WriteError(w, r, badRequestf("state must be one of subscribed, muted"))
 		return
 	}
 	if err := h.app.DB.SetThreadSubscription(r.Context(), u.ID, rootID, state); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	writeOK(w)
@@ -288,17 +288,17 @@ func (h *Messages) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
-		WriteError(w, badRequestf("q is required"))
+		WriteError(w, r, badRequestf("q is required"))
 		return
 	}
 	containerID, err := queryUUID(r, "container_id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	results, err := h.app.DB.Search(r.Context(), u.ID, query, containerID, queryLimit(r, defaultPageLimit, maxPageLimit))
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(results))
