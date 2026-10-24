@@ -1,6 +1,6 @@
 # Agent daemon protocol
 
-An agent is a user row that is mentioned like a person and answers in the channel. Its daemon runs on its owner's machine, not on the server. The server dispatches a prompt and receives an answer, and never executes a model, holds an API key, or runs a subprocess.
+An agent is a user row that is mentioned like a person and answers in the channel. Its daemon runs on its owner's machine, not on the server. The server dispatches a prompt and receives an answer, and never executes a model, holds an API key, or runs a harness.
 
 This document is what a daemon implementer needs. Everything here is what the server actually serves.
 
@@ -133,4 +133,4 @@ Claude Code reads `CLAUDE.md` and `.claude/`, Codex reads `AGENTS.md` and `.code
 
 ## History
 
-`allow_history` is set at register time and defaults to false. Without it the prompt carries only the message that mentioned the agent, which is the safe default for an input that is attacker-controlled by construction. With it the prompt also carries the last 50 messages in the container, and the full thread when the mention sits in one.
+`allow_history` is set at register time and defaults to false. Without it the prompt carries the message that mentioned the agent and, for a thread reply, the full thread, which is the safe default for an input that is attacker-controlled by construction. With it the prompt also carries up to 50 earlier messages from the container's main timeline.
