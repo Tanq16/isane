@@ -1,9 +1,12 @@
 import { state, subscribe, notify, user } from '../store.js'
 import * as api from '../api.js'
 import * as socket from '../socket.js'
-import { drawIcons, icon, iconButton } from './dom.js'
+import { currentRegistration } from '../push.js'
+import { drawIcons, icon, iconButton, touchPrimary } from './dom.js'
 import { toast } from './toast.js'
 
+const BACKGROUND_NOTICE_KEY = 'isane:call-background-notice-seen'
+const MIC_NOTICE_TAG = 'isane-call-microphone'
 
 const TONES = {
   on: 'bg-surface0 text-text hover:bg-surface1',
@@ -65,6 +68,7 @@ let micOn = true
 let cameraOn = false
 let screenOn = false
 let wakeLock = null
+let hiddenAt = 0
 let frame = 0
 let statusText = ''
 let dismissed = false
@@ -188,6 +192,56 @@ async function releaseWakeLock() {
     await wakeLock.release()
   } catch {}
   wakeLock = null
+}
+
+function noticeSeen() {
+  try {
+    return localStorage.getItem(BACKGROUND_NOTICE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function rememberNotice() {
+  try {
+    localStorage.setItem(BACKGROUND_NOTICE_KEY, '1')
+  } catch {}
+}
+
+function showMicNotice() {
+  const registration = currentRegistration()
+  if (!registration || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  registration.showNotification('Your microphone is off', {
+    body: 'Nobody in the call can hear you while Isane is in the background.',
+    tag: MIC_NOTICE_TAG,
+    icon: '/static/icons/icon-192.png',
+    badge: '/static/icons/badge-96.png',
+  }).catch((err) => console.error('microphone notice failed', err))
+}
+
+function clearMicNotice() {
+  const registration = currentRegistration()
+  if (!registration) return
+  registration.getNotifications({ tag: MIC_NOTICE_TAG }).then((list) => {
+    for (const notification of list) notification.close()
+  }, () => {})
+}
+
+function onVisibility() {
+  if (!joined) return
+  if (document.visibilityState !== 'visible') {
+    if (!touchPrimary()) return
+    hiddenAt = Date.now()
+    showMicNotice()
+    return
+  }
+  acquireWakeLock()
+  if (!hiddenAt) return
+  clearMicNotice()
+  if (Date.now() - hiddenAt > 2000) {
+    toast('Your microphone was off while Isane was in the background', { severity: 'warning' })
+  }
+  hiddenAt = 0
 }
 
 function tileKey(identity, source) {
@@ -358,6 +412,10 @@ async function join(call, mic) {
     screenOn = false
     statusText = ''
     await acquireWakeLock()
+    if (touchPrimary() && !noticeSeen()) {
+      toast('Keep Isane on screen during the call. Android stops the microphone for apps in the background.', { severity: 'warning' })
+      rememberNotice()
+    }
   } catch (err) {
     mic.stop()
     statusText = ''
@@ -411,6 +469,8 @@ function teardown() {
   }
   audioSinkEl.replaceChildren()
   releaseWakeLock()
+  hiddenAt = 0
+  clearMicNotice()
   notify('calls')
   render()
 }
@@ -708,9 +768,7 @@ export function mount(root) {
 
   stripMedia.addEventListener('change', scheduleRender)
 
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && joined) acquireWakeLock()
-  })
+  document.addEventListener('visibilitychange', onVisibility)
 
   socket.on('call_ended', (d) => {
     if (activeCall && d.call_id === activeCall.id) leave()
