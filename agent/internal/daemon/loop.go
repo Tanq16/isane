@@ -117,10 +117,13 @@ func runJob(ctx context.Context, cfg Config, store *Store, api *API, agent Agent
 		Timeout: cfg.Timeout,
 	})
 	var res agentproto.ResultRequest
+	var jobErr error
 	switch {
 	case ctx.Err() != nil:
+		jobErr = ctx.Err()
 		res.Error = interruptedError
 	case err != nil:
+		jobErr = err
 		res.Error = err.Error()
 	default:
 		res.Result = answer
@@ -132,8 +135,8 @@ func runJob(ctx context.Context, cfg Config, store *Store, api *API, agent Agent
 		u.PrintError("could not post the answer for job "+id, err)
 		return
 	}
-	if res.Error != "" {
-		u.PrintWarn("job "+id+" failed: "+res.Error, nil)
+	if jobErr != nil {
+		u.PrintWarn("job "+id+" failed", jobErr)
 		return
 	}
 	u.PrintSuccess("job " + id + " answered")
