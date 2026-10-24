@@ -16,18 +16,20 @@ import (
 var ErrClaim = errors.New("invalid claim token")
 
 type Service struct {
-	cfg *config.Config
-	db  *store.DB
+	cfg      *config.Config
+	db       *store.DB
+	shutdown <-chan struct{}
 
 	mu      sync.Mutex
 	waiters map[uuid.UUID]map[chan struct{}]struct{}
 }
 
-func New(cfg *config.Config, db *store.DB) *Service {
+func New(cfg *config.Config, db *store.DB, shutdown <-chan struct{}) *Service {
 	return &Service{
-		cfg:     cfg,
-		db:      db,
-		waiters: make(map[uuid.UUID]map[chan struct{}]struct{}),
+		cfg:      cfg,
+		db:       db,
+		shutdown: shutdown,
+		waiters:  make(map[uuid.UUID]map[chan struct{}]struct{}),
 	}
 }
 

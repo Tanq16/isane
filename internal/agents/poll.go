@@ -25,6 +25,8 @@ func (s *Service) Poll(ctx context.Context, a store.AgentInfo, wait time.Duratio
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-s.shutdown:
+		return nil, nil
 	case <-timer.C:
 	case <-woken:
 	}

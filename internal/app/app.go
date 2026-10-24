@@ -66,7 +66,7 @@ func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logg
 		Push:       push.New(cfg, db),
 		Calls:      calls.New(cfg),
 		Media:      mediaSvc,
-		Agents:     agents.New(cfg, db),
+		Agents:     agents.New(cfg, db, base.Done()),
 		Retention:  retention.New(cfg, db, mediaSvc),
 		Log:        log,
 		cfg:        cfg,
