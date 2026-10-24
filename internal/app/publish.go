@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 	"uuid"
 
 	"github.com/tanq16/isane/internal/markdown"
 	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
+
+const maxEmojiLength = 32
 
 func (a *App) PublishMessage(ctx context.Context, m store.Message, c store.Container) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundTimeout)
@@ -182,6 +185,37 @@ func (a *App) DeleteMessage(ctx context.Context, actor store.User, messageID uui
 		socket.MessageDeletedPayload{ID: deleted.ID, ContainerID: deleted.ContainerID, Seq: deleted.Seq,
 			ThreadRootID: deleted.ThreadRootID}))
 	return deleted, nil
+}
+
+func (a *App) ReactMessage(ctx context.Context, actor store.User, messageID uuid.UUID, emoji string, on bool) error {
+	if strings.TrimSpace(emoji) == "" || utf8.RuneCountInString(emoji) > maxEmojiLength {
+		return fmt.Errorf("react: %w: the emoji must be 1 to %d characters", ErrInvalid, maxEmojiLength)
+	}
+	m, err := a.writableMessage(ctx, actor, messageID)
+	if err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	a.reactions.Lock()
+	defer a.reactions.Unlock()
+	if on {
+		err = a.DB.AddReaction(ctx, m.ID, actor.ID, emoji)
+	} else {
+		err = a.DB.RemoveReaction(ctx, m.ID, actor.ID, emoji)
+	}
+	if err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	byMessage, err := a.DB.ReactionsForMessages(ctx, []uuid.UUID{m.ID})
+	if err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	reactions := byMessage[m.ID]
+	if reactions == nil {
+		reactions = []store.Reaction{}
+	}
+	a.Broadcast(ctx, m.ContainerID, socket.NewFrame(socket.TypeMessageReactions,
+		socket.MessageReactionsPayload{ID: m.ID, ContainerID: m.ContainerID, Reactions: reactions}))
+	return nil
 }
 
 func (a *App) MarkRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (socket.ReadEventPayload, error) {

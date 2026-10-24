@@ -210,6 +210,12 @@ type Message struct {
 	Attachments       []Attachment   `json:"attachments,omitempty"`
 	Mentions          []uuid.UUID    `json:"mentions,omitempty"`
 	Recording         *CallRecording `json:"recording,omitempty"`
+	Reactions         []Reaction     `json:"reactions,omitempty"`
+}
+
+type Reaction struct {
+	Emoji string      `json:"emoji"`
+	Users []uuid.UUID `json:"users"`
 }
 
 type ThreadSummary struct {

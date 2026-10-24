@@ -225,6 +225,9 @@ function apply(type, d) {
     case 'message_deleted':
       onDeleted(d)
       return
+    case 'message_reactions':
+      onReactions(d)
+      return
     case 'read':
       onRead(d)
       return
@@ -450,6 +453,13 @@ function onDeleted(d) {
   if (!m) return
   m.body = ''
   m.deleted_at = d.deleted_at ?? new Date().toISOString()
+  notify('messages')
+}
+
+function onReactions(d) {
+  const m = findMessage(d.id)
+  if (!m) return
+  m.reactions = Array.isArray(d.reactions) ? d.reactions : []
   notify('messages')
 }
 

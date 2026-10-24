@@ -73,9 +73,14 @@ func (db *DB) hydrateRefs(ctx context.Context, msgs []*Message) error {
 	if err != nil {
 		return err
 	}
+	reactions, err := db.ReactionsForMessages(ctx, ids)
+	if err != nil {
+		return err
+	}
 	for _, m := range msgs {
 		m.Attachments = attachments[m.ID]
 		m.Mentions = mentions[m.ID]
+		m.Reactions = reactions[m.ID]
 		if m.RecordingID == nil {
 			continue
 		}

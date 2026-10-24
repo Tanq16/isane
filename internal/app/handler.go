@@ -202,6 +202,14 @@ func (a *App) markThreadRead(ctx context.Context, userID, rootID uuid.UUID, seq 
 	return nil
 }
 
+func (a *App) React(ctx context.Context, c *socket.Conn, p socket.ReactPayload) error {
+	if err := a.ReactMessage(ctx, c.User(), p.MessageID, p.Emoji, p.On); err != nil {
+		a.fail(c, "", err)
+		return err
+	}
+	return nil
+}
+
 func (a *App) fail(c *socket.Conn, clientID string, err error) {
 	code := errorCode(err)
 	message := err.Error()

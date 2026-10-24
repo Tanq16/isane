@@ -19,25 +19,27 @@ const (
 	TypeTyping     = "typing"
 	TypeThreadSub  = "thread_sub"
 	TypeThreadRead = "thread_read"
+	TypeReact      = "react"
 	TypePing       = "ping"
 
-	TypeReady           = "ready"
-	TypeMessage         = "message"
-	TypeMessageEdited   = "message_edited"
-	TypeMessageDeleted  = "message_deleted"
-	TypePresence        = "presence"
-	TypeCallStarted     = "call_started"
-	TypeCallParticipant = "call_participant"
-	TypeCallRecording   = "call_recording"
-	TypeCallEnded       = "call_ended"
-	TypeAgentWorking    = "agent_working"
-	TypeAgentDone       = "agent_done"
-	TypeSettings        = "settings"
-	TypeContainer       = "container"
-	TypeUser            = "user"
-	TypeAttachment      = "attachment"
-	TypePong            = "pong"
-	TypeError           = "error"
+	TypeReady            = "ready"
+	TypeMessage          = "message"
+	TypeMessageEdited    = "message_edited"
+	TypeMessageDeleted   = "message_deleted"
+	TypeMessageReactions = "message_reactions"
+	TypePresence         = "presence"
+	TypeCallStarted      = "call_started"
+	TypeCallParticipant  = "call_participant"
+	TypeCallRecording    = "call_recording"
+	TypeCallEnded        = "call_ended"
+	TypeAgentWorking     = "agent_working"
+	TypeAgentDone        = "agent_done"
+	TypeSettings         = "settings"
+	TypeContainer        = "container"
+	TypeUser             = "user"
+	TypeAttachment       = "attachment"
+	TypePong             = "pong"
+	TypeError            = "error"
 )
 
 const (
@@ -105,6 +107,18 @@ type ThreadSubPayload struct {
 type ThreadReadPayload struct {
 	ThreadRootID uuid.UUID `json:"thread_root_id"`
 	Seq          int64     `json:"seq"`
+}
+
+type ReactPayload struct {
+	MessageID uuid.UUID `json:"message_id"`
+	Emoji     string    `json:"emoji"`
+	On        bool      `json:"on"`
+}
+
+type MessageReactionsPayload struct {
+	ID          uuid.UUID        `json:"id"`
+	ContainerID uuid.UUID        `json:"container_id"`
+	Reactions   []store.Reaction `json:"reactions"`
 }
 
 type TypingEventPayload struct {
