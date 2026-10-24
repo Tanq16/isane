@@ -20,7 +20,7 @@ func (s *Service) Sweep(ctx context.Context) (int, error) {
 	if hours := s.cfg.Retention.StagedUploadHours; hours > 0 {
 		staged, err := s.db.ListStagedBefore(ctx, time.Now().Add(-time.Duration(hours)*time.Hour))
 		if err != nil {
-			return 0, fmt.Errorf("list staged attachments: %w", err)
+			return 0, err
 		}
 		candidates = staged
 	}

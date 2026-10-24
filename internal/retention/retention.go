@@ -51,7 +51,7 @@ func (s *Sweeper) Run(ctx context.Context) error {
 	if days := s.cfg.Retention.AuditDays; days > 0 {
 		auditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
 		if err != nil {
-			errs = append(errs, fmt.Errorf("delete audit events: %w", err))
+			errs = append(errs, err)
 		}
 	}
 
@@ -104,7 +104,7 @@ func (s *Sweeper) sweepRecordings(ctx context.Context) (int, error) {
 	}
 	recordings, err := s.db.ListRecordingsBefore(ctx, daysAgo(days))
 	if err != nil {
-		return 0, fmt.Errorf("list recordings: %w", err)
+		return 0, err
 	}
 
 	deleted := 0

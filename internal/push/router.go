@@ -107,7 +107,7 @@ func (r *Router) recipients(ctx context.Context, m store.Message, author store.U
 	}
 	humans, err := r.db.ListActiveHumans(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list active humans: %w", err)
+		return nil, err
 	}
 	human := make(map[uuid.UUID]struct{}, len(humans))
 	for _, u := range humans {
@@ -123,12 +123,12 @@ func (r *Router) recipients(ctx context.Context, m store.Message, author store.U
 	}
 	rt.prefs, err = r.db.NotificationPrefsFor(ctx, c.ID)
 	if err != nil {
-		return nil, fmt.Errorf("list notification prefs: %w", err)
+		return nil, err
 	}
 	if m.ThreadRootID != nil {
 		rt.threads, err = r.db.ThreadSubscriptions(ctx, *m.ThreadRootID)
 		if err != nil {
-			return nil, fmt.Errorf("list thread subscriptions: %w", err)
+			return nil, err
 		}
 	}
 	out := make([]uuid.UUID, 0, len(memberIDs))
@@ -155,7 +155,7 @@ type target struct {
 func (r *Router) targets(ctx context.Context, userID uuid.UUID, m store.Message, author store.User, c store.Container) ([]target, error) {
 	subs, err := r.db.ListPushSubscriptions(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("list push subscriptions: %w", err)
+		return nil, err
 	}
 	if len(subs) == 0 {
 		return nil, nil

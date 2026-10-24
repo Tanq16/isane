@@ -131,7 +131,7 @@ func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, 
 func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, error) {
 	a, err := s.db.GetAttachment(ctx, id)
 	if err != nil {
-		return store.Attachment{}, fmt.Errorf("get attachment: %w", err)
+		return store.Attachment{}, err
 	}
 	if a.State != store.AttachmentStaged {
 		return a, nil
@@ -153,13 +153,9 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 		size = info.Size()
 	}
 	if err := s.db.FinishAttachment(ctx, id, cmp.Or(res.kind, a.Kind), res.mime, size, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
-		return a, fmt.Errorf("finish attachment: %w", err)
+		return a, err
 	}
-	a, err = s.db.GetAttachment(ctx, id)
-	if err != nil {
-		return a, fmt.Errorf("get attachment: %w", err)
-	}
-	return a, nil
+	return s.db.GetAttachment(ctx, id)
 }
 
 type result struct {
@@ -213,7 +209,7 @@ func (s *Service) Delete(ctx context.Context, a store.Attachment) error {
 		}
 	}
 	if err := s.db.DeleteAttachment(ctx, a.ID); err != nil {
-		return fmt.Errorf("delete attachment %s: %w", a.ID, err)
+		return fmt.Errorf("attachment %s: %w", a.ID, err)
 	}
 	return nil
 }

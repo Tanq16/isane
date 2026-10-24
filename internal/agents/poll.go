@@ -67,7 +67,7 @@ func (s *Service) Complete(ctx context.Context, a store.AgentInfo, jobID uuid.UU
 func (s *Service) ExpireStale(ctx context.Context) ([]store.AgentJob, error) {
 	jobs, err := s.db.ExpireStaleJobs(ctx, s.cfg.Agents.JobTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("expire stale jobs: %w", err)
+		return nil, err
 	}
 	for _, j := range jobs {
 		s.log.Warn().Str("job", j.ID.String()).Dur("timeout", s.cfg.Agents.JobTimeout).
