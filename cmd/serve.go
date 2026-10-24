@@ -34,7 +34,7 @@ func init() {
 func runServe(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(serveFlags.config)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return fmt.Errorf("load config %s: %w", serveFlags.config, err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

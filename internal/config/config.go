@@ -139,11 +139,11 @@ func Load(path string) (*Config, error) {
 	cfg := Default()
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("read config %s: %w", path, err)
+		return nil, err
 	}
 	if err == nil {
 		if err := yaml.Unmarshal(raw, &cfg); err != nil {
-			return nil, fmt.Errorf("parse config %s: %w", path, err)
+			return nil, err
 		}
 	}
 	if err := applyEnv(reflect.ValueOf(&cfg).Elem(), nil); err != nil {
