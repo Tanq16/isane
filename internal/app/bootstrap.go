@@ -34,7 +34,7 @@ func (a *App) BootstrapInvite(ctx context.Context) error {
 		ExpiresAt: time.Now().Add(bootstrapInviteTTL),
 	})
 	if err != nil {
-		return fmt.Errorf("store bootstrap invite: %w", err)
+		return err
 	}
 	url := strings.TrimSuffix(a.cfg.Server.PublicURL, "/") + "/invite/" + raw
 	path := filepath.Join(a.cfg.Media.Root, bootstrapInviteFile)
