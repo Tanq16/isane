@@ -152,8 +152,7 @@ func (a *App) guard(name string, fn func()) {
 }
 
 func (a *App) presenceChanged(userID uuid.UUID, online bool) {
-	a.Hub.ToUsers(a.Hub.OnlineUsers(), socket.NewFrame(socket.TypePresence,
-		socket.PresencePayload{UserID: userID, Online: online}))
+	a.Hub.ToAll(socket.NewFrame(socket.TypePresence, socket.PresencePayload{UserID: userID, Online: online}))
 }
 
 func (a *App) expireAgentJobs(ctx context.Context) {

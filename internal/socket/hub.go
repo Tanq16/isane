@@ -33,7 +33,7 @@ type Hub struct {
 	cancel   context.CancelFunc
 
 	mu       sync.RWMutex
-	conns    map[uuid.UUID]map[*Conn]struct{}
+	conns    map[uuid.UUID]map[*Conn]bool
 	handler  Handler
 	presence []func(userID uuid.UUID, online bool)
 }
@@ -45,7 +45,7 @@ func NewHub(log zerolog.Logger) *Hub {
 		upgrader: websocket.Upgrader{ReadBufferSize: 4096, WriteBufferSize: 4096},
 		ctx:      ctx,
 		cancel:   cancel,
-		conns:    make(map[uuid.UUID]map[*Conn]struct{}),
+		conns:    make(map[uuid.UUID]map[*Conn]bool),
 	}
 }
 
@@ -126,7 +126,7 @@ func (h *Hub) OnlineUsers() []uuid.UUID {
 	defer h.mu.RUnlock()
 	out := make([]uuid.UUID, 0, len(h.conns))
 	for id, set := range h.conns {
-		if len(set) > 0 {
+		if anyVisible(set) {
 			out = append(out, id)
 		}
 	}
@@ -164,7 +164,7 @@ func (h *Hub) Close() {
 			open = append(open, c)
 		}
 	}
-	h.conns = make(map[uuid.UUID]map[*Conn]struct{})
+	h.conns = make(map[uuid.UUID]map[*Conn]bool)
 	h.mu.Unlock()
 	for _, c := range open {
 		c.close()
@@ -175,31 +175,53 @@ func (h *Hub) add(c *Conn) {
 	h.mu.Lock()
 	set := h.conns[c.user.ID]
 	if set == nil {
-		set = make(map[*Conn]struct{})
+		set = make(map[*Conn]bool)
 		h.conns[c.user.ID] = set
 	}
-	set[c] = struct{}{}
+	set[c] = false
 	held := len(set)
 	h.mu.Unlock()
 	h.log.Debug().Str("user", c.user.Handle).Int("sockets", held).Msg("socket connected")
-	if held == 1 {
-		h.firePresence(c.user.ID, true)
-	}
 }
 
 func (h *Hub) remove(c *Conn) {
 	h.mu.Lock()
 	set := h.conns[c.user.ID]
-	_, held := set[c]
+	before := anyVisible(set)
 	delete(set, c)
 	if len(set) == 0 {
 		delete(h.conns, c.user.ID)
 	}
-	last := held && len(set) == 0
+	after := anyVisible(set)
 	h.mu.Unlock()
-	if last {
-		h.firePresence(c.user.ID, false)
+	if before != after {
+		h.firePresence(c.user.ID, after)
 	}
+}
+
+func (h *Hub) setVisible(c *Conn, visible bool) {
+	h.mu.Lock()
+	set := h.conns[c.user.ID]
+	if _, held := set[c]; !held {
+		h.mu.Unlock()
+		return
+	}
+	before := anyVisible(set)
+	set[c] = visible
+	after := anyVisible(set)
+	h.mu.Unlock()
+	if before != after {
+		h.firePresence(c.user.ID, after)
+	}
+}
+
+func anyVisible(set map[*Conn]bool) bool {
+	for _, visible := range set {
+		if visible {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) firePresence(userID uuid.UUID, online bool) {
@@ -212,8 +234,17 @@ func (h *Hub) firePresence(userID uuid.UUID, online bool) {
 }
 
 func (h *Hub) dispatch(c *Conn, f Frame) {
-	if f.T == TypePing {
+	switch f.T {
+	case TypePing:
 		c.Send(NewFrame(TypePong, nil))
+		return
+	case TypeVisibility:
+		var p VisibilityPayload
+		if err := decode(f, &p); err != nil {
+			h.log.Warn().Err(err).Str("type", f.T).Str("user", c.user.Handle).Msg("frame rejected")
+			return
+		}
+		h.setVisible(c, !p.Hidden)
 		return
 	}
 	h.mu.RLock()
@@ -229,7 +260,10 @@ func (h *Hub) dispatch(c *Conn, f Frame) {
 	var err error
 	switch f.T {
 	case TypeHello:
-		err = handle(ctx, c, f, handler.Hello)
+		err = handle(ctx, c, f, func(ctx context.Context, c *Conn, p HelloPayload) error {
+			h.setVisible(c, !p.Hidden)
+			return handler.Hello(ctx, c, p)
+		})
 	case TypeSend:
 		err = handle(ctx, c, f, handler.Send)
 	case TypeEdit:
