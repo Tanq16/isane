@@ -97,7 +97,7 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 			writeUploadError(w, r, err)
 			return
 		}
-		h.app.QueueAttachment(r.Context(), a.ID)
+		h.app.QueueAttachment(a.ID)
 		WriteJSON(w, http.StatusCreated, a)
 		return
 	}

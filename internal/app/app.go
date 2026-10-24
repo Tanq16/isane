@@ -254,16 +254,15 @@ func (a *App) requeueProcessingAttachments(ctx context.Context) {
 		a.Log.Error().Err(err).Msg("requeue processing attachments")
 		return
 	}
-	a.Spawn("requeue attachments", func(ctx context.Context) {
+	a.Spawn("requeue attachments", func(context.Context) {
 		for _, id := range ids {
-			a.QueueAttachment(ctx, id)
+			a.QueueAttachment(id)
 		}
 	})
 }
 
-func (a *App) QueueAttachment(ctx context.Context, id uuid.UUID) {
+func (a *App) QueueAttachment(id uuid.UUID) {
 	select {
-	case <-ctx.Done():
 	case <-a.ctx.Done():
 	case a.attachments <- id:
 	}
