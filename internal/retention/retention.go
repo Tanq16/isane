@@ -38,23 +38,36 @@ func (s *Sweeper) Run(ctx context.Context) (Report, error) {
 	var report Report
 	var errs []error
 	var err error
+	canceled := func() (Report, error) { return report, errors.Join(append(errs, ctx.Err())...) }
 
+	if ctx.Err() != nil {
+		return canceled()
+	}
 	report.Attachments, err = s.media.Sweep(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("sweep staged attachments: %w", err))
 	}
 
+	if ctx.Err() != nil {
+		return canceled()
+	}
 	report.OrphanUploads, err = s.media.SweepUploads(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("sweep orphan uploads: %w", err))
 	}
 
+	if ctx.Err() != nil {
+		return canceled()
+	}
 	report.Recordings, err = s.sweepRecordings(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
 	if days := s.cfg.Retention.AuditDays; days > 0 {
+		if ctx.Err() != nil {
+			return canceled()
+		}
 		report.AuditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
 		if err != nil {
 			errs = append(errs, err)
@@ -62,10 +75,16 @@ func (s *Sweeper) Run(ctx context.Context) (Report, error) {
 	}
 
 	if days := s.cfg.Retention.MessageDays; days > 0 {
+		if ctx.Err() != nil {
+			return canceled()
+		}
 		report.Messages, err = s.db.DeleteMessagesOlderThan(ctx, daysAgo(days))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("delete messages: %w", err))
 		} else {
+			if ctx.Err() != nil {
+				return canceled()
+			}
 			orphaned, err := s.media.Sweep(ctx)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("sweep orphaned attachments: %w", err))
@@ -74,6 +93,9 @@ func (s *Sweeper) Run(ctx context.Context) (Report, error) {
 		}
 	}
 
+	if ctx.Err() != nil {
+		return canceled()
+	}
 	if err := s.db.MetaSet(ctx, lastRunKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		errs = append(errs, fmt.Errorf("record retention run: %w", err))
 	}
