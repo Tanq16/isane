@@ -417,6 +417,7 @@ func (h *Admin) DeregisterAgent(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Log.Info().Str("agent", info.User.Handle).Msg("agent deregistered")
 	audit(r, h.app, store.AuditEvent{
 		Action:      "agent.deregister",
 		TargetType:  new(targetAgent),

@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/media"
 	"github.com/tanq16/isane/internal/store"
@@ -22,42 +20,49 @@ type Sweeper struct {
 	cfg   *config.Config
 	db    *store.DB
 	media *media.Service
-	log   zerolog.Logger
 }
 
-func New(cfg *config.Config, db *store.DB, media *media.Service, log zerolog.Logger) *Sweeper {
-	return &Sweeper{cfg: cfg, db: db, media: media, log: log}
+type Report struct {
+	Attachments   int
+	OrphanUploads int
+	Recordings    int
+	AuditEvents   int64
+	Messages      int64
 }
 
-func (s *Sweeper) Run(ctx context.Context) error {
+func New(cfg *config.Config, db *store.DB, media *media.Service) *Sweeper {
+	return &Sweeper{cfg: cfg, db: db, media: media}
+}
+
+func (s *Sweeper) Run(ctx context.Context) (Report, error) {
+	var report Report
 	var errs []error
+	var err error
 
-	attachments, err := s.media.Sweep(ctx)
+	report.Attachments, err = s.media.Sweep(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("sweep staged attachments: %w", err))
 	}
 
-	orphanUploads, err := s.media.SweepUploads(ctx)
+	report.OrphanUploads, err = s.media.SweepUploads(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("sweep orphan uploads: %w", err))
 	}
 
-	recordings, err := s.sweepRecordings(ctx)
+	report.Recordings, err = s.sweepRecordings(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
-	var auditEvents int64
 	if days := s.cfg.Retention.AuditDays; days > 0 {
-		auditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
+		report.AuditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	var messages int64
 	if days := s.cfg.Retention.MessageDays; days > 0 {
-		messages, err = s.db.DeleteMessagesOlderThan(ctx, daysAgo(days))
+		report.Messages, err = s.db.DeleteMessagesOlderThan(ctx, daysAgo(days))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("delete messages: %w", err))
 		} else {
@@ -65,21 +70,14 @@ func (s *Sweeper) Run(ctx context.Context) error {
 			if err != nil {
 				errs = append(errs, fmt.Errorf("sweep orphaned attachments: %w", err))
 			}
-			attachments += orphaned
+			report.Attachments += orphaned
 		}
 	}
 
 	if err := s.db.MetaSet(ctx, lastRunKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		errs = append(errs, fmt.Errorf("record retention run: %w", err))
 	}
-	s.log.Info().
-		Int("attachments", attachments).
-		Int("orphan_uploads", orphanUploads).
-		Int("recordings", recordings).
-		Int64("audit_events", auditEvents).
-		Int64("messages", messages).
-		Msg("retention sweep complete")
-	return errors.Join(errs...)
+	return report, errors.Join(errs...)
 }
 
 func (s *Sweeper) LastRun(ctx context.Context) (time.Time, error) {
@@ -108,20 +106,21 @@ func (s *Sweeper) sweepRecordings(ctx context.Context) (int, error) {
 	}
 
 	deleted := 0
+	var errs []error
 	for _, r := range recordings {
 		if path := s.resolve(r.StoragePath); path != "" {
 			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				s.log.Error().Err(err).Str("recording", r.ID.String()).Msg("remove recording file")
+				errs = append(errs, fmt.Errorf("recording %s: %w", r.ID, err))
 				continue
 			}
 		}
 		if err := s.db.DeleteCallRecording(ctx, r.ID); err != nil {
-			s.log.Error().Err(err).Str("recording", r.ID.String()).Msg("delete recording row")
+			errs = append(errs, fmt.Errorf("recording %s: %w", r.ID, err))
 			continue
 		}
 		deleted++
 	}
-	return deleted, nil
+	return deleted, errors.Join(errs...)
 }
 
 func (s *Sweeper) resolve(path string) string {

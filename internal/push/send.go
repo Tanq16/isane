@@ -30,8 +30,8 @@ const (
 )
 
 var (
-	errSubscriptionGone = errors.New("push subscription gone")
-	errRateLimited      = errors.New("push endpoint rate limited")
+	ErrSubscriptionGone = errors.New("push subscription gone")
+	ErrRateLimited      = errors.New("push endpoint rate limited")
 )
 
 func (r *Router) send(ctx context.Context, s store.PushSubscription, body []byte) error {
@@ -64,9 +64,9 @@ func (r *Router) send(ctx context.Context, s store.PushSubscription, body []byte
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return nil
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusGone:
-		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, errSubscriptionGone)
+		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, ErrSubscriptionGone)
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, errRateLimited)
+		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, ErrRateLimited)
 	default:
 		return fmt.Errorf("push endpoint returned %d", resp.StatusCode)
 	}

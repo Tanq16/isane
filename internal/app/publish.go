@@ -9,6 +9,7 @@ import (
 	"uuid"
 
 	"github.com/tanq16/isane/internal/markdown"
+	"github.com/tanq16/isane/internal/push"
 	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
@@ -25,7 +26,7 @@ func (a *App) PublishMessage(ctx context.Context, m store.Message, c store.Conta
 		return
 	}
 	a.background("notification routing", func(ctx context.Context) {
-		a.Push.Route(ctx, m, author, c)
+		a.routeNotifications(ctx, m, author, c)
 	})
 	if author.Kind == store.UserAgent || len(m.Mentions) == 0 {
 		return
@@ -33,6 +34,28 @@ func (a *App) PublishMessage(ctx context.Context, m store.Message, c store.Conta
 	a.background("agent dispatch", func(ctx context.Context) {
 		a.dispatchAgents(ctx, m, c)
 	})
+}
+
+func (a *App) routeNotifications(ctx context.Context, m store.Message, author store.User, c store.Container) {
+	deliveries, err := a.Push.Route(ctx, m, author, c)
+	if err != nil {
+		a.Log.Error().Err(err).Str("message_id", m.ID.String()).Msg("route notifications")
+	}
+	for _, d := range deliveries {
+		sub := d.SubscriptionID.String()
+		switch {
+		case d.Err == nil:
+		case errors.Is(d.Err, push.ErrSubscriptionGone):
+			a.Log.Info().Err(d.Err).Str("subscription_id", sub).Msg("deleting dead push subscription")
+		case errors.Is(d.Err, push.ErrRateLimited):
+			a.Log.Warn().Err(d.Err).Str("subscription_id", sub).Msg("push delivery throttled")
+		default:
+			a.Log.Warn().Err(d.Err).Str("subscription_id", sub).Msg("push delivery failed")
+		}
+		if d.StoreErr != nil {
+			a.Log.Error().Err(d.StoreErr).Str("subscription_id", sub).Msg("record push outcome")
+		}
+	}
 }
 
 func (a *App) Broadcast(ctx context.Context, containerID uuid.UUID, f socket.Frame) {
@@ -299,6 +322,7 @@ func (a *App) dispatchAgents(ctx context.Context, m store.Message, c store.Conta
 	for _, d := range dispatches {
 		switch {
 		case d.Job != nil:
+			a.Log.Info().Str("agent", d.Agent.User.Handle).Str("job", d.Job.ID.String()).Msg("agent job queued")
 			a.Broadcast(ctx, c.ID, socket.NewFrame(socket.TypeAgentWorking, socket.AgentWorkingPayload{
 				ContainerID: c.ID,
 				AgentID:     d.Agent.User.ID,

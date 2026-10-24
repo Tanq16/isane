@@ -44,7 +44,6 @@ const (
 type Service struct {
 	cfg   *config.Config
 	db    *store.DB
-	log   zerolog.Logger
 	root  string
 	tools Tools
 }
@@ -65,7 +64,7 @@ func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error)
 			return nil, fmt.Errorf("create media directory: %w", err)
 		}
 	}
-	return &Service{cfg: cfg, db: db, log: log, root: root, tools: preflight(log)}, nil
+	return &Service{cfg: cfg, db: db, root: root, tools: preflight(log)}, nil
 }
 
 func (s *Service) Tools() Tools { return s.tools }
@@ -128,34 +127,35 @@ func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, 
 	return a, nil
 }
 
-func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, error) {
+func (s *Service) Process(ctx context.Context, id uuid.UUID) (done store.Attachment, skipped error, err error) {
 	a, err := s.db.GetAttachment(ctx, id)
 	if err != nil {
-		return store.Attachment{}, err
+		return store.Attachment{}, nil, err
 	}
 	if a.State != store.AttachmentStaged {
-		return a, nil
+		return a, nil, nil
 	}
 	if err := s.db.SetAttachmentState(ctx, id, store.AttachmentProcessing, nil); err != nil {
-		return a, fmt.Errorf("mark attachment processing: %w", err)
+		return a, nil, fmt.Errorf("mark attachment processing: %w", err)
 	}
 
 	res, err := s.derive(ctx, a)
 	if err != nil {
 		text := failureReason
 		if failErr := s.db.SetAttachmentState(ctx, id, store.AttachmentFailed, &text); failErr != nil {
-			return a, errors.Join(err, failErr)
+			return a, nil, errors.Join(err, failErr)
 		}
-		return a, err
+		return a, nil, err
 	}
 	size := a.SizeBytes
 	if info, statErr := os.Stat(s.abs(a.StoragePath)); statErr == nil {
 		size = info.Size()
 	}
 	if err := s.db.FinishAttachment(ctx, id, cmp.Or(res.kind, a.Kind), res.mime, size, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
-		return a, err
+		return a, nil, err
 	}
-	return s.db.GetAttachment(ctx, id)
+	a, err = s.db.GetAttachment(ctx, id)
+	return a, res.skipped, err
 }
 
 type result struct {
@@ -165,6 +165,7 @@ type result struct {
 	height     *int
 	durationMs *int
 	thumbPath  *string
+	skipped    error
 }
 
 func (s *Service) derive(ctx context.Context, a store.Attachment) (result, error) {

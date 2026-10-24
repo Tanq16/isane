@@ -36,9 +36,6 @@ func (s *Service) claim(ctx context.Context, a store.AgentInfo) ([]store.AgentJo
 	if err != nil {
 		return nil, fmt.Errorf("poll for %s: %w", a.User.Handle, err)
 	}
-	for _, j := range jobs {
-		s.log.Info().Str("agent", a.User.Handle).Str("job", j.ID.String()).Msg("agent job dispatched")
-	}
 	return jobs, nil
 }
 
@@ -52,28 +49,17 @@ func (s *Service) Complete(ctx context.Context, a store.AgentInfo, jobID uuid.UU
 		if err != nil {
 			return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, err)
 		}
-		s.log.Warn().Str("agent", a.User.Handle).Str("job", jobID.String()).
-			Str("reason", errText).Msg("agent job failed")
 		return failed, nil
 	}
 	done, err := s.db.FinishAgentJob(ctx, jobID, a.User.ID, store.JobDone, &result, nil)
 	if err != nil {
 		return store.AgentJob{}, fmt.Errorf("complete job %s: %w", jobID, err)
 	}
-	s.log.Info().Str("agent", a.User.Handle).Str("job", jobID.String()).Msg("agent job done")
 	return done, nil
 }
 
 func (s *Service) ExpireStale(ctx context.Context) ([]store.AgentJob, error) {
-	jobs, err := s.db.ExpireStaleJobs(ctx, s.cfg.Agents.JobTimeout)
-	if err != nil {
-		return nil, err
-	}
-	for _, j := range jobs {
-		s.log.Warn().Str("job", j.ID.String()).Dur("timeout", s.cfg.Agents.JobTimeout).
-			Msg("agent job timed out")
-	}
-	return jobs, nil
+	return s.db.ExpireStaleJobs(ctx, s.cfg.Agents.JobTimeout)
 }
 
 func (s *Service) listen(agentID uuid.UUID) chan struct{} {

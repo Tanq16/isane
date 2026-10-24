@@ -25,14 +25,15 @@ func (s *Service) Sweep(ctx context.Context) (int, error) {
 		candidates = staged
 	}
 	swept := 0
+	var errs []error
 	for _, a := range candidates {
 		if err := s.Delete(ctx, a); err != nil {
-			s.log.Error().Err(err).Str("attachment", a.ID.String()).Msg("sweep attachment")
+			errs = append(errs, err)
 			continue
 		}
 		swept++
 	}
-	return swept, nil
+	return swept, errors.Join(errs...)
 }
 
 func (s *Service) SweepUploads(ctx context.Context) (int, error) {
@@ -73,12 +74,13 @@ func (s *Service) SweepUploads(ctx context.Context) (int, error) {
 		delete(stale, id)
 	}
 	swept := 0
-	for id, rel := range stale {
+	var errs []error
+	for _, rel := range stale {
 		if err := removeFile(s.abs(rel)); err != nil {
-			s.log.Error().Err(err).Str("upload", id.String()).Msg("sweep orphan upload")
+			errs = append(errs, err)
 			continue
 		}
 		swept++
 	}
-	return swept, nil
+	return swept, errors.Join(errs...)
 }

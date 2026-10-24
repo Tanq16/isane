@@ -367,11 +367,12 @@ func (h *Calls) memberCall(w http.ResponseWriter, r *http.Request) (store.Call, 
 func (h *Calls) startRecording(ctx context.Context, call store.Call, startedBy uuid.UUID) error {
 	recID := uuid.New()
 	// Egress writes from its own container, which mounts the recordings directory at /out rather than at media.root.
-	egressID, err := h.app.Calls.StartRoomEgress(ctx, call.RoomName,
-		path.Join(egressOutRoot, h.app.Media.RecordingName(call.ID, recID)))
+	outPath := path.Join(egressOutRoot, h.app.Media.RecordingName(call.ID, recID))
+	egressID, err := h.app.Calls.StartRoomEgress(ctx, call.RoomName, outPath)
 	if err != nil {
 		return err
 	}
+	h.app.Log.Debug().Str("room", call.RoomName).Str("egress_id", egressID).Str("path", outPath).Msg("room egress started")
 	_, err = h.app.DB.CreateCallRecording(ctx, store.CallRecording{
 		ID:          recID,
 		CallID:      call.ID,

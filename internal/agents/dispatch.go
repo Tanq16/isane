@@ -54,6 +54,5 @@ func (s *Service) dispatchOne(ctx context.Context, m store.Message, c store.Cont
 		return Dispatch{}, fmt.Errorf("dispatch to %s: %w", a.User.Handle, err)
 	}
 	s.wake(a.User.ID)
-	s.log.Info().Str("agent", a.User.Handle).Str("job", job.ID.String()).Msg("agent job queued")
 	return Dispatch{Agent: a, Job: &job}, nil
 }

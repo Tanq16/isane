@@ -12,7 +12,6 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/utils/xtwirp"
-	"github.com/rs/zerolog"
 	"github.com/twitchtv/twirp"
 
 	"github.com/tanq16/isane/internal/config"
@@ -24,15 +23,14 @@ const apiTimeout = 30 * time.Second
 
 type Service struct {
 	cfg     *config.Config
-	log     zerolog.Logger
 	enabled bool
 	keys    auth.KeyProvider
 	rooms   livekit.RoomService
 	egress  livekit.Egress
 }
 
-func New(cfg *config.Config, log zerolog.Logger) *Service {
-	s := &Service{cfg: cfg, log: log, enabled: cfg.CallsEnabled()}
+func New(cfg *config.Config) *Service {
+	s := &Service{cfg: cfg, enabled: cfg.CallsEnabled()}
 	if !s.enabled {
 		return s
 	}

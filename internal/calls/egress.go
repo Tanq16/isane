@@ -33,11 +33,6 @@ func (s *Service) StartRoomEgress(ctx context.Context, roomName, outPath string)
 	if err != nil {
 		return "", fmt.Errorf("start room egress for %s: %w", roomName, err)
 	}
-	s.log.Debug().
-		Str("room", roomName).
-		Str("egress_id", info.EgressId).
-		Str("path", outPath).
-		Msg("room egress started")
 	return info.EgressId, nil
 }
 

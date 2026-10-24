@@ -63,11 +63,11 @@ func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logg
 	a := &App{
 		DB:         db,
 		Hub:        hub,
-		Push:       push.New(cfg, db, log),
-		Calls:      calls.New(cfg, log),
+		Push:       push.New(cfg, db),
+		Calls:      calls.New(cfg),
 		Media:      mediaSvc,
-		Agents:     agents.New(cfg, db, log),
-		Retention:  retention.New(cfg, db, mediaSvc, log),
+		Agents:     agents.New(cfg, db),
+		Retention:  retention.New(cfg, db, mediaSvc),
 		Log:        log,
 		cfg:        cfg,
 		ctx:        base,
@@ -156,6 +156,7 @@ func (a *App) expireAgentJobs(ctx context.Context) {
 		return
 	}
 	for _, job := range jobs {
+		a.Log.Warn().Str("job", job.ID.String()).Dur("timeout", a.cfg.Agents.JobTimeout).Msg("agent job timed out")
 		agent, err := a.DB.GetUser(ctx, job.AgentID)
 		if err != nil {
 			a.Log.Error().Err(err).Str("job", job.ID.String()).Msg("load timed out agent")
@@ -218,7 +219,15 @@ func (a *App) reapCalls(ctx context.Context) {
 }
 
 func (a *App) runRetention(ctx context.Context) {
-	if err := a.Retention.Run(ctx); err != nil {
+	report, err := a.Retention.Run(ctx)
+	a.Log.Info().
+		Int("attachments", report.Attachments).
+		Int("orphan_uploads", report.OrphanUploads).
+		Int("recordings", report.Recordings).
+		Int64("audit_events", report.AuditEvents).
+		Int64("messages", report.Messages).
+		Msg("retention sweep complete")
+	if err != nil {
 		a.Log.Error().Err(err).Msg("retention sweep")
 	}
 }
@@ -259,10 +268,13 @@ func (a *App) ProcessAttachment(id uuid.UUID) {
 }
 
 func (a *App) processAttachment(ctx context.Context, id uuid.UUID) {
-	done, err := a.Media.Process(ctx, id)
+	done, skipped, err := a.Media.Process(ctx, id)
 	if err != nil {
 		a.Log.Error().Err(err).Str("attachment_id", id.String()).Msg("process attachment")
 		return
+	}
+	if skipped != nil {
+		a.Log.Warn().Err(skipped).Str("attachment_id", id.String()).Msg("skipped attachment derivatives")
 	}
 	frame := socket.NewFrame(socket.TypeAttachment, done)
 	if done.MessageID == nil {

@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/png"
@@ -44,19 +45,19 @@ func (s *Service) processVideo(ctx context.Context, a store.Attachment) (result,
 	poster := s.abs(filepath.Join(thumbsDir, a.ID.String()+".png"))
 	defer func() { _ = removeFile(poster) }()
 	if err := s.posterFrame(ctx, src, poster); err != nil {
-		s.log.Warn().Err(err).Str("attachment", a.ID.String()).Msg("video poster frame")
+		res.skipped = err
 		return res, nil
 	}
 
 	if width, height, err := posterSize(poster); err != nil {
-		s.log.Warn().Err(err).Str("attachment", a.ID.String()).Msg("read poster dimensions")
+		res.skipped = fmt.Errorf("read poster dimensions: %w", err)
 	} else {
 		res.width, res.height = &width, &height
 	}
 
 	thumb := filepath.Join(thumbsDir, a.ID.String()+".webp")
 	if err := s.thumbnail(ctx, poster, s.abs(thumb)); err != nil {
-		s.log.Warn().Err(err).Str("attachment", a.ID.String()).Msg("video thumbnail")
+		res.skipped = errors.Join(res.skipped, err)
 		return res, nil
 	}
 	res.thumbPath = &thumb

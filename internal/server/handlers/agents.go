@@ -34,6 +34,7 @@ func (h *Agents) Register(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Log.Info().Str("agent", a.User.Handle).Bool("allow_history", body.AllowHistory).Msg("agent registered")
 	writeOK(w)
 }
 
@@ -52,6 +53,7 @@ func (h *Agents) Deregister(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	h.app.Log.Info().Str("agent", a.User.Handle).Msg("agent deregistered")
 	writeOK(w)
 }
 
@@ -83,6 +85,9 @@ func (h *Agents) Jobs(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
+	for _, j := range jobs {
+		h.app.Log.Info().Str("agent", a.User.Handle).Str("job", j.ID.String()).Msg("agent job dispatched")
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
 	WriteJSON(w, http.StatusOK, agentproto.JobList{Jobs: nonNil(jobs)})
@@ -110,6 +115,11 @@ func (h *Agents) Result(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		WriteError(w, err)
 		return
+	}
+	if job.Error != nil {
+		h.app.Log.Warn().Str("agent", a.User.Handle).Str("job", job.ID.String()).Str("reason", *job.Error).Msg("agent job failed")
+	} else {
+		h.app.Log.Info().Str("agent", a.User.Handle).Str("job", job.ID.String()).Msg("agent job done")
 	}
 	if err := h.answer(r.Context(), a, job); err != nil {
 		h.app.Log.Error().Err(err).Str("job", job.ID.String()).Msg("post agent answer")
