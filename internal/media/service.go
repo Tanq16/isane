@@ -15,7 +15,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/rs/zerolog"
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/store"
 )
@@ -45,10 +44,11 @@ const (
 )
 
 type Service struct {
-	cfg   *config.Config
-	db    *store.DB
-	root  string
-	tools Tools
+	cfg     *config.Config
+	db      *store.DB
+	root    string
+	tools   Tools
+	missing map[string]string
 }
 
 type Tools struct {
@@ -57,7 +57,7 @@ type Tools struct {
 	FFprobe bool `json:"ffprobe"`
 }
 
-func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
+func New(cfg *config.Config, db *store.DB) (*Service, error) {
 	root, err := filepath.Abs(cfg.Media.Root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve media root: %w", err)
@@ -67,25 +67,29 @@ func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error)
 			return nil, fmt.Errorf("create media directory: %w", err)
 		}
 	}
-	return &Service{cfg: cfg, db: db, root: root, tools: preflight(log)}, nil
+	tools, missing := preflight()
+	return &Service{cfg: cfg, db: db, root: root, tools: tools, missing: missing}, nil
 }
 
 func (s *Service) Tools() Tools { return s.tools }
 
-func preflight(log zerolog.Logger) Tools {
+func (s *Service) MissingTools() map[string]string { return s.missing }
+
+func preflight() (Tools, map[string]string) {
 	found := map[string]bool{}
+	missing := map[string]string{}
 	for tool, lost := range map[string]string{
 		"magick":  "images are stored unresized and get no thumbnail",
 		"ffmpeg":  "videos get no poster frame",
 		"ffprobe": "videos and audio get no dimensions or duration",
 	} {
 		if _, err := exec.LookPath(tool); err != nil {
-			log.Warn().Str("tool", tool).Msg(lost)
+			missing[tool] = lost
 			continue
 		}
 		found[tool] = true
 	}
-	return Tools{Magick: found["magick"], FFmpeg: found["ffmpeg"], FFprobe: found["ffprobe"]}
+	return Tools{Magick: found["magick"], FFmpeg: found["ffmpeg"], FFprobe: found["ffprobe"]}, missing
 }
 
 func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, r io.Reader) (store.Attachment, error) {

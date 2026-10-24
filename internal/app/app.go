@@ -55,9 +55,12 @@ type App struct {
 }
 
 func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logger) (*App, error) {
-	mediaSvc, err := media.New(cfg, db, log)
+	mediaSvc, err := media.New(cfg, db)
 	if err != nil {
 		return nil, fmt.Errorf("start media service: %w", err)
+	}
+	for tool, lost := range mediaSvc.MissingTools() {
+		log.Warn().Str("tool", tool).Msg(lost)
 	}
 	hub := socket.NewHub(log)
 	base, cancel := context.WithCancel(context.WithoutCancel(ctx))
