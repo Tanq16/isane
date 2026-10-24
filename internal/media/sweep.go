@@ -27,6 +27,11 @@ func (s *Service) Sweep(ctx context.Context) (int, error) {
 	swept := 0
 	var errs []error
 	for _, a := range candidates {
+		select {
+		case <-ctx.Done():
+			return swept, errors.Join(append(errs, ctx.Err())...)
+		default:
+		}
 		if err := s.Delete(ctx, a); err != nil {
 			errs = append(errs, err)
 			continue
@@ -76,6 +81,11 @@ func (s *Service) SweepUploads(ctx context.Context) (int, error) {
 	swept := 0
 	var errs []error
 	for _, rel := range stale {
+		select {
+		case <-ctx.Done():
+			return swept, errors.Join(append(errs, ctx.Err())...)
+		default:
+		}
 		if err := removeFile(s.abs(rel)); err != nil {
 			errs = append(errs, err)
 			continue

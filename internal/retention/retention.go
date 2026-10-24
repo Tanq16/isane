@@ -108,6 +108,11 @@ func (s *Sweeper) sweepRecordings(ctx context.Context) (int, error) {
 	deleted := 0
 	var errs []error
 	for _, r := range recordings {
+		select {
+		case <-ctx.Done():
+			return deleted, errors.Join(append(errs, ctx.Err())...)
+		default:
+		}
 		if path := s.resolve(r.StoragePath); path != "" {
 			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				errs = append(errs, fmt.Errorf("recording %s: %w", r.ID, err))

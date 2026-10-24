@@ -60,15 +60,34 @@ func (r *Router) Route(ctx context.Context, m store.Message, author store.User, 
 	deliveries := make([]Delivery, len(targets))
 	sem := make(chan struct{}, sendWorkers)
 	var wg sync.WaitGroup
+	sent := len(targets)
 	for i, t := range targets {
-		sem <- struct{}{}
+		if !acquire(ctx, sem) {
+			sent = i
+			break
+		}
 		wg.Go(func() {
 			defer func() { <-sem }()
 			deliveries[i] = r.deliver(ctx, t)
 		})
 	}
 	wg.Wait()
-	return deliveries, errors.Join(errs...)
+	if sent < len(targets) {
+		errs = append(errs, fmt.Errorf("stopped after %d of %d push deliveries: %w", sent, len(targets), ctx.Err()))
+	}
+	return deliveries[:sent], errors.Join(errs...)
+}
+
+func acquire(ctx context.Context, sem chan struct{}) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 type routing struct {
