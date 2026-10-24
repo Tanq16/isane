@@ -9,7 +9,6 @@ import (
 	"sync"
 	"uuid"
 
-	"github.com/rs/zerolog"
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/store"
 )
@@ -19,15 +18,19 @@ const sendWorkers = 8
 type Router struct {
 	cfg    *config.Config
 	db     *store.DB
-	log    zerolog.Logger
 	client *vapidClient
 }
 
-func New(cfg *config.Config, db *store.DB, log zerolog.Logger) *Router {
+type Delivery struct {
+	SubscriptionID uuid.UUID
+	Err            error
+	StoreErr       error
+}
+
+func New(cfg *config.Config, db *store.DB) *Router {
 	return &Router{
 		cfg:    cfg,
 		db:     db,
-		log:    log,
 		client: newVAPIDClient(),
 	}
 }
@@ -36,37 +39,55 @@ func (r *Router) Enabled() bool { return r.cfg.PushEnabled() }
 
 func (r *Router) VAPIDPublicKey() string { return r.cfg.Push.VAPIDPublicKey }
 
-func (r *Router) Route(ctx context.Context, m store.Message, author store.User, c store.Container) {
+func (r *Router) Route(ctx context.Context, m store.Message, author store.User, c store.Container) ([]Delivery, error) {
 	if !r.Enabled() {
-		return
+		return nil, nil
 	}
 	recipients, err := r.recipients(ctx, m, author, c)
 	if err != nil {
-		r.log.Error().Err(err).Str("message_id", m.ID.String()).Msg("resolve notification recipients")
-		return
+		return nil, fmt.Errorf("resolve notification recipients: %w", err)
 	}
 	var targets []target
+	var errs []error
 	for _, userID := range recipients {
 		t, err := r.targets(ctx, userID, m, author, c)
 		if err != nil {
-			r.log.Error().Err(err).Str("user_id", userID.String()).Msg("resolve push targets")
+			errs = append(errs, fmt.Errorf("resolve push targets for user %s: %w", userID, err))
 			continue
 		}
 		targets = append(targets, t...)
 	}
-	if len(targets) == 0 {
-		return
-	}
+	deliveries := make([]Delivery, len(targets))
 	sem := make(chan struct{}, sendWorkers)
 	var wg sync.WaitGroup
-	for _, t := range targets {
-		sem <- struct{}{}
+	sent := len(targets)
+	for i, t := range targets {
+		if !acquire(ctx, sem) {
+			sent = i
+			break
+		}
 		wg.Go(func() {
 			defer func() { <-sem }()
-			r.deliver(ctx, t)
+			deliveries[i] = r.deliver(ctx, t)
 		})
 	}
 	wg.Wait()
+	if sent < len(targets) {
+		errs = append(errs, fmt.Errorf("stopped after %d of %d push deliveries: %w", sent, len(targets), ctx.Err()))
+	}
+	return deliveries[:sent], errors.Join(errs...)
+}
+
+func acquire(ctx context.Context, sem chan struct{}) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 type routing struct {
@@ -107,7 +128,7 @@ func (r *Router) recipients(ctx context.Context, m store.Message, author store.U
 	}
 	humans, err := r.db.ListActiveHumans(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list active humans: %w", err)
+		return nil, err
 	}
 	human := make(map[uuid.UUID]struct{}, len(humans))
 	for _, u := range humans {
@@ -123,12 +144,12 @@ func (r *Router) recipients(ctx context.Context, m store.Message, author store.U
 	}
 	rt.prefs, err = r.db.NotificationPrefsFor(ctx, c.ID)
 	if err != nil {
-		return nil, fmt.Errorf("list notification prefs: %w", err)
+		return nil, err
 	}
 	if m.ThreadRootID != nil {
 		rt.threads, err = r.db.ThreadSubscriptions(ctx, *m.ThreadRootID)
 		if err != nil {
-			return nil, fmt.Errorf("list thread subscriptions: %w", err)
+			return nil, err
 		}
 	}
 	out := make([]uuid.UUID, 0, len(memberIDs))
@@ -155,7 +176,7 @@ type target struct {
 func (r *Router) targets(ctx context.Context, userID uuid.UUID, m store.Message, author store.User, c store.Container) ([]target, error) {
 	subs, err := r.db.ListPushSubscriptions(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("list push subscriptions: %w", err)
+		return nil, err
 	}
 	if len(subs) == 0 {
 		return nil, nil
@@ -175,24 +196,16 @@ func (r *Router) targets(ctx context.Context, userID uuid.UUID, m store.Message,
 	return out, nil
 }
 
-func (r *Router) deliver(ctx context.Context, t target) {
-	err := r.send(ctx, t.sub, t.body)
+func (r *Router) deliver(ctx context.Context, t target) Delivery {
+	d := Delivery{SubscriptionID: t.sub.ID, Err: r.send(ctx, t.sub, t.body)}
 	switch {
-	case err == nil:
-		if markErr := r.db.MarkPushSuccess(ctx, t.sub.ID); markErr != nil {
-			r.log.Error().Err(markErr).Str("subscription_id", t.sub.ID.String()).Msg("mark push success")
-		}
-	case errors.Is(err, errSubscriptionGone):
-		r.log.Info().Err(err).Str("subscription_id", t.sub.ID.String()).Msg("deleting dead push subscription")
-		if delErr := r.db.DeletePushSubscriptionByID(ctx, t.sub.ID); delErr != nil {
-			r.log.Error().Err(delErr).Str("subscription_id", t.sub.ID.String()).Msg("delete push subscription")
-		}
-	case errors.Is(err, errRateLimited):
-		r.log.Warn().Err(err).Str("subscription_id", t.sub.ID.String()).Msg("push delivery throttled")
+	case d.Err == nil:
+		d.StoreErr = r.db.MarkPushSuccess(ctx, t.sub.ID)
+	case errors.Is(d.Err, ErrSubscriptionGone):
+		d.StoreErr = r.db.DeletePushSubscriptionByID(ctx, t.sub.ID)
+	case errors.Is(d.Err, ErrRateLimited):
 	default:
-		r.log.Warn().Err(err).Str("subscription_id", t.sub.ID.String()).Msg("push delivery failed")
-		if markErr := r.db.MarkPushFailure(ctx, t.sub.ID); markErr != nil {
-			r.log.Error().Err(markErr).Str("subscription_id", t.sub.ID.String()).Msg("mark push failure")
-		}
+		d.StoreErr = r.db.MarkPushFailure(ctx, t.sub.ID)
 	}
+	return d
 }

@@ -91,12 +91,12 @@ type revokedBody struct {
 func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	ident := strings.TrimSpace(cmp.Or(req.Handle, req.Email))
 	if ident == "" || req.Password == "" {
-		WriteError(w, badRequestf("handle or email and password are required"))
+		WriteError(w, r, badRequestf("handle or email and password are required"))
 		return
 	}
 	source, account := requestKey(r, h.trusted()), strings.ToLower(ident)
@@ -106,7 +106,7 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := h.app.DB.GetUserByLogin(r.Context(), ident)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		WriteError(w, fmt.Errorf("login lookup: %w", err))
+		WriteError(w, r, fmt.Errorf("login lookup: %w", err))
 		return
 	}
 	stored := decoyHash()
@@ -116,13 +116,13 @@ func (h *Auth) Login(w http.ResponseWriter, r *http.Request) {
 	if !auth.VerifyPassword(stored, req.Password) || err != nil || !u.Active() || u.PasswordHash == nil {
 		h.sources.fail(source)
 		h.accounts.fail(account)
-		WriteError(w, errInvalidLogin())
+		WriteError(w, r, errInvalidLogin())
 		return
 	}
 	h.sources.succeed(source)
 	h.accounts.succeed(account)
 	if err := h.startSession(w, r, u); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, u)
@@ -156,14 +156,14 @@ func (h *Auth) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	var req profileRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	displayName := u.DisplayName
 	if req.DisplayName != nil {
 		name, err := boundedField("display_name", *req.DisplayName, maxNameLength)
 		if err != nil {
-			WriteError(w, err)
+			WriteError(w, r, err)
 			return
 		}
 		displayName = name
@@ -171,23 +171,23 @@ func (h *Auth) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	avatarID := req.AvatarID
 	if avatarID != nil {
 		if err := h.ownedAvatar(r, *avatarID, u.ID); err != nil {
-			WriteError(w, err)
+			WriteError(w, r, err)
 			return
 		}
 	}
 	if err := h.app.DB.UpdateProfile(r.Context(), u.ID, displayName, avatarID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if req.MarkReadOnOpen != nil {
 		if err := h.app.DB.SetMarkReadOnOpen(r.Context(), u.ID, *req.MarkReadOnOpen); err != nil {
-			WriteError(w, err)
+			WriteError(w, r, err)
 			return
 		}
 	}
 	updated, err := h.app.DB.GetUser(r.Context(), u.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, updated.Directory()))
@@ -218,7 +218,7 @@ func (h *Auth) ownedAvatar(r *http.Request, id, userID uuid.UUID) error {
 func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	var req acceptInviteRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	source := requestKey(r, h.trusted())
@@ -228,25 +228,25 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	handle := strings.ToLower(strings.TrimSpace(req.Handle))
 	if req.Token == "" {
-		WriteError(w, badRequestf("token is required"))
+		WriteError(w, r, badRequestf("token is required"))
 		return
 	}
 	if !handlePattern.MatchString(handle) {
-		WriteError(w, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
+		WriteError(w, r, badRequestf("handle must match ^[a-z0-9][a-z0-9_-]{0,31}$"))
 		return
 	}
 	displayName, err := boundedField("display_name", req.DisplayName, maxNameLength)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if len(req.Password) < minPasswordLength {
-		WriteError(w, badRequestf("password must be at least %d characters", minPasswordLength))
+		WriteError(w, r, badRequestf("password must be at least %d characters", minPasswordLength))
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		WriteError(w, fmt.Errorf("hash password: %w", err))
+		WriteError(w, r, fmt.Errorf("hash password: %w", err))
 		return
 	}
 	u, err := h.app.DB.AcceptInvite(r.Context(), auth.HashToken(req.Token), store.User{
@@ -257,12 +257,12 @@ func (h *Auth) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.sources.fail(source)
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.sources.succeed(source)
 	if err := h.startSession(w, r, u); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeUser, u.Directory()))
@@ -276,35 +276,35 @@ func (h *Auth) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	var req passwordRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if u.PasswordHash == nil || !auth.VerifyPassword(*u.PasswordHash, req.CurrentPassword) {
-		WriteError(w, fmt.Errorf("%w: current password is incorrect", ErrUnauthorized))
+		WriteError(w, r, fmt.Errorf("%w: current password is incorrect", ErrUnauthorized))
 		return
 	}
 	if len(req.NewPassword) < minPasswordLength {
-		WriteError(w, badRequestf("password must be at least %d characters", minPasswordLength))
+		WriteError(w, r, badRequestf("password must be at least %d characters", minPasswordLength))
 		return
 	}
 	hash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
-		WriteError(w, fmt.Errorf("hash password: %w", err))
+		WriteError(w, r, fmt.Errorf("hash password: %w", err))
 		return
 	}
 	if err := h.app.DB.SetPassword(r.Context(), u.ID, hash); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.DB.DeleteSessionsForUser(r.Context(), u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if current, ok := SessionFrom(r.Context()); ok {
 		h.app.Hub.CloseSessionsExcept(u.ID, current)
 	}
 	if err := h.startSession(w, r, u); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	audit(r, h.app, store.AuditEvent{
@@ -324,7 +324,7 @@ func (h *Auth) ListSessions(w http.ResponseWriter, r *http.Request) {
 	current, _ := SessionFrom(r.Context())
 	sessions, err := h.app.DB.ListSessionsForUser(r.Context(), u.ID, time.Now().Add(-auth.SessionMaxAge))
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	out := make([]sessionView, 0, len(sessions))
@@ -349,11 +349,11 @@ func (h *Auth) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.DB.DeleteUserSession(r.Context(), u.ID, id); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.CloseSession(u.ID, id)
@@ -372,12 +372,12 @@ func (h *Auth) RevokeOtherSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	current, ok := SessionFrom(r.Context())
 	if !ok {
-		WriteError(w, errSignIn())
+		WriteError(w, r, errSignIn())
 		return
 	}
 	revoked, err := h.app.DB.DeleteSessionsForUserExcept(r.Context(), u.ID, current)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.CloseSessionsExcept(u.ID, current)

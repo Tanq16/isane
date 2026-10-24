@@ -1,4 +1,4 @@
-.PHONY: help assets verify-assets font build build-agent build-agent-for build-agent-all docker run clean version
+.PHONY: help assets verify-assets font build build-for build-all build-agent build-agent-for build-agent-all docker docker-push run clean version
 
 APP_NAME    := isane
 AGENT_NAME  := isane-agent
@@ -80,13 +80,15 @@ $(STAMP): $(MAKEFILE_LIST)
 	@touch $(STAMP)
 	@echo "$(GREEN)Vendored $(VENDOR_DIR)$(NC)"
 
-# The endpoint declares every subset the family has, so only the latin block is taken.
+# The endpoint declares every subset the family has, so only the latin and latin-ext blocks are taken.
 font:
 	@set -e; css="$$(curl -sfL -H "User-Agent: $(UA)" \
 	  "https://fonts.googleapis.com/css2?family=$(FAMILY):wght@$(WEIGHT)&display=swap")"; \
-	url="$$(printf '%s\n' "$$css" | awk '/^\/\* latin \*\/$$/{f=1} f && /src:/{print; exit}' | grep -o 'https://fonts.gstatic.com/[^)]*')"; \
-	test -n "$$url" || { echo "no latin woff2 for $(FAMILY) $(WEIGHT)"; exit 1; }; \
-	curl -sfL "$$url" -o "$(FONTS_DIR)/$(SLUG)-$(WEIGHT).woff2"
+	for subset in latin latin-ext; do \
+	  url="$$(printf '%s\n' "$$css" | awk -v block="/* $$subset */" '$$0 == block {f=1} f && /src:/{print; exit}' | grep -o 'https://fonts.gstatic.com/[^)]*')"; \
+	  test -n "$$url" || { echo "no $$subset woff2 for $(FAMILY) $(WEIGHT)"; exit 1; }; \
+	  curl -sfL "$$url" -o "$(FONTS_DIR)/$(SLUG)-$(WEIGHT)-$$subset.woff2"; \
+	done
 
 $(TAILWIND_BIN): $(MAKEFILE_LIST)
 	@mkdir -p $(dir $(TAILWIND_BIN))
@@ -97,7 +99,8 @@ $(TAILWIND_BIN): $(MAKEFILE_LIST)
 	chmod +x "$(TAILWIND_BIN)"
 
 $(CSS_DIR)/app.css: $(CSS_DIR)/input.css $(TAILWIND_BIN) $(STATIC_DIR)/index.html $(shell find $(STATIC_DIR)/js -name '*.js')
-	@$(TAILWIND_BIN) -i $(CSS_DIR)/input.css -o $@ --minify
+	@out="$$($(TAILWIND_BIN) -i $(CSS_DIR)/input.css -o $@ --minify 2>&1)" || { printf '%s\n' "$$out"; exit 1; }
+	@touch $@
 	@echo "$(GREEN)Built: $@$(NC)"
 
 verify-assets: ## Fail early if the embedded tree is missing an asset
@@ -106,12 +109,26 @@ verify-assets: ## Fail early if the embedded tree is missing an asset
 	  test -s $(VENDOR_DIR)/$$f || { echo "$$f missing, run 'make assets'"; exit 1; }; \
 	done
 	@for f in inter-400 inter-500 inter-600 inter-700 google-sans-400 google-sans-500 google-sans-600 google-sans-700 jetbrains-mono-400 jetbrains-mono-600; do \
-	  test -s $(FONTS_DIR)/$$f.woff2 || { echo "$$f.woff2 missing, run 'make assets'"; exit 1; }; \
+	  for subset in latin latin-ext; do \
+	    test -s $(FONTS_DIR)/$$f-$$subset.woff2 || { echo "$$f-$$subset.woff2 missing, run 'make assets'"; exit 1; }; \
+	  done; \
 	done
 
 build: assets verify-assets ## Build the binary for this machine
 	@CGO_ENABLED=0 go build -ldflags="-s -w -X '$(MODULE)/cmd.AppVersion=$(VERSION)'" -o $(APP_NAME) .
 	@echo "$(GREEN)Built: ./$(APP_NAME)$(NC)"
+
+build-for: verify-assets ## Build the binary for a specific GOOS/GOARCH
+	@CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build \
+	  -ldflags="-s -w -X '$(MODULE)/cmd.AppVersion=$(VERSION)'" \
+	  -o $(APP_NAME)-$(GOOS)-$(GOARCH) .
+	@echo "$(GREEN)Built: ./$(APP_NAME)-$(GOOS)-$(GOARCH)$(NC)"
+
+build-all: assets verify-assets ## Build every platform binary
+	@$(MAKE) --no-print-directory build-for GOOS=linux  GOARCH=amd64
+	@$(MAKE) --no-print-directory build-for GOOS=linux  GOARCH=arm64
+	@$(MAKE) --no-print-directory build-for GOOS=darwin GOARCH=amd64
+	@$(MAKE) --no-print-directory build-for GOOS=darwin GOARCH=arm64
 
 build-agent: ## Build the agent daemon for this machine
 	@CGO_ENABLED=0 go build -ldflags="-s -w -X '$(MODULE)/agent/cmd.AppVersion=$(VERSION)'" -o $(AGENT_NAME) ./agent
@@ -132,11 +149,18 @@ build-agent-all: ## Build every agent daemon platform binary
 docker: ## Build the container image compose runs
 	@docker build --build-arg VERSION=$(VERSION) -t $(DOCKER_USER)/$(APP_NAME):$(VERSION) -t $(DOCKER_USER)/$(APP_NAME):latest .
 
+docker-push: ## Build linux/amd64 and linux/arm64 and push one manifest
+	@docker buildx build --platform linux/amd64,linux/arm64 \
+	  --build-arg VERSION=$(VERSION) \
+	  -t $(DOCKER_USER)/$(APP_NAME):$(VERSION) \
+	  -t $(DOCKER_USER)/$(APP_NAME):latest \
+	  --push .
+
 run: assets ## Run against http://localhost:8080 with debug logging
 	@go run . serve --debug
 
 clean: ## Remove the binaries, the vendored assets, and the compiled stylesheet
-	@rm -f $(APP_NAME) $(AGENT_NAME) $(AGENT_NAME)-* $(CSS_DIR)/app.css
+	@rm -f $(APP_NAME) $(APP_NAME)-* $(AGENT_NAME) $(AGENT_NAME)-* $(CSS_DIR)/app.css
 	@rm -rf $(VENDOR_DIR) dist
 	@echo "$(GREEN)Cleaned$(NC)"
 

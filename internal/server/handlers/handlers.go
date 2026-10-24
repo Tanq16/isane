@@ -68,7 +68,7 @@ func AgentFrom(ctx context.Context) (store.AgentInfo, bool) {
 func RequireUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := UserFrom(r.Context()); !ok {
-			WriteError(w, errSignIn())
+			WriteError(w, r, errSignIn())
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -79,11 +79,11 @@ func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, ok := UserFrom(r.Context())
 		if !ok {
-			WriteError(w, errSignIn())
+			WriteError(w, r, errSignIn())
 			return
 		}
 		if !u.IsAdmin {
-			WriteError(w, forbiddenf("administrator access required"))
+			WriteError(w, r, forbiddenf("administrator access required"))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -107,7 +107,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	_, _ = w.Write(body)
 }
 
-func WriteError(w http.ResponseWriter, err error) {
+func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	status, message := http.StatusInternalServerError, "internal error"
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -127,7 +127,7 @@ func WriteError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrInvalid):
 		status, message = http.StatusBadRequest, userMessage(err, store.ErrInvalid)
 	default:
-		log.Error().Err(err).Msg("request failed")
+		log.Error().Err(err).Str("method", r.Method).Str("path", r.URL.Path).Msg("request failed")
 	}
 	WriteJSON(w, status, errorBody{Error: message})
 }
@@ -173,7 +173,7 @@ func writeOK(w http.ResponseWriter) {
 func requestUser(w http.ResponseWriter, r *http.Request) (store.User, bool) {
 	u, ok := UserFrom(r.Context())
 	if !ok {
-		WriteError(w, errSignIn())
+		WriteError(w, r, errSignIn())
 	}
 	return u, ok
 }

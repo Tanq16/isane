@@ -187,7 +187,7 @@ type ContainerView struct {
 	Unread       int64             `json:"unread"`
 	Mentions     int64             `json:"mentions"`
 	Level        NotificationLevel `json:"level"`
-	Participants []uuid.UUID       `json:"participants,omitempty"`
+	Participants []uuid.UUID       `json:"participants,omitzero"`
 }
 
 type Message struct {
@@ -207,10 +207,10 @@ type Message struct {
 	CreatedAt         time.Time      `json:"created_at"`
 	EditedAt          *time.Time     `json:"edited_at,omitempty"`
 	DeletedAt         *time.Time     `json:"deleted_at,omitempty"`
-	Attachments       []Attachment   `json:"attachments,omitempty"`
-	Mentions          []uuid.UUID    `json:"mentions,omitempty"`
+	Attachments       []Attachment   `json:"attachments,omitzero"`
+	Mentions          []uuid.UUID    `json:"mentions,omitzero"`
 	Recording         *CallRecording `json:"recording,omitempty"`
-	Reactions         []Reaction     `json:"reactions,omitempty"`
+	Reactions         []Reaction     `json:"reactions,omitzero"`
 }
 
 type Reaction struct {
@@ -273,7 +273,7 @@ type Agent struct {
 	State          AgentState `json:"state"`
 	ClaimTokenHash []byte     `json:"-"`
 	AllowHistory   bool       `json:"allow_history"`
-	Argv           []string   `json:"argv,omitempty"`
+	Argv           []string   `json:"argv,omitzero"`
 	RegisteredAt   *time.Time `json:"registered_at,omitempty"`
 	LastSeenAt     *time.Time `json:"last_seen_at,omitempty"`
 }
@@ -288,7 +288,7 @@ type Call struct {
 	StartedAt      time.Time      `json:"started_at"`
 	EndedAt        *time.Time     `json:"ended_at,omitempty"`
 	RecordingState RecordingState `json:"recording_state"`
-	Participants   []uuid.UUID    `json:"participants,omitempty"`
+	Participants   []uuid.UUID    `json:"participants,omitzero"`
 }
 
 type CallRecording struct {

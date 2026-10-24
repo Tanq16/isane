@@ -391,7 +391,7 @@ export function mount(root) {
   searchInput.setAttribute('aria-label', 'Search messages')
   searchBox.appendChild(searchInput)
   searchWrap.appendChild(searchBox)
-  searchResultsEl = el('div', 'absolute inset-x-0 top-9 z-20 hidden max-h-80 space-y-0.5 overflow-y-auto rounded-lg bg-base p-1 shadow-pop')
+  searchResultsEl = el('div', 'absolute inset-x-0 top-9 z-20 hidden max-h-80 space-y-0.5 overflow-y-auto rounded-lg bg-mantle p-1 shadow-pop')
   searchWrap.appendChild(searchResultsEl)
   panelEl.appendChild(searchWrap)
 

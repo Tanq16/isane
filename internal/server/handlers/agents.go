@@ -22,36 +22,38 @@ func NewAgents(a *app.App) *Agents { return &Agents{app: a} }
 func (h *Agents) Register(w http.ResponseWriter, r *http.Request) {
 	var body agentproto.RegisterRequest
 	if err := ReadJSON(r, &body); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	a, err := h.claim(r, body.Handle, body.ClaimToken)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.Agents.Register(r.Context(), a, body.Argv, body.AllowHistory); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
+	h.app.Log.Info().Str("agent", a.User.Handle).Bool("allow_history", body.AllowHistory).Msg("agent registered")
 	writeOK(w)
 }
 
 func (h *Agents) Deregister(w http.ResponseWriter, r *http.Request) {
 	var body agentproto.RegisterRequest
 	if err := ReadJSON(r, &body); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	a, err := h.claim(r, body.Handle, body.ClaimToken)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if err := h.app.Agents.Deregister(r.Context(), a); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
+	h.app.Log.Info().Str("agent", a.User.Handle).Msg("agent deregistered")
 	writeOK(w)
 }
 
@@ -61,7 +63,7 @@ func (h *Agents) Hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.TouchAgent(r.Context(), a.User.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	writeOK(w)
@@ -80,8 +82,11 @@ func (h *Agents) Jobs(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, context.Canceled) {
 			return
 		}
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
+	}
+	for _, j := range jobs {
+		h.app.Log.Info().Str("agent", a.User.Handle).Str("job", j.ID.String()).Msg("agent job dispatched")
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -98,18 +103,23 @@ func (h *Agents) Result(w http.ResponseWriter, r *http.Request) {
 	}
 	jobID, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	var body agentproto.ResultRequest
 	if err := ReadJSON(r, &body); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	job, err := h.app.Agents.Complete(r.Context(), a, jobID, body.Result, body.Error)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
+	}
+	if job.Error != nil {
+		h.app.Log.Warn().Str("agent", a.User.Handle).Str("job", job.ID.String()).Str("reason", *job.Error).Msg("agent job failed")
+	} else {
+		h.app.Log.Info().Str("agent", a.User.Handle).Str("job", job.ID.String()).Msg("agent job done")
 	}
 	if err := h.answer(r.Context(), a, job); err != nil {
 		h.app.Log.Error().Err(err).Str("job", job.ID.String()).Msg("post agent answer")
@@ -126,44 +136,44 @@ func (h *Agents) Attachment(w http.ResponseWriter, r *http.Request) {
 	}
 	jobID, err := pathUUID(r, "job_id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	attachmentID, err := pathUUID(r, "attachment_id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	job, err := h.app.DB.GetAgentJob(r.Context(), jobID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if job.AgentID != a.User.ID {
-		WriteError(w, fmt.Errorf("%w: job %s", store.ErrNotFound, jobID))
+		WriteError(w, r, fmt.Errorf("%w: job %s", store.ErrNotFound, jobID))
 		return
 	}
 	if job.State != store.JobDispatched {
-		WriteError(w, conflictf("job %s is %s", jobID, job.State))
+		WriteError(w, r, conflictf("job %s is %s", jobID, job.State))
 		return
 	}
 	allowed, err := h.app.DB.JobAllowsAttachment(r.Context(), jobID, attachmentID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if !allowed {
-		WriteError(w, fmt.Errorf("%w: attachment %s was not shown to job %s", store.ErrNotFound, attachmentID, jobID))
+		WriteError(w, r, fmt.Errorf("%w: attachment %s was not shown to job %s", store.ErrNotFound, attachmentID, jobID))
 		return
 	}
 	at, err := h.app.DB.GetAttachment(r.Context(), attachmentID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	f, err := h.app.Media.Open(at)
 	if err != nil {
-		WriteError(w, fmt.Errorf("open attachment %s: %w", at.ID, err))
+		WriteError(w, r, fmt.Errorf("open attachment %s: %w", at.ID, err))
 		return
 	}
 	serveFile(w, r, f, at.OriginalName, at.Mime, true)
@@ -223,7 +233,7 @@ func (h *Agents) claim(r *http.Request, handle, claimToken string) (store.AgentI
 func requestAgent(w http.ResponseWriter, r *http.Request) (store.AgentInfo, bool) {
 	a, ok := AgentFrom(r.Context())
 	if !ok {
-		WriteError(w, fmt.Errorf("%w: a claim token is required", ErrUnauthorized))
+		WriteError(w, r, fmt.Errorf("%w: a claim token is required", ErrUnauthorized))
 	}
 	return a, ok
 }

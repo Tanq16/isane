@@ -3,6 +3,7 @@ package cmd
 import (
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/term"
@@ -24,11 +25,12 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		setupLogs()
+		log.Fatal().Err(err).Msg("command failed")
 	}
 }
 
-func setupLogs() {
+var setupLogs = sync.OnceFunc(func() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	var out io.Writer = os.Stdout
 	if term.IsTerminal(os.Stdout.Fd()) {
@@ -39,15 +41,16 @@ func setupLogs() {
 	if debugFlag {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
-}
+})
 
 func init() {
 	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
+	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = true
 
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable debug logging")
 
 	cobra.OnInitialize(setupLogs)
 
 	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(vapidCmd)
 }

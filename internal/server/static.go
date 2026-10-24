@@ -65,7 +65,7 @@ func (s *Server) serveWorker(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
-		handlers.WriteError(w, fmt.Errorf("%w: no such endpoint", store.ErrNotFound))
+		handlers.WriteError(w, r, fmt.Errorf("%w: no such endpoint", store.ErrNotFound))
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -76,7 +76,7 @@ func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
 	page, err := fs.ReadFile(s.static, "index.html")
 	if err != nil {
 		s.log.Error().Err(err).Msg("read index.html")
-		handlers.WriteError(w, fmt.Errorf("%w: index.html", store.ErrNotFound))
+		handlers.WriteError(w, r, fmt.Errorf("%w: index.html", store.ErrNotFound))
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

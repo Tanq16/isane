@@ -118,15 +118,15 @@ func (db *DB) TotalMediaBytes(ctx context.Context) (int64, error) {
 	return total, nil
 }
 
-func (db *DB) RequeueProcessingAttachments(ctx context.Context) ([]uuid.UUID, error) {
+func (db *DB) ProcessingAttachmentIDs(ctx context.Context) ([]uuid.UUID, error) {
 	rows, err := db.Pool.Query(ctx,
-		`update attachments set state = 'staged' where state = 'processing' returning id`)
+		`select id from attachments where state = 'processing' order by created_at`)
 	if err != nil {
-		return nil, fmt.Errorf("requeue processing attachments: %w", err)
+		return nil, fmt.Errorf("list processing attachments: %w", err)
 	}
 	ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		return nil, fmt.Errorf("requeue processing attachments: %w", err)
+		return nil, fmt.Errorf("list processing attachments: %w", err)
 	}
 	return ids, nil
 }

@@ -52,7 +52,7 @@ const (
 
 type Frame struct {
 	T string         `json:"t"`
-	D jsontext.Value `json:"d,omitempty"`
+	D jsontext.Value `json:"d,omitzero"`
 }
 
 func NewFrame(t string, d any) Frame {
@@ -77,7 +77,7 @@ type SendPayload struct {
 	Body          string      `json:"body"`
 	ReplyToID     *uuid.UUID  `json:"reply_to_id,omitempty"`
 	ThreadRootID  *uuid.UUID  `json:"thread_root_id,omitempty"`
-	AttachmentIDs []uuid.UUID `json:"attachment_ids,omitempty"`
+	AttachmentIDs []uuid.UUID `json:"attachment_ids,omitzero"`
 }
 
 type EditPayload struct {

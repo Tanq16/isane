@@ -20,19 +20,25 @@ func (s *Service) Sweep(ctx context.Context) (int, error) {
 	if hours := s.cfg.Retention.StagedUploadHours; hours > 0 {
 		staged, err := s.db.ListStagedBefore(ctx, time.Now().Add(-time.Duration(hours)*time.Hour))
 		if err != nil {
-			return 0, fmt.Errorf("list staged attachments: %w", err)
+			return 0, err
 		}
 		candidates = staged
 	}
 	swept := 0
+	var errs []error
 	for _, a := range candidates {
+		select {
+		case <-ctx.Done():
+			return swept, errors.Join(append(errs, ctx.Err())...)
+		default:
+		}
 		if err := s.Delete(ctx, a); err != nil {
-			s.log.Error().Err(err).Str("attachment", a.ID.String()).Msg("sweep attachment")
+			errs = append(errs, err)
 			continue
 		}
 		swept++
 	}
-	return swept, nil
+	return swept, errors.Join(errs...)
 }
 
 func (s *Service) SweepUploads(ctx context.Context) (int, error) {
@@ -73,12 +79,18 @@ func (s *Service) SweepUploads(ctx context.Context) (int, error) {
 		delete(stale, id)
 	}
 	swept := 0
-	for id, rel := range stale {
+	var errs []error
+	for _, rel := range stale {
+		select {
+		case <-ctx.Done():
+			return swept, errors.Join(append(errs, ctx.Err())...)
+		default:
+		}
 		if err := removeFile(s.abs(rel)); err != nil {
-			s.log.Error().Err(err).Str("upload", id.String()).Msg("sweep orphan upload")
+			errs = append(errs, err)
 			continue
 		}
 		swept++
 	}
-	return swept, nil
+	return swept, errors.Join(errs...)
 }

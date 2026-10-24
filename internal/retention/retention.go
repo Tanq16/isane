@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/media"
 	"github.com/tanq16/isane/internal/store"
@@ -22,64 +20,86 @@ type Sweeper struct {
 	cfg   *config.Config
 	db    *store.DB
 	media *media.Service
-	log   zerolog.Logger
 }
 
-func New(cfg *config.Config, db *store.DB, media *media.Service, log zerolog.Logger) *Sweeper {
-	return &Sweeper{cfg: cfg, db: db, media: media, log: log}
+type Report struct {
+	Attachments   int
+	OrphanUploads int
+	Recordings    int
+	AuditEvents   int64
+	Messages      int64
 }
 
-func (s *Sweeper) Run(ctx context.Context) error {
+func New(cfg *config.Config, db *store.DB, media *media.Service) *Sweeper {
+	return &Sweeper{cfg: cfg, db: db, media: media}
+}
+
+func (s *Sweeper) Run(ctx context.Context) (Report, error) {
+	var report Report
 	var errs []error
+	var err error
+	canceled := func() (Report, error) { return report, errors.Join(append(errs, ctx.Err())...) }
 
-	attachments, err := s.media.Sweep(ctx)
+	if ctx.Err() != nil {
+		return canceled()
+	}
+	report.Attachments, err = s.media.Sweep(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("sweep staged attachments: %w", err))
 	}
 
-	orphanUploads, err := s.media.SweepUploads(ctx)
+	if ctx.Err() != nil {
+		return canceled()
+	}
+	report.OrphanUploads, err = s.media.SweepUploads(ctx)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("sweep orphan uploads: %w", err))
 	}
 
-	recordings, err := s.sweepRecordings(ctx)
+	if ctx.Err() != nil {
+		return canceled()
+	}
+	report.Recordings, err = s.sweepRecordings(ctx)
 	if err != nil {
 		errs = append(errs, err)
 	}
 
-	var auditEvents int64
 	if days := s.cfg.Retention.AuditDays; days > 0 {
-		auditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
+		if ctx.Err() != nil {
+			return canceled()
+		}
+		report.AuditEvents, err = s.db.DeleteAuditEventsBefore(ctx, daysAgo(days))
 		if err != nil {
-			errs = append(errs, fmt.Errorf("delete audit events: %w", err))
+			errs = append(errs, err)
 		}
 	}
 
-	var messages int64
 	if days := s.cfg.Retention.MessageDays; days > 0 {
-		messages, err = s.db.DeleteMessagesOlderThan(ctx, daysAgo(days))
+		if ctx.Err() != nil {
+			return canceled()
+		}
+		report.Messages, err = s.db.DeleteMessagesOlderThan(ctx, daysAgo(days))
 		if err != nil {
 			errs = append(errs, fmt.Errorf("delete messages: %w", err))
 		} else {
+			if ctx.Err() != nil {
+				return canceled()
+			}
 			orphaned, err := s.media.Sweep(ctx)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("sweep orphaned attachments: %w", err))
 			}
-			attachments += orphaned
+			report.Attachments += orphaned
 		}
 	}
 
+	if ctx.Err() != nil {
+		return canceled()
+	}
 	if err := s.db.MetaSet(ctx, lastRunKey, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		errs = append(errs, fmt.Errorf("record retention run: %w", err))
 	}
-	s.log.Info().
-		Int("attachments", attachments).
-		Int("orphan_uploads", orphanUploads).
-		Int("recordings", recordings).
-		Int64("audit_events", auditEvents).
-		Int64("messages", messages).
-		Msg("retention sweep complete")
-	return errors.Join(errs...)
+	return report, errors.Join(errs...)
 }
 
 func (s *Sweeper) LastRun(ctx context.Context) (time.Time, error) {
@@ -104,24 +124,30 @@ func (s *Sweeper) sweepRecordings(ctx context.Context) (int, error) {
 	}
 	recordings, err := s.db.ListRecordingsBefore(ctx, daysAgo(days))
 	if err != nil {
-		return 0, fmt.Errorf("list recordings: %w", err)
+		return 0, err
 	}
 
 	deleted := 0
+	var errs []error
 	for _, r := range recordings {
+		select {
+		case <-ctx.Done():
+			return deleted, errors.Join(append(errs, ctx.Err())...)
+		default:
+		}
 		if path := s.resolve(r.StoragePath); path != "" {
 			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				s.log.Error().Err(err).Str("recording", r.ID.String()).Msg("remove recording file")
+				errs = append(errs, fmt.Errorf("recording %s: %w", r.ID, err))
 				continue
 			}
 		}
 		if err := s.db.DeleteCallRecording(ctx, r.ID); err != nil {
-			s.log.Error().Err(err).Str("recording", r.ID.String()).Msg("delete recording row")
+			errs = append(errs, fmt.Errorf("recording %s: %w", r.ID, err))
 			continue
 		}
 		deleted++
 	}
-	return deleted, nil
+	return deleted, errors.Join(errs...)
 }
 
 func (s *Sweeper) resolve(path string) string {

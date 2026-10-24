@@ -1,4 +1,4 @@
-const SHAPE = 'pointer-events-auto rounded-lg bg-base px-3 py-2 text-sm shadow-pop'
+const SHAPE = 'pointer-events-auto rounded-lg bg-mantle px-3 py-2 text-sm shadow-pop'
 const TONE = { info: 'text-blue', success: 'text-green', error: 'text-red', warning: 'text-yellow' }
 
 export function toast(message, opts = {}) {

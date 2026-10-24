@@ -30,6 +30,8 @@ const (
 	expiryInterval       = time.Hour
 	retentionInterval    = 24 * time.Hour
 	backgroundTimeout    = time.Minute
+	attachmentWorkers    = 2
+	attachmentQueue      = 256
 )
 
 type App struct {
@@ -42,34 +44,39 @@ type App struct {
 	Retention *retention.Sweeper
 	Log       zerolog.Logger
 
-	cfg       *config.Config
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mu        sync.Mutex
-	closing   bool
-	wg        sync.WaitGroup
-	reactions sync.Mutex
+	cfg         *config.Config
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mu          sync.Mutex
+	closing     bool
+	wg          sync.WaitGroup
+	reactions   sync.Mutex
+	attachments chan uuid.UUID
 }
 
 func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logger) (*App, error) {
-	mediaSvc, err := media.New(cfg, db, log)
+	mediaSvc, err := media.New(cfg, db)
 	if err != nil {
 		return nil, fmt.Errorf("start media service: %w", err)
+	}
+	for tool, lost := range mediaSvc.MissingTools() {
+		log.Warn().Str("tool", tool).Msg(lost)
 	}
 	hub := socket.NewHub(log)
 	base, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a := &App{
-		DB:        db,
-		Hub:       hub,
-		Push:      push.New(cfg, db, log),
-		Calls:     calls.New(cfg, log),
-		Media:     mediaSvc,
-		Agents:    agents.New(cfg, db, log),
-		Retention: retention.New(cfg, db, mediaSvc, log),
-		Log:       log,
-		cfg:       cfg,
-		ctx:       base,
-		cancel:    cancel,
+		DB:          db,
+		Hub:         hub,
+		Push:        push.New(cfg, db),
+		Calls:       calls.New(cfg),
+		Media:       mediaSvc,
+		Agents:      agents.New(cfg, db, base.Done()),
+		Retention:   retention.New(cfg, db, mediaSvc),
+		Log:         log,
+		cfg:         cfg,
+		ctx:         base,
+		cancel:      cancel,
+		attachments: make(chan uuid.UUID, attachmentQueue),
 	}
 	hub.SetHandler(a)
 	hub.OnPresenceChange(a.presenceChanged)
@@ -80,6 +87,9 @@ func (a *App) Cfg() *config.Config { return a.cfg }
 
 func (a *App) Start(ctx context.Context) {
 	context.AfterFunc(ctx, a.cancel)
+	for range attachmentWorkers {
+		a.spawn(a.attachmentWorker)
+	}
 	a.requeueProcessingAttachments(ctx)
 	a.every(agentTimeoutInterval, "agent timeouts", a.expireAgentJobs)
 	a.every(callReapInterval, "call reaper", a.reapCalls)
@@ -153,6 +163,7 @@ func (a *App) expireAgentJobs(ctx context.Context) {
 		return
 	}
 	for _, job := range jobs {
+		a.Log.Warn().Str("job", job.ID.String()).Dur("timeout", a.cfg.Agents.JobTimeout).Msg("agent job timed out")
 		agent, err := a.DB.GetUser(ctx, job.AgentID)
 		if err != nil {
 			a.Log.Error().Err(err).Str("job", job.ID.String()).Msg("load timed out agent")
@@ -215,7 +226,15 @@ func (a *App) reapCalls(ctx context.Context) {
 }
 
 func (a *App) runRetention(ctx context.Context) {
-	if err := a.Retention.Run(ctx); err != nil {
+	report, err := a.Retention.Run(ctx)
+	a.Log.Info().
+		Int("attachments", report.Attachments).
+		Int("orphan_uploads", report.OrphanUploads).
+		Int("recordings", report.Recordings).
+		Int64("audit_events", report.AuditEvents).
+		Int64("messages", report.Messages).
+		Msg("retention sweep complete")
+	if err != nil {
 		a.Log.Error().Err(err).Msg("retention sweep")
 	}
 }
@@ -233,16 +252,61 @@ func (a *App) deleteExpired(ctx context.Context) {
 }
 
 func (a *App) requeueProcessingAttachments(ctx context.Context) {
-	ids, err := a.DB.RequeueProcessingAttachments(ctx)
+	ids, err := a.DB.ProcessingAttachmentIDs(ctx)
 	if err != nil {
 		a.Log.Error().Err(err).Msg("requeue processing attachments")
 		return
 	}
-	for _, id := range ids {
-		a.Spawn("reprocess attachment", func(ctx context.Context) {
-			if _, err := a.Media.Process(ctx, id); err != nil {
-				a.Log.Error().Err(err).Str("attachment", id.String()).Msg("reprocess attachment")
-			}
-		})
+	a.Spawn("requeue attachments", func(context.Context) {
+		for _, id := range ids {
+			a.QueueAttachment(id)
+		}
+	})
+}
+
+func (a *App) QueueAttachment(id uuid.UUID) {
+	select {
+	case <-a.ctx.Done():
+	case a.attachments <- id:
 	}
+}
+
+func (a *App) attachmentWorker() {
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case id := <-a.attachments:
+			if a.ctx.Err() != nil {
+				return
+			}
+			a.guard("process attachment", func() { a.processAttachment(a.ctx, id) })
+		}
+	}
+}
+
+func (a *App) processAttachment(ctx context.Context, id uuid.UUID) {
+	done, skipped, err := a.Media.Process(ctx, id)
+	if err != nil {
+		a.Log.Error().Err(err).Str("attachment_id", id.String()).Msg("process attachment")
+		return
+	}
+	if skipped != nil {
+		event := a.Log.Warn()
+		if errors.Is(skipped, media.ErrImageUnprobed) {
+			event = a.Log.Debug()
+		}
+		event.Err(skipped).Str("attachment_id", id.String()).Msg("skipped attachment derivatives")
+	}
+	frame := socket.NewFrame(socket.TypeAttachment, done)
+	if done.MessageID == nil {
+		a.Hub.ToUser(done.UploaderID, frame)
+		return
+	}
+	m, err := a.DB.GetMessage(ctx, *done.MessageID)
+	if err != nil {
+		a.Log.Error().Err(err).Str("attachment_id", id.String()).Msg("load attachment message")
+		return
+	}
+	a.Broadcast(ctx, m.ContainerID, frame)
 }

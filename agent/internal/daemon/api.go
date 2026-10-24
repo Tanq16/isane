@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 )
 
 const (
+	dialTimeout = 10 * time.Second
 	pollTimeout = 45 * time.Second
 	callTimeout = 30 * time.Second
 	maxBody     = 8 << 20
@@ -35,12 +37,25 @@ func (e *StatusError) Terminal() bool {
 	return e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
 }
 
+type client struct {
+	hc      *http.Client
+	timeout time.Duration
+}
+
+func newClient(timeout time.Duration) client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = (&net.Dialer{Timeout: dialTimeout}).DialContext
+	t.TLSHandshakeTimeout = dialTimeout
+	t.ResponseHeaderTimeout = timeout
+	return client{hc: &http.Client{Transport: t}, timeout: timeout}
+}
+
 type API struct {
 	base   string
 	handle string
 	token  string
-	poll   *http.Client
-	call   *http.Client
+	poll   client
+	call   client
 }
 
 func NewAPI(base, handle, token string) *API {
@@ -48,8 +63,8 @@ func NewAPI(base, handle, token string) *API {
 		base:   strings.TrimSuffix(base, "/"),
 		handle: handle,
 		token:  token,
-		poll:   &http.Client{Timeout: pollTimeout},
-		call:   &http.Client{Timeout: callTimeout},
+		poll:   newClient(pollTimeout),
+		call:   newClient(callTimeout),
 	}
 }
 
@@ -78,7 +93,7 @@ func (a *API) PostResult(ctx context.Context, jobID string, res agentproto.Resul
 	return a.do(ctx, a.call, http.MethodPost, "/api/agent/jobs/"+jobID+"/result", res, nil)
 }
 
-func (a *API) do(ctx context.Context, hc *http.Client, method, path string, payload, out any) error {
+func (a *API) do(ctx context.Context, c client, method, path string, payload, out any) error {
 	var body io.Reader
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -87,6 +102,8 @@ func (a *API) do(ctx context.Context, hc *http.Client, method, path string, payl
 		}
 		body = bytes.NewReader(data)
 	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, a.base+path, body)
 	if err != nil {
 		return err
@@ -97,7 +114,7 @@ func (a *API) do(ctx context.Context, hc *http.Client, method, path string, payl
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := hc.Do(req)
+	resp, err := c.hc.Do(req)
 	if err != nil {
 		return err
 	}

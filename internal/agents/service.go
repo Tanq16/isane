@@ -8,7 +8,6 @@ import (
 	"sync"
 	"uuid"
 
-	"github.com/rs/zerolog"
 	"github.com/tanq16/isane/internal/auth"
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/store"
@@ -17,20 +16,20 @@ import (
 var ErrClaim = errors.New("invalid claim token")
 
 type Service struct {
-	cfg *config.Config
-	db  *store.DB
-	log zerolog.Logger
+	cfg      *config.Config
+	db       *store.DB
+	shutdown <-chan struct{}
 
 	mu      sync.Mutex
 	waiters map[uuid.UUID]map[chan struct{}]struct{}
 }
 
-func New(cfg *config.Config, db *store.DB, log zerolog.Logger) *Service {
+func New(cfg *config.Config, db *store.DB, shutdown <-chan struct{}) *Service {
 	return &Service{
-		cfg:     cfg,
-		db:      db,
-		log:     log,
-		waiters: make(map[uuid.UUID]map[chan struct{}]struct{}),
+		cfg:      cfg,
+		db:       db,
+		shutdown: shutdown,
+		waiters:  make(map[uuid.UUID]map[chan struct{}]struct{}),
 	}
 }
 
@@ -52,7 +51,6 @@ func (s *Service) Register(ctx context.Context, a store.AgentInfo, argv []string
 	if err := s.db.RegisterAgent(ctx, a.User.ID, argv, allowHistory); err != nil {
 		return fmt.Errorf("register %s: %w", a.User.Handle, err)
 	}
-	s.log.Info().Str("agent", a.User.Handle).Bool("allow_history", allowHistory).Msg("agent registered")
 	return nil
 }
 
@@ -60,6 +58,5 @@ func (s *Service) Deregister(ctx context.Context, a store.AgentInfo) error {
 	if err := s.db.DeregisterAgent(ctx, a.User.ID); err != nil {
 		return fmt.Errorf("deregister %s: %w", a.User.Handle, err)
 	}
-	s.log.Info().Str("agent", a.User.Handle).Msg("agent deregistered")
 	return nil
 }

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +14,6 @@ import (
 	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
-	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -76,17 +74,17 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	parts, err := r.MultipartReader()
 	if err != nil {
-		WriteError(w, badRequestf("expected a multipart upload"))
+		WriteError(w, r, badRequestf("expected a multipart upload"))
 		return
 	}
 	for {
 		part, err := parts.NextPart()
 		if errors.Is(err, io.EOF) {
-			WriteError(w, badRequestf("the upload carries no file part"))
+			WriteError(w, r, badRequestf("the upload carries no file part"))
 			return
 		}
 		if err != nil {
-			writeUploadError(w, err)
+			writeUploadError(w, r, err)
 			return
 		}
 		if part.FileName() == "" {
@@ -96,10 +94,10 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 		a, err := h.app.Media.Store(r.Context(), u.ID, part.FileName(), part)
 		part.Close()
 		if err != nil {
-			writeUploadError(w, err)
+			writeUploadError(w, r, err)
 			return
 		}
-		h.app.Spawn("process attachment", func(ctx context.Context) { h.process(ctx, a, u.ID) })
+		h.app.QueueAttachment(a.ID)
 		WriteJSON(w, http.StatusCreated, a)
 		return
 	}
@@ -111,12 +109,12 @@ func (h *Media) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.State != store.AttachmentReady && a.State != store.AttachmentFailed {
-		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
+		WriteError(w, r, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
 		return
 	}
 	f, err := h.app.Media.Open(a)
 	if err != nil {
-		WriteError(w, fmt.Errorf("open attachment %s: %w", a.ID, err))
+		WriteError(w, r, fmt.Errorf("open attachment %s: %w", a.ID, err))
 		return
 	}
 	w.Header().Set("Cache-Control", attachmentCache)
@@ -130,16 +128,16 @@ func (h *Media) Thumb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.State != store.AttachmentReady {
-		WriteError(w, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
+		WriteError(w, r, fmt.Errorf("%w: attachment %s is %s", store.ErrNotFound, a.ID, a.State))
 		return
 	}
 	if !a.HasThumb() {
-		WriteError(w, fmt.Errorf("%w: attachment %s has no thumbnail", store.ErrNotFound, a.ID))
+		WriteError(w, r, fmt.Errorf("%w: attachment %s has no thumbnail", store.ErrNotFound, a.ID))
 		return
 	}
 	f, err := h.app.Media.OpenThumb(a)
 	if err != nil {
-		WriteError(w, fmt.Errorf("open thumbnail for %s: %w", a.ID, err))
+		WriteError(w, r, fmt.Errorf("open thumbnail for %s: %w", a.ID, err))
 		return
 	}
 	w.Header().Set("Cache-Control", attachmentCache)
@@ -153,16 +151,16 @@ func (h *Media) resolve(w http.ResponseWriter, r *http.Request) (store.Attachmen
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Attachment{}, false
 	}
 	a, err := h.app.DB.GetAttachment(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Attachment{}, false
 	}
 	if err := h.mayRead(r, a, u); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Attachment{}, false
 	}
 	return a, true
@@ -190,30 +188,11 @@ func (h *Media) mayRead(r *http.Request, a store.Attachment, u store.User) error
 	return err
 }
 
-func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid.UUID) {
-	done, err := h.app.Media.Process(ctx, a.ID)
-	if err != nil {
-		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("process attachment")
-		return
-	}
-	frame := socket.NewFrame(socket.TypeAttachment, done)
-	if done.MessageID == nil {
-		h.app.Hub.ToUser(uploaderID, frame)
-		return
-	}
-	m, err := h.app.DB.GetMessage(ctx, *done.MessageID)
-	if err != nil {
-		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("load attachment message")
-		return
-	}
-	h.app.Broadcast(ctx, m.ContainerID, frame)
-}
-
 func serveFile(w http.ResponseWriter, r *http.Request, f *os.File, name, mimeType string, download bool) {
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		WriteError(w, fmt.Errorf("stat %s: %w", name, err))
+		WriteError(w, r, fmt.Errorf("stat %s: %w", name, err))
 		return
 	}
 	if mimeType != "" {
@@ -244,7 +223,7 @@ func (s stallReader) Read(p []byte) (int, error) {
 
 func (s stallReader) Close() error { return s.body.Close() }
 
-func writeUploadError(w http.ResponseWriter, err error) {
+func writeUploadError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		WriteJSON(w, http.StatusRequestTimeout,
 			errorBody{Error: fmt.Sprintf("the upload sent nothing for %s and was dropped", uploadStall)})
@@ -255,5 +234,5 @@ func writeUploadError(w http.ResponseWriter, err error) {
 			errorBody{Error: fmt.Sprintf("upload exceeds the %d byte limit", tooLarge.Limit)})
 		return
 	}
-	WriteError(w, err)
+	WriteError(w, r, err)
 }

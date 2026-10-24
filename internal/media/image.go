@@ -57,7 +57,7 @@ func (s *Service) processImage(ctx context.Context, a store.Attachment) (result,
 	res := result{mime: "image/webp"}
 	probed, err := s.probeStream(ctx, src)
 	if err != nil {
-		s.log.Debug().Err(err).Str("attachment", a.ID.String()).Msg("probe image dimensions")
+		res.skipped = fmt.Errorf("%w: %w", ErrImageUnprobed, err)
 	} else {
 		res.width, res.height = probed.dimensions()
 	}

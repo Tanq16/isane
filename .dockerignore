@@ -5,6 +5,7 @@ data
 dist
 docs
 isane
+isane-*
 internal/server/static/vendor
 internal/server/static/css/app.css
 config.yaml

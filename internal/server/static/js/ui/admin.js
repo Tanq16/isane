@@ -813,7 +813,7 @@ export function mount(root) {
   titleEl = el('h1', 'hidden min-w-0 shrink truncate font-display text-xl font-semibold text-text sm:block', 'Administration')
   header.appendChild(titleEl)
 
-  railEl = el('nav', 'ml-auto flex shrink-0 items-center gap-1 rounded-full bg-base p-1')
+  railEl = el('nav', 'ml-auto flex shrink-0 items-center gap-1 rounded-full bg-mantle p-1')
   railEl.setAttribute('aria-label', 'Administration')
   for (const [key, label, iconName] of SECTIONS) {
     const pill = el('button')

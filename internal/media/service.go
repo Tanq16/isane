@@ -15,12 +15,14 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/rs/zerolog"
 	"github.com/tanq16/isane/internal/config"
 	"github.com/tanq16/isane/internal/store"
 )
 
-var ErrTooLarge = errors.New("upload exceeds media.max_upload_bytes")
+var (
+	ErrTooLarge      = errors.New("upload exceeds media.max_upload_bytes")
+	ErrImageUnprobed = errors.New("probe image dimensions")
+)
 
 const (
 	uploadsDir    = "uploads"
@@ -42,11 +44,11 @@ const (
 )
 
 type Service struct {
-	cfg   *config.Config
-	db    *store.DB
-	log   zerolog.Logger
-	root  string
-	tools Tools
+	cfg     *config.Config
+	db      *store.DB
+	root    string
+	tools   Tools
+	missing map[string]string
 }
 
 type Tools struct {
@@ -55,7 +57,7 @@ type Tools struct {
 	FFprobe bool `json:"ffprobe"`
 }
 
-func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error) {
+func New(cfg *config.Config, db *store.DB) (*Service, error) {
 	root, err := filepath.Abs(cfg.Media.Root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve media root: %w", err)
@@ -65,25 +67,29 @@ func New(cfg *config.Config, db *store.DB, log zerolog.Logger) (*Service, error)
 			return nil, fmt.Errorf("create media directory: %w", err)
 		}
 	}
-	return &Service{cfg: cfg, db: db, log: log, root: root, tools: preflight(log)}, nil
+	tools, missing := preflight()
+	return &Service{cfg: cfg, db: db, root: root, tools: tools, missing: missing}, nil
 }
 
 func (s *Service) Tools() Tools { return s.tools }
 
-func preflight(log zerolog.Logger) Tools {
+func (s *Service) MissingTools() map[string]string { return s.missing }
+
+func preflight() (Tools, map[string]string) {
 	found := map[string]bool{}
+	missing := map[string]string{}
 	for tool, lost := range map[string]string{
 		"magick":  "images are stored unresized and get no thumbnail",
 		"ffmpeg":  "videos get no poster frame",
 		"ffprobe": "videos and audio get no dimensions or duration",
 	} {
 		if _, err := exec.LookPath(tool); err != nil {
-			log.Warn().Str("tool", tool).Msg(lost)
+			missing[tool] = lost
 			continue
 		}
 		found[tool] = true
 	}
-	return Tools{Magick: found["magick"], FFmpeg: found["ffmpeg"], FFprobe: found["ffprobe"]}
+	return Tools{Magick: found["magick"], FFmpeg: found["ffmpeg"], FFprobe: found["ffprobe"]}, missing
 }
 
 func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, r io.Reader) (store.Attachment, error) {
@@ -118,7 +124,7 @@ func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, 
 		Mime:         mime,
 		SizeBytes:    size,
 		StoragePath:  rel,
-		State:        store.AttachmentStaged,
+		State:        store.AttachmentProcessing,
 		CreatedAt:    time.Now().UTC(),
 	})
 	if err != nil {
@@ -128,39 +134,32 @@ func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, 
 	return a, nil
 }
 
-func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, error) {
+func (s *Service) Process(ctx context.Context, id uuid.UUID) (done store.Attachment, skipped error, err error) {
 	a, err := s.db.GetAttachment(ctx, id)
 	if err != nil {
-		return store.Attachment{}, fmt.Errorf("get attachment: %w", err)
+		return store.Attachment{}, nil, err
 	}
-	if a.State != store.AttachmentStaged {
-		return a, nil
-	}
-	if err := s.db.SetAttachmentState(ctx, id, store.AttachmentProcessing, nil); err != nil {
-		return a, fmt.Errorf("mark attachment processing: %w", err)
+	if a.State != store.AttachmentProcessing {
+		return a, nil, nil
 	}
 
 	res, err := s.derive(ctx, a)
 	if err != nil {
-		s.log.Error().Err(err).Str("attachment", id.String()).Msg("derive attachment")
 		text := failureReason
 		if failErr := s.db.SetAttachmentState(ctx, id, store.AttachmentFailed, &text); failErr != nil {
-			s.log.Error().Err(failErr).Str("attachment", id.String()).Msg("mark attachment failed")
+			return a, nil, errors.Join(err, failErr)
 		}
-		return a, fmt.Errorf("process attachment %s: %w", id, err)
+		return a, nil, err
 	}
 	size := a.SizeBytes
 	if info, statErr := os.Stat(s.abs(a.StoragePath)); statErr == nil {
 		size = info.Size()
 	}
 	if err := s.db.FinishAttachment(ctx, id, cmp.Or(res.kind, a.Kind), res.mime, size, res.width, res.height, res.durationMs, res.thumbPath); err != nil {
-		return a, fmt.Errorf("finish attachment: %w", err)
+		return a, nil, err
 	}
 	a, err = s.db.GetAttachment(ctx, id)
-	if err != nil {
-		return a, fmt.Errorf("get attachment: %w", err)
-	}
-	return a, nil
+	return a, res.skipped, err
 }
 
 type result struct {
@@ -170,6 +169,7 @@ type result struct {
 	height     *int
 	durationMs *int
 	thumbPath  *string
+	skipped    error
 }
 
 func (s *Service) derive(ctx context.Context, a store.Attachment) (result, error) {
@@ -186,22 +186,14 @@ func (s *Service) derive(ctx context.Context, a store.Attachment) (result, error
 }
 
 func (s *Service) Open(a store.Attachment) (*os.File, error) {
-	f, err := os.Open(s.abs(a.StoragePath))
-	if err != nil {
-		return nil, fmt.Errorf("open attachment %s: %w", a.ID, err)
-	}
-	return f, nil
+	return os.Open(s.abs(a.StoragePath))
 }
 
 func (s *Service) OpenThumb(a store.Attachment) (*os.File, error) {
 	if !a.HasThumb() {
 		return nil, fmt.Errorf("thumbnail for %s: %w", a.ID, fs.ErrNotExist)
 	}
-	f, err := os.Open(s.abs(*a.ThumbPath))
-	if err != nil {
-		return nil, fmt.Errorf("open thumbnail %s: %w", a.ID, err)
-	}
-	return f, nil
+	return os.Open(s.abs(*a.ThumbPath))
 }
 
 func (s *Service) Delete(ctx context.Context, a store.Attachment) error {
@@ -214,7 +206,7 @@ func (s *Service) Delete(ctx context.Context, a store.Attachment) error {
 		}
 	}
 	if err := s.db.DeleteAttachment(ctx, a.ID); err != nil {
-		return fmt.Errorf("delete attachment %s: %w", a.ID, err)
+		return fmt.Errorf("attachment %s: %w", a.ID, err)
 	}
 	return nil
 }
@@ -296,7 +288,7 @@ func removeFile(path string) error {
 		return nil
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove %s: %w", path, err)
+		return err
 	}
 	return nil
 }

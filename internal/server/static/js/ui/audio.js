@@ -18,7 +18,7 @@ export function audioPlayer(spec) {
   const toggle = el('button', 'grid h-8 w-8 shrink-0 place-items-center rounded-full bg-mauve text-crust transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
   toggle.type = 'button'
 
-  const seek = el('input', 'seek min-w-0 flex-1')
+  const seek = el('input', 'seek h-1 min-w-0 flex-1 appearance-none rounded-full bg-[linear-gradient(to_right,var(--ctp-mauve)_var(--seek,0%),var(--ctp-surface1)_var(--seek,0%))]')
   seek.type = 'range'
   seek.min = '0'
   seek.max = '1000'

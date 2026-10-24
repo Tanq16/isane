@@ -3,13 +3,13 @@ package daemon
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"time"
 
-	u "github.com/tanq16/isane/agent/utils"
 	"github.com/tanq16/isane/internal/agentproto"
 )
 
@@ -20,18 +20,23 @@ const (
 	interruptedError = "the daemon was interrupted"
 )
 
+var (
+	ErrNoneConfigured = errors.New("no agents are configured on this machine")
+	ErrNoneRegistered = errors.New("no agent on this machine is registered")
+)
+
 type Config struct {
 	ServerURL string
 	Timeout   time.Duration
 }
 
-func Serve(ctx context.Context, cfg Config, store *Store) error {
+func Serve(ctx context.Context, cfg Config, store *Store, w io.Writer) error {
 	agents, err := store.List()
 	if err != nil {
 		return err
 	}
 	if len(agents) == 0 {
-		return errors.New("no agents are configured, run 'isane-agent init <handle> --claim-token <token>' first")
+		return ErrNoneConfigured
 	}
 
 	release, err := store.Lock()
@@ -39,42 +44,46 @@ func Serve(ctx context.Context, cfg Config, store *Store) error {
 		return err
 	}
 	defer release()
-	u.PrintInfo("polling " + cfg.ServerURL)
+	out := &reporter{w: w}
+	out.report(LevelInfo, "polling "+cfg.ServerURL, nil)
 
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	context.AfterFunc(ctx, func() { signal.Reset(os.Interrupt, syscall.SIGTERM) })
 
-	var wg sync.WaitGroup
-	served := 0
+	var registered []Agent
 	for _, agent := range agents {
 		if !agent.Registered() {
-			u.PrintWarn("skipping "+agent.Handle+", it has no registered command", nil)
+			out.report(LevelWarn, "skipping "+agent.Handle+", it has no registered command", nil)
 			continue
 		}
 		if err := store.WriteFetchHelper(agent.Handle); err != nil {
 			return err
 		}
-		served++
-		wg.Go(func() { serveAgent(ctx, cfg, store, agent) })
+		registered = append(registered, agent)
 	}
-	if served == 0 {
-		return errors.New("no agent on this machine is registered, run 'isane-agent register <handle> --model <model>' first")
+	if len(registered) == 0 {
+		return ErrNoneRegistered
+	}
+
+	var wg sync.WaitGroup
+	for _, agent := range registered {
+		wg.Go(func() { serveAgent(ctx, cfg, store, out, agent) })
 	}
 	wg.Wait()
 	return nil
 }
 
-func serveAgent(ctx context.Context, cfg Config, store *Store, agent Agent) {
+func serveAgent(ctx context.Context, cfg Config, store *Store, out *reporter, agent Agent) {
 	api := NewAPI(cfg.ServerURL, agent.Handle, agent.ClaimToken)
 	if err := api.Hello(ctx); err != nil {
 		if terminal(err) {
-			u.PrintError("the server rejected "+agent.Handle, err)
+			out.report(LevelError, "the server rejected "+agent.Handle, err)
 			return
 		}
-		u.PrintWarn("could not reach the server for "+agent.Handle, err)
+		out.report(LevelWarn, "could not reach the server for "+agent.Handle, err)
 	} else {
-		u.PrintSuccess("serving " + agent.Handle)
+		out.report(LevelSuccess, "serving "+agent.Handle, nil)
 	}
 
 	backoff := minBackoff
@@ -85,10 +94,10 @@ func serveAgent(ctx context.Context, cfg Config, store *Store, agent Agent) {
 		}
 		if err != nil {
 			if terminal(err) {
-				u.PrintError("the server rejected "+agent.Handle, err)
+				out.report(LevelError, "the server rejected "+agent.Handle, err)
 				return
 			}
-			u.PrintWarn("poll for "+agent.Handle+" failed, retrying in "+backoff.String(), err)
+			out.report(LevelWarn, "poll for "+agent.Handle+" failed, retrying in "+backoff.String(), err)
 			select {
 			case <-ctx.Done():
 				return
@@ -99,14 +108,14 @@ func serveAgent(ctx context.Context, cfg Config, store *Store, agent Agent) {
 		}
 		backoff = minBackoff
 		for _, job := range jobs {
-			runJob(ctx, cfg, store, api, agent, job)
+			runJob(ctx, cfg, store, out, api, agent, job)
 		}
 	}
 }
 
-func runJob(ctx context.Context, cfg Config, store *Store, api *API, agent Agent, job agentproto.Job) {
+func runJob(ctx context.Context, cfg Config, store *Store, out *reporter, api *API, agent Agent, job agentproto.Job) {
 	id := job.ID.String()
-	u.PrintInfo("running job " + id + " for " + agent.Handle)
+	out.report(LevelInfo, "running job "+id+" for "+agent.Handle, nil)
 
 	answer, err := Run(ctx, Job{
 		Agent:   agent,
@@ -117,10 +126,13 @@ func runJob(ctx context.Context, cfg Config, store *Store, api *API, agent Agent
 		Timeout: cfg.Timeout,
 	})
 	var res agentproto.ResultRequest
+	var jobErr error
 	switch {
 	case ctx.Err() != nil:
+		jobErr = ctx.Err()
 		res.Error = interruptedError
 	case err != nil:
+		jobErr = err
 		res.Error = err.Error()
 	default:
 		res.Result = answer
@@ -129,14 +141,14 @@ func runJob(ctx context.Context, cfg Config, store *Store, api *API, agent Agent
 	post, cancel := context.WithTimeout(context.WithoutCancel(ctx), postTimeout)
 	defer cancel()
 	if err := api.PostResult(post, id, res); err != nil {
-		u.PrintError("could not post the answer for job "+id, err)
+		out.report(LevelError, "could not post the answer for job "+id, err)
 		return
 	}
-	if res.Error != "" {
-		u.PrintWarn("job "+id+" failed: "+res.Error, nil)
+	if jobErr != nil {
+		out.report(LevelWarn, "job "+id+" failed", jobErr)
 		return
 	}
-	u.PrintSuccess("job " + id + " answered")
+	out.report(LevelSuccess, "job "+id+" answered", nil)
 }
 
 func terminal(err error) bool {

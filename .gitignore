@@ -1,6 +1,5 @@
 /isane
-/isane-agent
-/isane-agent-*
+/isane-*
 /.env/
 /data/
 /config.yaml

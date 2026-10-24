@@ -43,7 +43,10 @@ var harnessLinks = map[string]string{
 
 var handlePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
-var ErrNoAgent = errors.New("agent is not configured on this machine")
+var (
+	ErrNoAgent = errors.New("agent is not configured on this machine")
+	ErrLocked  = errors.New("another isane-agent serve is running")
+)
 
 func ValidateHandle(handle string) error {
 	if !handlePattern.MatchString(handle) {
@@ -55,7 +58,7 @@ func ValidateHandle(handle string) error {
 type Agent struct {
 	Handle       string   `json:"handle"`
 	ClaimToken   string   `json:"claim_token"`
-	Argv         []string `json:"argv,omitempty"`
+	Argv         []string `json:"argv,omitzero"`
 	AllowHistory bool     `json:"allow_history,omitempty"`
 }
 
@@ -160,10 +163,14 @@ func (s *Store) Lock() (func(), error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			f.Close()
+			return nil, err
+		}
 		holder, _ := io.ReadAll(f)
 		f.Close()
-		return nil, fmt.Errorf("another isane-agent serve holds %s, started by pid %s",
-			path, cmp.Or(strings.TrimSpace(string(holder)), "unknown"))
+		return nil, fmt.Errorf("%w: %s is held by pid %s",
+			ErrLocked, path, cmp.Or(strings.TrimSpace(string(holder)), "unknown"))
 	}
 	if err := f.Truncate(0); err != nil {
 		f.Close()

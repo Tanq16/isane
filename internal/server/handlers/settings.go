@@ -23,7 +23,7 @@ type settingsRequest struct {
 func (h *Settings) Get(w http.ResponseWriter, r *http.Request) {
 	s, err := h.app.DB.ServerSettings(r.Context())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, s)
@@ -36,12 +36,12 @@ func (h *Settings) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	var req settingsRequest
 	if err := ReadJSON(r, &req); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	s, err := h.app.DB.UpdateServerSettings(r.Context(), req.AllowMemberChannels, u.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Hub.ToAll(socket.NewFrame(socket.TypeSettings, s))

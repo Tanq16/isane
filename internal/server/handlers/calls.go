@@ -47,30 +47,30 @@ func (h *Calls) Start(w http.ResponseWriter, r *http.Request) {
 	}
 	containerID, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	member, err := h.app.DB.IsMember(r.Context(), containerID, u.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if !member {
-		WriteError(w, forbiddenf("you are not a member of this container"))
+		WriteError(w, r, forbiddenf("you are not a member of this container"))
 		return
 	}
 	c, err := h.app.DB.GetContainer(r.Context(), containerID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if c.ArchivedAt != nil {
-		WriteError(w, conflictf("container %s is archived", containerID))
+		WriteError(w, r, conflictf("container %s is archived", containerID))
 		return
 	}
 	call, created, err := h.app.DB.StartCall(r.Context(), containerID, u.ID, "call_"+uuid.New().String())
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if !created {
@@ -90,12 +90,12 @@ func (h *Calls) Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if call.EndedAt != nil {
-		WriteError(w, conflictf("call %s has ended", call.ID))
+		WriteError(w, r, conflictf("call %s has ended", call.ID))
 		return
 	}
 	token, err := h.app.Calls.Token(call.RoomName, u)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, joinToken{
@@ -111,7 +111,7 @@ func (h *Calls) Leave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.app.DB.LeaveCall(r.Context(), call.ID, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	h.app.Broadcast(r.Context(), call.ContainerID, participantFrame(call.ID, u.ID, false))
@@ -125,18 +125,18 @@ func (h *Calls) Recording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if call.EndedAt != nil {
-		WriteError(w, conflictf("call %s has ended", call.ID))
+		WriteError(w, r, conflictf("call %s has ended", call.ID))
 		return
 	}
 	var body recordingBody
 	if err := ReadJSON(r, &body); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	state := store.RecordingOff
 	if body.On {
 		if call.RecordingState == store.RecordingActive {
-			WriteError(w, conflictf("call %s is already recording", call.ID))
+			WriteError(w, r, conflictf("call %s is already recording", call.ID))
 			return
 		}
 		if err := h.startRecording(r.Context(), call, u.ID); err != nil {
@@ -150,7 +150,7 @@ func (h *Calls) Recording(w http.ResponseWriter, r *http.Request) {
 		state = store.RecordingProcessing
 	}
 	if err := h.setRecording(r.Context(), call, state); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	call.RecordingState = state
@@ -164,26 +164,26 @@ func (h *Calls) Audio(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	rec, err := h.app.DB.GetCallRecording(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	call, err := h.app.DB.GetCall(r.Context(), rec.CallID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	if _, err := containerFor(r.Context(), h.app, call.ContainerID, u.ID); err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	f, err := h.app.Media.OpenRecording(rec)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", attachmentCache)
@@ -197,7 +197,7 @@ func (h *Calls) Recordings(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := h.app.DB.ListCallRecordings(r.Context(), call.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, nonNil(list))
@@ -206,7 +206,7 @@ func (h *Calls) Recordings(w http.ResponseWriter, r *http.Request) {
 func (h *Calls) Webhook(w http.ResponseWriter, r *http.Request) {
 	event, err := h.app.Calls.VerifyWebhook(r)
 	if err != nil {
-		WriteError(w, fmt.Errorf("%w: %v", ErrUnauthorized, err))
+		WriteError(w, r, fmt.Errorf("%w: %v", ErrUnauthorized, err))
 		return
 	}
 	if err := h.handleEvent(r.Context(), event); err != nil {
@@ -344,21 +344,21 @@ func (h *Calls) memberCall(w http.ResponseWriter, r *http.Request) (store.Call, 
 	}
 	id, err := pathUUID(r, "id")
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Call{}, store.User{}, false
 	}
 	call, err := h.app.DB.GetCall(r.Context(), id)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Call{}, store.User{}, false
 	}
 	member, err := h.app.DB.IsMember(r.Context(), call.ContainerID, u.ID)
 	if err != nil {
-		WriteError(w, err)
+		WriteError(w, r, err)
 		return store.Call{}, store.User{}, false
 	}
 	if !member {
-		WriteError(w, forbiddenf("you are not a member of this container"))
+		WriteError(w, r, forbiddenf("you are not a member of this container"))
 		return store.Call{}, store.User{}, false
 	}
 	return call, u, true
@@ -367,11 +367,12 @@ func (h *Calls) memberCall(w http.ResponseWriter, r *http.Request) (store.Call, 
 func (h *Calls) startRecording(ctx context.Context, call store.Call, startedBy uuid.UUID) error {
 	recID := uuid.New()
 	// Egress writes from its own container, which mounts the recordings directory at /out rather than at media.root.
-	egressID, err := h.app.Calls.StartRoomEgress(ctx, call.RoomName,
-		path.Join(egressOutRoot, h.app.Media.RecordingName(call.ID, recID)))
+	outPath := path.Join(egressOutRoot, h.app.Media.RecordingName(call.ID, recID))
+	egressID, err := h.app.Calls.StartRoomEgress(ctx, call.RoomName, outPath)
 	if err != nil {
 		return err
 	}
+	h.app.Log.Debug().Str("room", call.RoomName).Str("egress_id", egressID).Str("path", outPath).Msg("room egress started")
 	_, err = h.app.DB.CreateCallRecording(ctx, store.CallRecording{
 		ID:          recID,
 		CallID:      call.ID,

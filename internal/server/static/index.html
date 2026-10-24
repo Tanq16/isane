@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Isane</title>
 
-    <link id="favicon" rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
+    <link rel="icon" type="image/x-icon" href="/static/icons/favicon.ico">
+    <link id="favicon" rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon.png">
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
     <link rel="manifest" href="/static/manifest.json">
 
@@ -29,7 +30,7 @@
 </head>
 <body class="flex h-dvh flex-col overflow-hidden bg-crust font-sans text-subtext0 antialiased">
 
-<div id="push-banner" class="hidden shrink-0 items-center gap-3 bg-base px-4 py-2 text-sm">
+<div id="push-banner" class="hidden shrink-0 items-center gap-3 bg-mantle px-4 py-2 text-sm">
     <p class="min-w-0 flex-1 text-subtext0">Turn on notifications to hear about mentions and messages while Isane is closed.</p>
     <button id="push-banner-enable" type="button" class="shrink-0 rounded-lg bg-mauve px-3 py-1.5 text-sm font-semibold text-crust transition-colors hover:brightness-110">Enable</button>
     <button id="push-banner-dismiss" type="button" class="shrink-0 rounded-lg px-3 py-1.5 text-sm text-overlay1 transition-colors hover:text-text">Not now</button>
@@ -75,7 +76,7 @@
 
 <div id="modal-root" class="fixed inset-0 z-50 empty:hidden"></div>
 
-<div id="install-hint" class="hidden fixed inset-x-4 bottom-4 z-40 mx-auto max-w-md rounded-xl bg-base p-4 text-sm shadow-pop">
+<div id="install-hint" class="hidden fixed inset-x-4 bottom-4 z-40 mx-auto max-w-md rounded-xl bg-mantle p-4 text-sm shadow-pop">
     <p class="mb-1 font-medium text-text">Add Isane to your home screen</p>
     <p class="mb-3 text-subtext0">Tap Share in Safari, then Add to Home Screen. Notifications only work from the home screen app.</p>
     <button id="install-hint-dismiss" type="button" class="rounded-lg bg-surface0 px-3 py-1.5 font-medium text-text transition-colors hover:bg-surface1">Got it</button>

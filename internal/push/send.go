@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,16 +17,25 @@ import (
 )
 
 const (
-	recordOverhead = 16 + 4 + 1 + 65 + 16 + 1 // salt, record size, key length, public key, GCM tag, padding delimiter
-	maxPlaintext   = int(webpush.MaxRecordSize) - recordOverhead
-	pushTTL        = 86400
-	sendTimeout    = 10 * time.Second
-	vapidReuse     = time.Hour
+	saltBytes             = 16
+	recordSizeBytes       = 4
+	keyLengthBytes        = 1
+	publicKeyBytes        = 65
+	gcmTagBytes           = 16
+	paddingDelimiterBytes = 1
+	recordOverhead        = saltBytes + recordSizeBytes + keyLengthBytes + publicKeyBytes + gcmTagBytes + paddingDelimiterBytes
+	maxPlaintext          = int(webpush.MaxRecordSize) - recordOverhead
+	pushTTL               = 86400
+	sendTimeout           = 10 * time.Second
+	dialTimeout           = 10 * time.Second
+	handshakeTimeout      = 10 * time.Second
+	headerTimeout         = 10 * time.Second
+	vapidReuse            = time.Hour
 )
 
 var (
-	errSubscriptionGone = errors.New("push subscription gone")
-	errRateLimited      = errors.New("push endpoint rate limited")
+	ErrSubscriptionGone = errors.New("push subscription gone")
+	ErrRateLimited      = errors.New("push endpoint rate limited")
 )
 
 func (r *Router) send(ctx context.Context, s store.PushSubscription, body []byte) error {
@@ -58,9 +68,9 @@ func (r *Router) send(ctx context.Context, s store.PushSubscription, body []byte
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return nil
 	case resp.StatusCode == http.StatusNotFound, resp.StatusCode == http.StatusGone:
-		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, errSubscriptionGone)
+		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, ErrSubscriptionGone)
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, errRateLimited)
+		return fmt.Errorf("push endpoint returned %d: %w", resp.StatusCode, ErrRateLimited)
 	default:
 		return fmt.Errorf("push endpoint returned %d", resp.StatusCode)
 	}
@@ -80,11 +90,13 @@ type vapidHeader struct {
 func newVAPIDClient() *vapidClient {
 	return &vapidClient{
 		http: &http.Client{
-			Timeout: sendTimeout,
 			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
+				DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
+				TLSHandshakeTimeout:   handshakeTimeout,
+				ResponseHeaderTimeout: headerTimeout,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   10,
+				IdleConnTimeout:       90 * time.Second,
 			},
 		},
 		cache: map[string]vapidHeader{},
