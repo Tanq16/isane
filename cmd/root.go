@@ -24,7 +24,7 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		log.Fatal().Err(err).Msg("command failed")
 	}
 }
 
@@ -43,6 +43,8 @@ func setupLogs() {
 
 func init() {
 	rootCmd.SetHelpCommand(&cobra.Command{Hidden: true})
+	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = true
 
 	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "Enable debug logging")
 
