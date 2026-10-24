@@ -16,11 +16,17 @@ import (
 )
 
 const (
-	recordOverhead = 16 + 4 + 1 + 65 + 16 + 1 // salt, record size, key length, public key, GCM tag, padding delimiter
-	maxPlaintext   = int(webpush.MaxRecordSize) - recordOverhead
-	pushTTL        = 86400
-	sendTimeout    = 10 * time.Second
-	vapidReuse     = time.Hour
+	saltBytes             = 16
+	recordSizeBytes       = 4
+	keyLengthBytes        = 1
+	publicKeyBytes        = 65
+	gcmTagBytes           = 16
+	paddingDelimiterBytes = 1
+	recordOverhead        = saltBytes + recordSizeBytes + keyLengthBytes + publicKeyBytes + gcmTagBytes + paddingDelimiterBytes
+	maxPlaintext          = int(webpush.MaxRecordSize) - recordOverhead
+	pushTTL               = 86400
+	sendTimeout           = 10 * time.Second
+	vapidReuse            = time.Hour
 )
 
 var (
