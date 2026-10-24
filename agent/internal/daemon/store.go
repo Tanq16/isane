@@ -55,7 +55,7 @@ func ValidateHandle(handle string) error {
 type Agent struct {
 	Handle       string   `json:"handle"`
 	ClaimToken   string   `json:"claim_token"`
-	Argv         []string `json:"argv,omitempty"`
+	Argv         []string `json:"argv,omitzero"`
 	AllowHistory bool     `json:"allow_history,omitempty"`
 }
 
