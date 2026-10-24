@@ -56,6 +56,7 @@ function flush() {
 export function unreadTotal() {
   let total = 0
   for (const c of state.containers.values()) {
+    if (c.archived_at) continue
     const mentions = c.mentions || 0
     if (mentions > 0) total += mentions
     else if (c.kind === 'conversation') total += c.unread || 0

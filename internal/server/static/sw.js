@@ -35,9 +35,9 @@ async function present(event) {
         requireInteraction: true,
         data: { navigate: n.navigate || '/', ...x },
     };
-    if (x.container_id) {
-        options.tag = x.container_id;
-        options.renotify = true;
+    if (n.tag) {
+        options.tag = n.tag;
+        options.renotify = Boolean(n.renotify);
     }
 
     await self.registration.showNotification(n.title || 'Isane', options);

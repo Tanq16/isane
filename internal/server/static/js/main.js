@@ -14,6 +14,7 @@ import { brandMark, el, field, textButton } from './ui/dom.js'
 import { closeModal, isModalOpen } from './ui/modal.js'
 import { openPicker } from './ui/picker.js'
 import { wireResize } from './ui/resize.js'
+import { pushResultToast } from './ui/settings.js'
 import { toast } from './ui/toast.js'
 
 const LAST_CONTAINER_KEY = 'isane:last-container'
@@ -443,9 +444,7 @@ function wirePushBanner() {
       accept.disabled = true
       const enabled = await enablePush()
       banner.classList.add('hidden')
-      toast(enabled ? 'Notifications are on' : 'Notifications were not enabled', {
-        severity: enabled ? 'success' : 'warning',
-      })
+      pushResultToast(enabled)
     })
   }
   if (dismiss) {
