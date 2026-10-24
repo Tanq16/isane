@@ -117,7 +117,7 @@ func (s *Service) Store(ctx context.Context, uploaderID uuid.UUID, name string, 
 		Mime:         mime,
 		SizeBytes:    size,
 		StoragePath:  rel,
-		State:        store.AttachmentStaged,
+		State:        store.AttachmentProcessing,
 		CreatedAt:    time.Now().UTC(),
 	})
 	if err != nil {
@@ -132,11 +132,8 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (done store.Attachm
 	if err != nil {
 		return store.Attachment{}, nil, err
 	}
-	if a.State != store.AttachmentStaged {
+	if a.State != store.AttachmentProcessing {
 		return a, nil, nil
-	}
-	if err := s.db.SetAttachmentState(ctx, id, store.AttachmentProcessing, nil); err != nil {
-		return a, nil, fmt.Errorf("mark attachment processing: %w", err)
 	}
 
 	res, err := s.derive(ctx, a)

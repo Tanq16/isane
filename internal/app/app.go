@@ -31,6 +31,7 @@ const (
 	retentionInterval    = 24 * time.Hour
 	backgroundTimeout    = time.Minute
 	attachmentWorkers    = 2
+	attachmentQueue      = 256
 )
 
 type App struct {
@@ -43,14 +44,14 @@ type App struct {
 	Retention *retention.Sweeper
 	Log       zerolog.Logger
 
-	cfg        *config.Config
-	ctx        context.Context
-	cancel     context.CancelFunc
-	mu         sync.Mutex
-	closing    bool
-	wg         sync.WaitGroup
-	reactions  sync.Mutex
-	processing chan struct{}
+	cfg         *config.Config
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mu          sync.Mutex
+	closing     bool
+	wg          sync.WaitGroup
+	reactions   sync.Mutex
+	attachments chan uuid.UUID
 }
 
 func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logger) (*App, error) {
@@ -61,18 +62,18 @@ func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logg
 	hub := socket.NewHub(log)
 	base, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	a := &App{
-		DB:         db,
-		Hub:        hub,
-		Push:       push.New(cfg, db),
-		Calls:      calls.New(cfg),
-		Media:      mediaSvc,
-		Agents:     agents.New(cfg, db, base.Done()),
-		Retention:  retention.New(cfg, db, mediaSvc),
-		Log:        log,
-		cfg:        cfg,
-		ctx:        base,
-		cancel:     cancel,
-		processing: make(chan struct{}, attachmentWorkers),
+		DB:          db,
+		Hub:         hub,
+		Push:        push.New(cfg, db),
+		Calls:       calls.New(cfg),
+		Media:       mediaSvc,
+		Agents:      agents.New(cfg, db, base.Done()),
+		Retention:   retention.New(cfg, db, mediaSvc),
+		Log:         log,
+		cfg:         cfg,
+		ctx:         base,
+		cancel:      cancel,
+		attachments: make(chan uuid.UUID, attachmentQueue),
 	}
 	hub.SetHandler(a)
 	hub.OnPresenceChange(a.presenceChanged)
@@ -83,7 +84,10 @@ func (a *App) Cfg() *config.Config { return a.cfg }
 
 func (a *App) Start(ctx context.Context) {
 	context.AfterFunc(ctx, a.cancel)
-	a.Spawn("requeue attachments", a.requeueProcessingAttachments)
+	for range attachmentWorkers {
+		a.spawn(a.attachmentWorker)
+	}
+	a.requeueProcessingAttachments(ctx)
 	a.every(agentTimeoutInterval, "agent timeouts", a.expireAgentJobs)
 	a.every(callReapInterval, "call reaper", a.reapCalls)
 	a.every(retentionInterval, "retention", a.runRetention)
@@ -245,26 +249,38 @@ func (a *App) deleteExpired(ctx context.Context) {
 }
 
 func (a *App) requeueProcessingAttachments(ctx context.Context) {
-	ids, err := a.DB.RequeueProcessingAttachments(ctx)
+	ids, err := a.DB.ProcessingAttachmentIDs(ctx)
 	if err != nil {
 		a.Log.Error().Err(err).Msg("requeue processing attachments")
 		return
 	}
-	for _, id := range ids {
-		a.ProcessAttachment(id)
+	a.Spawn("requeue attachments", func(ctx context.Context) {
+		for _, id := range ids {
+			a.QueueAttachment(ctx, id)
+		}
+	})
+}
+
+func (a *App) QueueAttachment(ctx context.Context, id uuid.UUID) {
+	select {
+	case <-ctx.Done():
+	case <-a.ctx.Done():
+	case a.attachments <- id:
 	}
 }
 
-func (a *App) ProcessAttachment(id uuid.UUID) {
-	select {
-	case <-a.ctx.Done():
-		return
-	case a.processing <- struct{}{}:
+func (a *App) attachmentWorker() {
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case id := <-a.attachments:
+			if a.ctx.Err() != nil {
+				return
+			}
+			a.guard("process attachment", func() { a.processAttachment(a.ctx, id) })
+		}
 	}
-	a.Spawn("process attachment", func(ctx context.Context) {
-		defer func() { <-a.processing }()
-		a.processAttachment(ctx, id)
-	})
 }
 
 func (a *App) processAttachment(ctx context.Context, id uuid.UUID) {
