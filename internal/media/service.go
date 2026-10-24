@@ -20,7 +20,10 @@ import (
 	"github.com/tanq16/isane/internal/store"
 )
 
-var ErrTooLarge = errors.New("upload exceeds media.max_upload_bytes")
+var (
+	ErrTooLarge      = errors.New("upload exceeds media.max_upload_bytes")
+	ErrImageUnprobed = errors.New("probe image dimensions")
+)
 
 const (
 	uploadsDir    = "uploads"

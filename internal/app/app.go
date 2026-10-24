@@ -289,7 +289,11 @@ func (a *App) processAttachment(ctx context.Context, id uuid.UUID) {
 		return
 	}
 	if skipped != nil {
-		a.Log.Warn().Err(skipped).Str("attachment_id", id.String()).Msg("skipped attachment derivatives")
+		event := a.Log.Warn()
+		if errors.Is(skipped, media.ErrImageUnprobed) {
+			event = a.Log.Debug()
+		}
+		event.Err(skipped).Str("attachment_id", id.String()).Msg("skipped attachment derivatives")
 	}
 	frame := socket.NewFrame(socket.TypeAttachment, done)
 	if done.MessageID == nil {
