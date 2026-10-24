@@ -1,5 +1,8 @@
 import { get } from './api.js'
-import { state, notify, upsertContainer, upsertMessage, findMessage, loadMessages, containerUnread } from './store.js'
+import {
+  state, notify, upsertContainer, upsertMessage, findMessage, loadMessages, containerUnread,
+  followedThread, loadFollowed, refreshFollowed, markThreadRead,
+} from './store.js'
 import { play } from './sound.js'
 
 const RECONNECT_MIN = 1000
@@ -222,8 +225,14 @@ function apply(type, d) {
     case 'message_deleted':
       onDeleted(d)
       return
+    case 'message_reactions':
+      onReactions(d)
+      return
     case 'read':
       onRead(d)
+      return
+    case 'thread_read':
+      markThreadRead(d.thread_root_id, d.seq ?? 0)
       return
     case 'typing':
       onTyping(d)
@@ -305,6 +314,7 @@ function onReady(d) {
   state.quality = d.media_quality ?? d.quality ?? state.quality
   notify('me', 'users', 'containers', 'presence', 'calls', 'settings', 'quality')
   if (Array.isArray(d.gaps) && d.gaps.length) backfill(d.gaps)
+  loadFollowed().catch((err) => console.error('followed threads failed', err))
 }
 
 function onAttachment(a) {
@@ -371,6 +381,7 @@ function onMessage(m) {
       root.thread_reply_count = (root.thread_reply_count ?? 0) + 1
       root.thread_last_reply_at = m.created_at
     }
+    followReply(m)
   }
   const typists = state.typing.get(m.container_id)
   if (typists && typists.delete(m.author_id)) {
@@ -379,6 +390,20 @@ function onMessage(m) {
   }
   if (fresh) announce(m, container)
   notify('messages', 'containers')
+}
+
+function followReply(m) {
+  if (wasReplayed(m)) return
+  const entry = followedThread(m.thread_root_id)
+  if (!entry) {
+    if (state.threadSubs.get(m.thread_root_id) !== 'muted') refreshFollowed()
+    return
+  }
+  entry.thread_reply_count = (entry.thread_reply_count ?? 0) + 1
+  entry.thread_last_reply_at = m.created_at
+  if (!state.me || m.author_id !== state.me.id) entry.unread = (entry.unread ?? 0) + 1
+  state.followed = [entry].concat(state.followed.filter((t) => t !== entry))
+  notify('followed')
 }
 
 function shouldAnnounce(container, m) {
@@ -403,6 +428,12 @@ function announce(m, container) {
 }
 
 function onEdited(d) {
+  if (d.thread_root_id) refreshFollowed()
+  const entry = followedThread(d.id)
+  if (entry) {
+    entry.body = d.body
+    notify('followed')
+  }
   const m = findMessage(d.id)
   if (!m) return
   m.body = d.body
@@ -411,6 +442,13 @@ function onEdited(d) {
 }
 
 function onDeleted(d) {
+  if (d.thread_root_id) refreshFollowed()
+  const entry = followedThread(d.id)
+  if (entry) {
+    entry.body = ''
+    entry.deleted_at = d.deleted_at ?? new Date().toISOString()
+    notify('followed')
+  }
   const m = findMessage(d.id)
   if (!m) return
   m.body = ''
@@ -418,12 +456,20 @@ function onDeleted(d) {
   notify('messages')
 }
 
+function onReactions(d) {
+  const m = findMessage(d.id)
+  if (!m) return
+  m.reactions = Array.isArray(d.reactions) ? d.reactions : []
+  notify('messages')
+}
+
 function onRead(d) {
   const container = state.containers.get(d.container_id)
   if (!container) return
   container.last_read_seq = d.seq ?? 0
-  container.unread = containerUnread(container, d.seq ?? 0)
-  if ((d.seq ?? 0) >= (container.last_seq ?? 0)) container.mentions = 0
+  container.unread = typeof d.unread === 'number' ? d.unread : containerUnread(container, d.seq ?? 0)
+  if (typeof d.mentions === 'number') container.mentions = d.mentions
+  else if ((d.seq ?? 0) >= (container.last_seq ?? 0)) container.mentions = 0
   notify('containers')
 }
 

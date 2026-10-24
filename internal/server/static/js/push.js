@@ -19,6 +19,11 @@ export function pushSupported() {
   return browserSupports()
 }
 
+export function androidBatteryHint() {
+  if (!/Android/.test(navigator.userAgent)) return null
+  return "Set Chrome's battery usage to Unrestricted in Android Settings, or notifications arrive late or not at all while the phone is locked."
+}
+
 export function currentEndpoint() {
   return endpoint
 }

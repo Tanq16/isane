@@ -42,12 +42,13 @@ type App struct {
 	Retention *retention.Sweeper
 	Log       zerolog.Logger
 
-	cfg     *config.Config
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      sync.Mutex
-	closing bool
-	wg      sync.WaitGroup
+	cfg       *config.Config
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.Mutex
+	closing   bool
+	wg        sync.WaitGroup
+	reactions sync.Mutex
 }
 
 func New(ctx context.Context, cfg *config.Config, db *store.DB, log zerolog.Logger) (*App, error) {

@@ -219,6 +219,24 @@ func (h *Messages) Thread(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, body)
 }
 
+func (h *Messages) FollowedThreads(w http.ResponseWriter, r *http.Request) {
+	u, ok := requestUser(w, r)
+	if !ok {
+		return
+	}
+	before, err := queryTime(r, "before")
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	threads, err := h.app.DB.FollowedThreads(r.Context(), u.ID, before)
+	if err != nil {
+		WriteError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, nonNil(threads))
+}
+
 type threadResponse struct {
 	Root         store.Message   `json:"root"`
 	Messages     []store.Message `json:"messages"`

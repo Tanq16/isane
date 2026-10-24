@@ -35,9 +35,9 @@ async function present(event) {
         requireInteraction: true,
         data: { navigate: n.navigate || '/', ...x },
     };
-    if (x.container_id) {
-        options.tag = x.container_id;
-        options.renotify = true;
+    if (n.tag) {
+        options.tag = n.tag;
+        options.renotify = Boolean(n.renotify);
     }
 
     await self.registration.showNotification(n.title || 'Isane', options);
@@ -56,11 +56,13 @@ async function focusOrOpen(url) {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of windows) {
         if (client.url.startsWith(self.registration.scope)) {
-            client.navigate(url);
+            if (url) {
+                client.navigate(url);
+            }
             return client.focus();
         }
     }
-    return self.clients.openWindow(url);
+    return self.clients.openWindow(url || '/');
 }
 
 function keyOf(body) {
@@ -118,7 +120,7 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
     const data = event.notification.data || {};
-    event.waitUntil(focusOrOpen(data.navigate || '/'));
+    event.waitUntil(focusOrOpen(data.navigate || null));
 });
 
 self.addEventListener('pushsubscriptionchange', (event) => {

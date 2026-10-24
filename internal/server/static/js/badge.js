@@ -39,6 +39,9 @@ function paint() {
   if (key === painted) return
   painted = key
   document.title = count > 0 ? '(' + label(count) + ') ' + BASE_TITLE : BASE_TITLE
+  if (navigator.setAppBadge) {
+    (count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge()).catch(() => {})
+  }
   if (!source) return
   const link = document.getElementById('favicon')
   if (!link) return

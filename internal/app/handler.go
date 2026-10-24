@@ -170,6 +170,46 @@ func (a *App) ThreadSub(ctx context.Context, c *socket.Conn, p socket.ThreadSubP
 	return nil
 }
 
+func (a *App) ThreadRead(ctx context.Context, c *socket.Conn, p socket.ThreadReadPayload) error {
+	if err := a.markThreadRead(ctx, c.UserID(), p.ThreadRootID, p.Seq); err != nil {
+		a.fail(c, "", err)
+		return err
+	}
+	return nil
+}
+
+func (a *App) markThreadRead(ctx context.Context, userID, rootID uuid.UUID, seq int64) error {
+	root, err := a.DB.GetMessage(ctx, rootID)
+	if err != nil {
+		return fmt.Errorf("mark thread read: %w", err)
+	}
+	if root.ThreadRootID != nil {
+		return fmt.Errorf("mark thread read: %w: the message is a thread reply", ErrInvalid)
+	}
+	member, err := a.DB.IsMember(ctx, root.ContainerID, userID)
+	if err != nil {
+		return fmt.Errorf("mark thread read: %w", err)
+	}
+	if !member {
+		return fmt.Errorf("mark thread read: %w: not a member of this container", ErrForbidden)
+	}
+	effective, err := a.DB.SetThreadReadMarker(ctx, userID, root.ID, seq)
+	if err != nil {
+		return fmt.Errorf("mark thread read: %w", err)
+	}
+	a.Hub.ToUser(userID, socket.NewFrame(socket.TypeThreadRead,
+		socket.ThreadReadPayload{ThreadRootID: root.ID, Seq: effective}))
+	return nil
+}
+
+func (a *App) React(ctx context.Context, c *socket.Conn, p socket.ReactPayload) error {
+	if err := a.ReactMessage(ctx, c.User(), p.MessageID, p.Emoji, p.On); err != nil {
+		a.fail(c, "", err)
+		return err
+	}
+	return nil
+}
+
 func (a *App) fail(c *socket.Conn, clientID string, err error) {
 	code := errorCode(err)
 	message := err.Error()

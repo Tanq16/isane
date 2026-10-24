@@ -11,32 +11,35 @@ import (
 )
 
 const (
-	TypeHello     = "hello"
-	TypeSend      = "send"
-	TypeEdit      = "edit"
-	TypeDelete    = "delete"
-	TypeRead      = "read"
-	TypeTyping    = "typing"
-	TypeThreadSub = "thread_sub"
-	TypePing      = "ping"
+	TypeHello      = "hello"
+	TypeSend       = "send"
+	TypeEdit       = "edit"
+	TypeDelete     = "delete"
+	TypeRead       = "read"
+	TypeTyping     = "typing"
+	TypeThreadSub  = "thread_sub"
+	TypeThreadRead = "thread_read"
+	TypeReact      = "react"
+	TypePing       = "ping"
 
-	TypeReady           = "ready"
-	TypeMessage         = "message"
-	TypeMessageEdited   = "message_edited"
-	TypeMessageDeleted  = "message_deleted"
-	TypePresence        = "presence"
-	TypeCallStarted     = "call_started"
-	TypeCallParticipant = "call_participant"
-	TypeCallRecording   = "call_recording"
-	TypeCallEnded       = "call_ended"
-	TypeAgentWorking    = "agent_working"
-	TypeAgentDone       = "agent_done"
-	TypeSettings        = "settings"
-	TypeContainer       = "container"
-	TypeUser            = "user"
-	TypeAttachment      = "attachment"
-	TypePong            = "pong"
-	TypeError           = "error"
+	TypeReady            = "ready"
+	TypeMessage          = "message"
+	TypeMessageEdited    = "message_edited"
+	TypeMessageDeleted   = "message_deleted"
+	TypeMessageReactions = "message_reactions"
+	TypePresence         = "presence"
+	TypeCallStarted      = "call_started"
+	TypeCallParticipant  = "call_participant"
+	TypeCallRecording    = "call_recording"
+	TypeCallEnded        = "call_ended"
+	TypeAgentWorking     = "agent_working"
+	TypeAgentDone        = "agent_done"
+	TypeSettings         = "settings"
+	TypeContainer        = "container"
+	TypeUser             = "user"
+	TypeAttachment       = "attachment"
+	TypePong             = "pong"
+	TypeError            = "error"
 )
 
 const (
@@ -101,22 +104,48 @@ type ThreadSubPayload struct {
 	State        store.ThreadSubState `json:"state"`
 }
 
+type ThreadReadPayload struct {
+	ThreadRootID uuid.UUID `json:"thread_root_id"`
+	Seq          int64     `json:"seq"`
+}
+
+type ReactPayload struct {
+	MessageID uuid.UUID `json:"message_id"`
+	Emoji     string    `json:"emoji"`
+	On        bool      `json:"on"`
+}
+
+type MessageReactionsPayload struct {
+	ID          uuid.UUID        `json:"id"`
+	ContainerID uuid.UUID        `json:"container_id"`
+	Reactions   []store.Reaction `json:"reactions"`
+}
+
 type TypingEventPayload struct {
 	ContainerID  uuid.UUID  `json:"container_id"`
 	UserID       uuid.UUID  `json:"user_id"`
 	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
+type ReadEventPayload struct {
+	ContainerID uuid.UUID `json:"container_id"`
+	Seq         int64     `json:"seq"`
+	Unread      int64     `json:"unread"`
+	Mentions    int64     `json:"mentions"`
+}
+
 type MessageEditedPayload struct {
-	ID       uuid.UUID  `json:"id"`
-	Body     string     `json:"body"`
-	EditedAt *time.Time `json:"edited_at,omitempty"`
+	ID           uuid.UUID  `json:"id"`
+	Body         string     `json:"body"`
+	EditedAt     *time.Time `json:"edited_at,omitempty"`
+	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
 type MessageDeletedPayload struct {
-	ID          uuid.UUID `json:"id"`
-	ContainerID uuid.UUID `json:"container_id"`
-	Seq         int64     `json:"seq"`
+	ID           uuid.UUID  `json:"id"`
+	ContainerID  uuid.UUID  `json:"container_id"`
+	Seq          int64      `json:"seq"`
+	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
 type PresencePayload struct {

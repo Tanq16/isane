@@ -203,9 +203,16 @@ export function createComposer(options) {
     }, 1000)
   }
 
+  function paintSlot() {
+    const mic = Boolean(recording) || (!textarea.value.trim() && !attachments.length)
+    micButton.classList.toggle('max-md:hidden', !mic)
+    sendButton.classList.toggle('max-md:hidden', mic)
+  }
+
   function updateSendState() {
     const ready = attachments.some((a) => a.attachment)
     sendButton.disabled = !textarea.value.trim() && !ready
+    paintSlot()
   }
 
   function candidates(query) {
@@ -315,6 +322,7 @@ export function createComposer(options) {
       const entry = { name: file.name, progress: 0, attachment: null, error: null, cancel: new AbortController() }
       attachments.push(entry)
       renderChips()
+      updateSendState()
       try {
         entry.attachment = await api.upload(file, (p) => {
           entry.progress = p
@@ -338,6 +346,7 @@ export function createComposer(options) {
     micClock = live ? el('span', 'text-xs font-medium tabular-nums', clockLabel(Date.now() - recording.started)) : null
     if (micClock) micButton.appendChild(micClock)
     drawIcons(micButton)
+    if (sendButton) paintSlot()
   }
 
   function releaseMic(session) {
@@ -577,7 +586,7 @@ export function createComposer(options) {
     textarea.setAttribute('aria-label', options.fieldLabel || 'Write a message')
     bar.appendChild(textarea)
 
-    previewButton = el('button', 'grid h-9 w-9 shrink-0 place-items-center rounded-lg text-overlay1 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
+    previewButton = el('button', 'hidden h-9 w-9 shrink-0 place-items-center rounded-lg text-overlay1 transition-colors hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve md:grid')
     previewButton.type = 'button'
     previewButton.title = 'Preview markdown'
     previewButton.setAttribute('aria-label', 'Preview markdown')

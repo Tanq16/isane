@@ -481,7 +481,8 @@ function jumpTo(seq) {
   const cid = state.current.containerId
   if (!cid) return
   const c = state.containers.get(cid)
-  const path = c && c.kind === 'channel' ? '/c/' + c.slug : '/d/' + cid
+  const rootId = state.current.threadRootId
+  const path = rootId ? '/t/' + rootId : c && c.kind === 'channel' ? '/c/' + c.slug : '/d/' + cid
   navigate(path + '?m=' + seq)
   if (listEl.querySelector('[data-seq="' + seq + '"]')) {
     highlight(seq)

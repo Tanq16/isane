@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 	"uuid"
 
 	"github.com/tanq16/isane/internal/markdown"
 	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
+
+const maxEmojiLength = 32
 
 func (a *App) PublishMessage(ctx context.Context, m store.Message, c store.Container) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundTimeout)
@@ -161,7 +164,8 @@ func (a *App) EditMessage(ctx context.Context, actor store.User, messageID uuid.
 		return store.Message{}, fmt.Errorf("edit message: %w", err)
 	}
 	a.Broadcast(ctx, edited.ContainerID, socket.NewFrame(socket.TypeMessageEdited,
-		socket.MessageEditedPayload{ID: edited.ID, Body: edited.Body, EditedAt: edited.EditedAt}))
+		socket.MessageEditedPayload{ID: edited.ID, Body: edited.Body, EditedAt: edited.EditedAt,
+			ThreadRootID: edited.ThreadRootID}))
 	return edited, nil
 }
 
@@ -178,25 +182,61 @@ func (a *App) DeleteMessage(ctx context.Context, actor store.User, messageID uui
 		return store.Message{}, fmt.Errorf("delete message: %w", err)
 	}
 	a.Broadcast(ctx, deleted.ContainerID, socket.NewFrame(socket.TypeMessageDeleted,
-		socket.MessageDeletedPayload{ID: deleted.ID, ContainerID: deleted.ContainerID, Seq: deleted.Seq}))
+		socket.MessageDeletedPayload{ID: deleted.ID, ContainerID: deleted.ContainerID, Seq: deleted.Seq,
+			ThreadRootID: deleted.ThreadRootID}))
 	return deleted, nil
 }
 
-func (a *App) MarkRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (int64, error) {
+func (a *App) ReactMessage(ctx context.Context, actor store.User, messageID uuid.UUID, emoji string, on bool) error {
+	if strings.TrimSpace(emoji) == "" || utf8.RuneCountInString(emoji) > maxEmojiLength {
+		return fmt.Errorf("react: %w: the emoji must be 1 to %d characters", ErrInvalid, maxEmojiLength)
+	}
+	m, err := a.writableMessage(ctx, actor, messageID)
+	if err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	a.reactions.Lock()
+	defer a.reactions.Unlock()
+	if on {
+		err = a.DB.AddReaction(ctx, m.ID, actor.ID, emoji)
+	} else {
+		err = a.DB.RemoveReaction(ctx, m.ID, actor.ID, emoji)
+	}
+	if err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	byMessage, err := a.DB.ReactionsForMessages(ctx, []uuid.UUID{m.ID})
+	if err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	reactions := byMessage[m.ID]
+	if reactions == nil {
+		reactions = []store.Reaction{}
+	}
+	a.Broadcast(ctx, m.ContainerID, socket.NewFrame(socket.TypeMessageReactions,
+		socket.MessageReactionsPayload{ID: m.ID, ContainerID: m.ContainerID, Reactions: reactions}))
+	return nil
+}
+
+func (a *App) MarkRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (socket.ReadEventPayload, error) {
 	member, err := a.DB.IsMember(ctx, containerID, userID)
 	if err != nil {
-		return 0, fmt.Errorf("mark read: %w", err)
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w", err)
 	}
 	if !member {
-		return 0, fmt.Errorf("mark read: %w: not a member of this container", ErrForbidden)
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w: not a member of this container", ErrForbidden)
 	}
 	effective, err := a.DB.SetReadMarker(ctx, userID, containerID, seq)
 	if err != nil {
-		return 0, fmt.Errorf("mark read: %w", err)
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w", err)
 	}
-	a.Hub.ToUser(userID, socket.NewFrame(socket.TypeRead,
-		socket.ReadPayload{ContainerID: containerID, Seq: effective}))
-	return effective, nil
+	unread, mentions, err := a.DB.UnreadCounts(ctx, userID, containerID)
+	if err != nil {
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w", err)
+	}
+	read := socket.ReadEventPayload{ContainerID: containerID, Seq: effective, Unread: unread, Mentions: mentions}
+	a.Hub.ToUser(userID, socket.NewFrame(socket.TypeRead, read))
+	return read, nil
 }
 
 func (a *App) ResolveMentions(ctx context.Context, containerID uuid.UUID, body string) ([]uuid.UUID, error) {

@@ -18,7 +18,7 @@ export function audioPlayer(spec) {
   const toggle = el('button', 'grid h-8 w-8 shrink-0 place-items-center rounded-full bg-mauve text-crust transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
   toggle.type = 'button'
 
-  const seek = el('input', 'accent-mauve h-1 min-w-0 flex-1')
+  const seek = el('input', 'seek min-w-0 flex-1')
   seek.type = 'range'
   seek.min = '0'
   seek.max = '1000'
@@ -42,6 +42,7 @@ export function audioPlayer(spec) {
     const at = audio.currentTime * 1000
     label.textContent = clockLabel(at) + ' / ' + clockLabel(total)
     seek.value = total ? String(Math.round((at / total) * 1000)) : '0'
+    seek.style.setProperty('--seek', Number(seek.value) / 10 + '%')
   }
 
   const paintToggle = () => {

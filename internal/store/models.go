@@ -210,6 +210,28 @@ type Message struct {
 	Attachments       []Attachment   `json:"attachments,omitempty"`
 	Mentions          []uuid.UUID    `json:"mentions,omitempty"`
 	Recording         *CallRecording `json:"recording,omitempty"`
+	Reactions         []Reaction     `json:"reactions,omitempty"`
+}
+
+type Reaction struct {
+	Emoji string      `json:"emoji"`
+	Users []uuid.UUID `json:"users"`
+}
+
+type ThreadSummary struct {
+	ID                uuid.UUID     `json:"id"`
+	ContainerID       uuid.UUID     `json:"container_id"`
+	ContainerKind     ContainerKind `json:"container_kind"`
+	ContainerSlug     *string       `json:"container_slug"`
+	ContainerName     *string       `json:"container_name"`
+	Seq               int64         `json:"seq"`
+	AuthorID          uuid.UUID     `json:"author_id"`
+	Body              string        `json:"body"`
+	DeletedAt         *time.Time    `json:"deleted_at"`
+	ThreadReplyCount  int           `json:"thread_reply_count"`
+	ThreadLastReplyAt time.Time     `json:"thread_last_reply_at"`
+	LastReadSeq       int64         `json:"last_read_seq"`
+	Unread            int64         `json:"unread"`
 }
 
 type NewMessage struct {

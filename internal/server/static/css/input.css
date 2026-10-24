@@ -398,6 +398,44 @@ pre:hover .copy-code-btn, .copy-code-btn:focus-visible { opacity: 1; }
 .callout.note { background-color: color-mix(in oklab, var(--ctp-mauve) 12%, transparent); }
 .callout.note .callout-icon { color: var(--ctp-mauve); }
 
+.seek {
+    appearance: none;
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, var(--ctp-mauve) var(--seek, 0%), var(--ctp-surface1) var(--seek, 0%));
+}
+.seek::-webkit-slider-thumb {
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 9999px;
+    background: var(--ctp-mauve);
+}
+.seek::-moz-range-track {
+    background: transparent;
+}
+.seek::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 9999px;
+    background: var(--ctp-mauve);
+}
+
+emoji-picker {
+    --background: var(--ctp-mantle);
+    --border-color: var(--ctp-surface0);
+    --indicator-color: var(--ctp-mauve);
+    --input-border-color: var(--ctp-surface1);
+    --input-font-color: var(--ctp-text);
+    --input-placeholder-color: var(--ctp-overlay1);
+    --category-font-color: var(--ctp-subtext0);
+    --button-hover-background: var(--ctp-surface0);
+    --button-active-background: var(--ctp-surface1);
+    --outline-color: var(--ctp-mauve);
+}
+
 .mermaid {
     background-color: var(--ctp-base);
     padding: 1rem;

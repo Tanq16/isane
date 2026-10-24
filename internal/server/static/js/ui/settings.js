@@ -1,6 +1,6 @@
 import * as api from '../api.js'
 import { state, notify, user, upsertContainer } from '../store.js'
-import { currentEndpoint, enablePush, pushSupported } from '../push.js'
+import { androidBatteryHint, currentEndpoint, enablePush, pushSupported } from '../push.js'
 import { muted, setMuted, soundError } from '../sound.js'
 import {
   avatarNode, containerPath, dateLabel, drawIcons, el, field, icon,
@@ -472,10 +472,22 @@ function readingSection(body) {
     'Turn this off and you have to click the New badge to mark messages as read.'))
 }
 
+export function pushResultToast(ok) {
+  const hint = ok ? androidBatteryHint() : null
+  toast(ok ? 'Notifications are on' + (hint ? '. ' + hint : '') : 'Notifications were not enabled', {
+    severity: ok ? 'success' : 'warning',
+    duration: hint ? 10000 : undefined,
+  })
+}
+
 function pushSection(body) {
   body.appendChild(sectionLabel('Notifications'))
   soundRow(body)
-  body.appendChild(el('p', 'my-2 text-xs text-overlay1', 'Android decides how loudly a website may notify. To make Isane interrupt you, raise its importance in Android Settings under Chrome, Notifications, Sites.'))
+  const hint = androidBatteryHint()
+  if (hint) {
+    body.appendChild(el('p', 'my-2 text-xs text-overlay1', 'Android decides how loudly a website may notify. To make Isane interrupt you, raise its importance in Android Settings under Chrome, Notifications, Sites.'))
+    body.appendChild(el('p', 'my-2 text-xs text-overlay1', hint))
+  }
   if (!pushSupported()) {
     body.appendChild(el('p', 'text-sm text-subtext0', 'Push notifications are not configured on this server.'))
     return
@@ -489,8 +501,7 @@ function pushSection(body) {
   if (!endpoint) {
     const enable = textButton('Enable notifications', async () => {
       enable.disabled = true
-      const ok = await enablePush()
-      toast(ok ? 'Notifications are on' : 'Notifications were not enabled', { severity: ok ? 'success' : 'warning' })
+      pushResultToast(await enablePush())
       enable.disabled = false
     }, 'primary')
     body.appendChild(enable)

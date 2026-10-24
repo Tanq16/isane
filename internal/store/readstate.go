@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
@@ -172,4 +173,50 @@ func (db *DB) ThreadSubscriptions(ctx context.Context, rootID uuid.UUID) (map[uu
 		return nil, fmt.Errorf("list thread subscriptions: %w", err)
 	}
 	return out, nil
+}
+
+func (db *DB) SetThreadReadMarker(ctx context.Context, userID, rootID uuid.UUID, seq int64) (int64, error) {
+	var effective int64
+	err := db.Pool.QueryRow(ctx, `insert into thread_read_markers (user_id, thread_root_id, last_read_seq)
+		select $1, r.id, greatest(least($3::bigint, c.last_seq), 0)
+		from messages r join containers c on c.id = r.container_id where r.id = $2
+		on conflict (user_id, thread_root_id) do update
+		set last_read_seq = greatest(thread_read_markers.last_read_seq, excluded.last_read_seq), updated_at = now()
+		returning last_read_seq`, userID, rootID, seq).Scan(&effective)
+	if err != nil {
+		return 0, fmt.Errorf("set thread read marker: %w", mapErr(err))
+	}
+	return effective, nil
+}
+
+func (db *DB) FollowedThreads(ctx context.Context, userID uuid.UUID, before *time.Time) ([]ThreadSummary, error) {
+	rows, err := db.Pool.Query(ctx, `select r.id, r.container_id, c.kind::text, c.slug, c.name, r.seq, r.author_id,
+			r.body, r.deleted_at, r.thread_reply_count, r.thread_last_reply_at, coalesce(t.last_read_seq, 0),
+			count(m.id) filter (where m.author_id <> $1 and m.seq > coalesce(t.last_read_seq, 0))
+		from thread_subscriptions s
+		join messages r on r.id = s.thread_root_id
+		join containers c on c.id = r.container_id
+		left join thread_read_markers t on t.user_id = $1 and t.thread_root_id = r.id
+		left join messages m on m.thread_root_id = r.id and m.deleted_at is null
+		where s.user_id = $1
+		  and s.state = 'subscribed'
+		  and r.thread_last_reply_at is not null
+		  and ($2::timestamptz is null or r.thread_last_reply_at < $2)
+		  and `+containerVisibleSQL+`
+		group by r.id, c.id, t.last_read_seq
+		order by r.thread_last_reply_at desc
+		limit 50`, userID, before)
+	if err != nil {
+		return nil, fmt.Errorf("list followed threads: %w", mapErr(err))
+	}
+	threads, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ThreadSummary, error) {
+		var t ThreadSummary
+		err := r.Scan(&t.ID, &t.ContainerID, &t.ContainerKind, &t.ContainerSlug, &t.ContainerName, &t.Seq,
+			&t.AuthorID, &t.Body, &t.DeletedAt, &t.ThreadReplyCount, &t.ThreadLastReplyAt, &t.LastReadSeq, &t.Unread)
+		return t, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list followed threads: %w", err)
+	}
+	return threads, nil
 }

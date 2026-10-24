@@ -1,11 +1,23 @@
 import * as socket from '../socket.js'
-import { state, user, findMessage } from '../store.js'
+import { state, user, findMessage, followedThread } from '../store.js'
 import { renderInto, plainText } from '../render.js'
 import { audioPlayer, recordingPlayer } from './audio.js'
 import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode, touchPrimary } from './dom.js'
 import { confirmModal, openModal } from './modal.js'
+import { toast } from './toast.js'
 
 export const GROUP_WINDOW = 7 * 60 * 1000
+
+const QUICK_REACTIONS = [
+  ['\u{1F44D}\u{FE0F}', 'thumbs up'],
+  ['\u{1F440}', 'eyes'],
+  ['\u{1F525}', 'fire'],
+]
+const PICKER_URL = '/static/vendor/emoji-picker/picker.js'
+const PICKER_DATA = '/static/vendor/emoji-picker/data.json'
+const ACTION_BUTTON = 'grid h-11 w-11 shrink-0 place-items-center rounded-md text-overlay1 transition-colors hover:bg-surface0 hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve md:h-7 md:w-7'
+
+let pickerLoad = null
 
 function mentionsMe(m) {
   return Boolean(state.me && Array.isArray(m.mentions) && m.mentions.includes(state.me.id))
@@ -134,9 +146,18 @@ function replyQuoteNode(m, ctx) {
   return wrap
 }
 
+function threadUnread(m) {
+  const entry = followedThread(m.id)
+  return Boolean(entry && entry.unread > 0)
+}
+
 function threadSummaryNode(m, ctx) {
   const button = el('button', 'mt-1 inline-flex h-7 items-center gap-2 rounded-md bg-surface0/50 py-1 pl-2.5 pr-2 transition-colors hover:bg-surface0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
   button.type = 'button'
+  if (threadUnread(m)) {
+    button.appendChild(el('span', 'h-2 w-2 shrink-0 rounded-full bg-blue'))
+    button.appendChild(el('span', 'sr-only', 'Unread replies.'))
+  }
   const count = m.thread_reply_count
   button.appendChild(el('span', 'text-xs font-semibold text-blue', count === 1 ? '1 reply' : count + ' replies'))
   if (m.thread_last_reply_at) {
@@ -216,18 +237,107 @@ function messageActions(m, ctx) {
   return out
 }
 
+function reactable(m) {
+  const c = state.containers.get(m.container_id)
+  return !c || !c.archived_at
+}
+
+function reactedBy(m, emoji) {
+  const group = (m.reactions || []).find((r) => r.emoji === emoji)
+  return Boolean(group && state.me && group.users.includes(state.me.id))
+}
+
+function react(m, emoji) {
+  const current = findMessage(m.id) || m
+  socket.send('react', { message_id: m.id, emoji, on: !reactedBy(current, emoji) })
+}
+
+function loadPicker() {
+  if (!pickerLoad) {
+    pickerLoad = import(PICKER_URL).catch((err) => {
+      pickerLoad = null
+      throw err
+    })
+  }
+  return pickerLoad
+}
+
+async function openReactionPicker(m) {
+  try {
+    await loadPicker()
+  } catch (err) {
+    console.error('emoji picker failed to load', err)
+    toast('Could not load the emoji picker', { severity: 'error' })
+    return
+  }
+  const handle = openModal({
+    title: 'Add a reaction',
+    icon: 'smile-plus',
+    width: 'max-w-sm',
+    build(body) {
+      const picker = document.createElement('emoji-picker')
+      picker.className = 'w-full'
+      picker.dataSource = PICKER_DATA
+      picker.addEventListener('emoji-click', (e) => {
+        react(m, e.detail.unicode)
+        handle.close()
+      })
+      body.appendChild(picker)
+    },
+  })
+}
+
+function reactionsNode(m) {
+  const groups = (m.reactions || []).filter((r) => Array.isArray(r.users) && r.users.length)
+  if (!groups.length) return null
+  const open = reactable(m)
+  const wrap = el('div', 'mt-1 flex flex-wrap gap-1')
+  for (const r of groups) {
+    const mine = Boolean(state.me && r.users.includes(state.me.id))
+    const chip = el('button', 'inline-flex h-7 items-center gap-1 rounded-full px-2 text-xs tabular-nums transition-colors disabled:cursor-default focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve '
+      + (mine ? 'bg-mauve/15 text-text ring-1 ring-mauve hover:bg-mauve/25' : 'bg-surface0 text-subtext0 hover:bg-surface1'))
+    chip.type = 'button'
+    chip.title = r.users.map((id) => user(id).display_name).join(', ')
+    chip.setAttribute('aria-pressed', mine ? 'true' : 'false')
+    chip.append(el('span', 'text-[1rem] leading-none', r.emoji), el('span', 'font-semibold', String(r.users.length)))
+    if (open) chip.addEventListener('click', () => react(m, r.emoji))
+    else chip.disabled = true
+    wrap.appendChild(chip)
+  }
+  return wrap
+}
+
+function actionButton(label, run, extra) {
+  const button = el('button', ACTION_BUTTON + (extra ? ' ' + extra : ''))
+  button.type = 'button'
+  button.title = label
+  button.setAttribute('aria-label', label)
+  button.addEventListener('click', run)
+  return button
+}
+
 function actionsNode(m, ctx) {
   const actions = messageActions(m, ctx)
-  if (!actions.length) return null
+  const open = reactable(m)
+  if (!actions.length && !open) return null
 
-  const bar = el('div', 'absolute -top-5 right-4 z-10 hidden items-center gap-0.5 rounded-lg bg-base p-0.5 shadow-pop group-hover/msg:flex group-focus-within/msg:flex md:-top-3')
+  const bar = el('div', 'absolute -top-5 right-4 z-10 hidden max-w-[calc(100vw-2rem)] items-center gap-0.5 overflow-x-auto rounded-lg bg-base p-0.5 shadow-pop group-hover/msg:flex group-focus-within/msg:flex md:-top-3')
+  if (open) {
+    for (const [emoji, name] of QUICK_REACTIONS) {
+      const mine = reactedBy(m, emoji)
+      const button = actionButton(mine ? 'Remove your ' + name : 'React with ' + name, () => react(m, emoji),
+        'text-[1rem] leading-none' + (mine ? ' bg-mauve/15' : ''))
+      button.setAttribute('aria-pressed', mine ? 'true' : 'false')
+      button.textContent = emoji
+      bar.appendChild(button)
+    }
+    const more = actionButton('Add a reaction', () => openReactionPicker(m))
+    more.appendChild(icon('smile-plus', 'h-4 w-4'))
+    bar.appendChild(more)
+  }
   for (const action of actions) {
-    const button = el('button', 'grid h-11 w-11 place-items-center rounded-md text-overlay1 transition-colors hover:bg-surface0 hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve md:h-7 md:w-7 ' + (action.tone || ''))
-    button.type = 'button'
-    button.title = action.label
-    button.setAttribute('aria-label', action.label)
+    const button = actionButton(action.label, action.run, action.tone)
     button.appendChild(icon(action.icon, 'h-4 w-4'))
-    button.addEventListener('click', action.run)
     bar.appendChild(button)
   }
   return bar
@@ -317,6 +427,9 @@ export function messageNode(view, ctx) {
     main.appendChild(wrap)
   }
 
+  const reactions = reactionsNode(m)
+  if (reactions) main.appendChild(reactions)
+
   if (ctx.showThread && m.thread_reply_count > 0) main.appendChild(threadSummaryNode(m, ctx))
 
   row.appendChild(main)
@@ -346,5 +459,8 @@ export function messageSignature(view, ctx) {
     Boolean(liveCallOf(m)),
     m.recording ? m.recording.id : '',
     (m.attachments || []).map((a) => a.id + ':' + a.state).join(','),
+    (m.reactions || []).map((r) => r.emoji + ':' + (r.users || []).join(',')).join(';'),
+    reactable(m),
+    ctx.showThread && threadUnread(m),
   ].join('|')
 }

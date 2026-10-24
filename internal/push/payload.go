@@ -26,6 +26,8 @@ type notification struct {
 	Body     string `json:"body"`
 	Navigate string `json:"navigate"`
 	AppBadge string `json:"app_badge"`
+	Tag      string `json:"tag,omitzero"`
+	Renotify bool   `json:"renotify,omitzero"`
 }
 
 type ref struct {
@@ -48,6 +50,7 @@ func buildPayload(publicURL string, m store.Message, author store.User, c store.
 			body += ": " + text
 		}
 	}
+	tag := notificationTag(m, c)
 	return payload{
 		WebPush: declarativeWebPush,
 		Notification: notification{
@@ -55,8 +58,23 @@ func buildPayload(publicURL string, m store.Message, author store.User, c store.
 			Body:     body,
 			Navigate: navigateURL(publicURL, m, c),
 			AppBadge: strconv.FormatInt(badge, 10),
+			Tag:      tag,
+			Renotify: tag != "",
 		},
 		X: ref{ContainerID: m.ContainerID, MessageID: m.ID, Seq: m.Seq},
+	}
+}
+
+func notificationTag(m store.Message, c store.Container) string {
+	switch {
+	case m.ThreadRootID != nil:
+		return m.ThreadRootID.String()
+	case m.CallID != nil:
+		return ""
+	case c.Kind == store.ContainerChannel:
+		return c.ID.String()
+	default:
+		return ""
 	}
 }
 
