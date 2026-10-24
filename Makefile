@@ -80,13 +80,15 @@ $(STAMP): $(MAKEFILE_LIST)
 	@touch $(STAMP)
 	@echo "$(GREEN)Vendored $(VENDOR_DIR)$(NC)"
 
-# The endpoint declares every subset the family has, so only the latin block is taken.
+# The endpoint declares every subset the family has, so only the latin and latin-ext blocks are taken.
 font:
 	@set -e; css="$$(curl -sfL -H "User-Agent: $(UA)" \
 	  "https://fonts.googleapis.com/css2?family=$(FAMILY):wght@$(WEIGHT)&display=swap")"; \
-	url="$$(printf '%s\n' "$$css" | awk '/^\/\* latin \*\/$$/{f=1} f && /src:/{print; exit}' | grep -o 'https://fonts.gstatic.com/[^)]*')"; \
-	test -n "$$url" || { echo "no latin woff2 for $(FAMILY) $(WEIGHT)"; exit 1; }; \
-	curl -sfL "$$url" -o "$(FONTS_DIR)/$(SLUG)-$(WEIGHT).woff2"
+	for subset in latin latin-ext; do \
+	  url="$$(printf '%s\n' "$$css" | awk -v block="/* $$subset */" '$$0 == block {f=1} f && /src:/{print; exit}' | grep -o 'https://fonts.gstatic.com/[^)]*')"; \
+	  test -n "$$url" || { echo "no $$subset woff2 for $(FAMILY) $(WEIGHT)"; exit 1; }; \
+	  curl -sfL "$$url" -o "$(FONTS_DIR)/$(SLUG)-$(WEIGHT)-$$subset.woff2"; \
+	done
 
 $(TAILWIND_BIN): $(MAKEFILE_LIST)
 	@mkdir -p $(dir $(TAILWIND_BIN))
@@ -106,7 +108,9 @@ verify-assets: ## Fail early if the embedded tree is missing an asset
 	  test -s $(VENDOR_DIR)/$$f || { echo "$$f missing, run 'make assets'"; exit 1; }; \
 	done
 	@for f in inter-400 inter-500 inter-600 inter-700 google-sans-400 google-sans-500 google-sans-600 google-sans-700 jetbrains-mono-400 jetbrains-mono-600; do \
-	  test -s $(FONTS_DIR)/$$f.woff2 || { echo "$$f.woff2 missing, run 'make assets'"; exit 1; }; \
+	  for subset in latin latin-ext; do \
+	    test -s $(FONTS_DIR)/$$f-$$subset.woff2 || { echo "$$f-$$subset.woff2 missing, run 'make assets'"; exit 1; }; \
+	  done; \
 	done
 
 build: assets verify-assets ## Build the binary for this machine
