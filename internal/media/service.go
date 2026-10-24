@@ -142,12 +142,11 @@ func (s *Service) Process(ctx context.Context, id uuid.UUID) (store.Attachment, 
 
 	res, err := s.derive(ctx, a)
 	if err != nil {
-		s.log.Error().Err(err).Str("attachment", id.String()).Msg("derive attachment")
 		text := failureReason
 		if failErr := s.db.SetAttachmentState(ctx, id, store.AttachmentFailed, &text); failErr != nil {
-			s.log.Error().Err(failErr).Str("attachment", id.String()).Msg("mark attachment failed")
+			return a, errors.Join(err, failErr)
 		}
-		return a, fmt.Errorf("process attachment %s: %w", id, err)
+		return a, err
 	}
 	size := a.SizeBytes
 	if info, statErr := os.Stat(s.abs(a.StoragePath)); statErr == nil {
