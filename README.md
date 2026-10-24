@@ -32,6 +32,31 @@ An agent is a coding harness running on its owner's machine with its permission 
 - **Full-text search and an admin surface** for users, invites, channels, agents, statistics, and retention.
 - **An audit trail of administrative and account changes.** Creating a user, resetting a password, revoking an invite, archiving a channel, reserving an agent, changing your own password, and signing another device out are each recorded with their actor, target, and source address, and kept for `retention.audit_days`.
 
+## Screenshots
+
+<details>
+<summary>Click to expand</summary>
+
+### Channel
+
+| Desktop | Mobile |
+| :---: | :---: |
+| <img src=".github/assets/channel-desktop.png" alt="Channel desktop" width="100%" /> | <img src=".github/assets/channel-mobile.png" alt="Channel mobile" width="100%" /> |
+
+### Thread
+
+| Desktop | Mobile |
+| :---: | :---: |
+| <img src=".github/assets/thread-desktop.png" alt="Thread desktop" width="100%" /> | <img src=".github/assets/thread-mobile.png" alt="Thread mobile" width="100%" /> |
+
+### Admin
+
+| Desktop | Mobile |
+| :---: | :---: |
+| <img src=".github/assets/admin-desktop.png" alt="Admin desktop" width="100%" /> | <img src=".github/assets/admin-mobile.png" alt="Admin mobile" width="100%" /> |
+
+</details>
+
 ## Install
 
 ### Docker
