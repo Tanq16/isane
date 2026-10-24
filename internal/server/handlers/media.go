@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +14,6 @@ import (
 	"uuid"
 
 	"github.com/tanq16/isane/internal/app"
-	"github.com/tanq16/isane/internal/socket"
 	"github.com/tanq16/isane/internal/store"
 )
 
@@ -99,7 +97,7 @@ func (h *Media) Upload(w http.ResponseWriter, r *http.Request) {
 			writeUploadError(w, err)
 			return
 		}
-		h.app.Spawn("process attachment", func(ctx context.Context) { h.process(ctx, a, u.ID) })
+		h.app.ProcessAttachment(a.ID)
 		WriteJSON(w, http.StatusCreated, a)
 		return
 	}
@@ -188,25 +186,6 @@ func (h *Media) mayRead(r *http.Request, a store.Attachment, u store.User) error
 	}
 	_, err = containerFor(r.Context(), h.app, m.ContainerID, u.ID)
 	return err
-}
-
-func (h *Media) process(ctx context.Context, a store.Attachment, uploaderID uuid.UUID) {
-	done, err := h.app.Media.Process(ctx, a.ID)
-	if err != nil {
-		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("process attachment")
-		return
-	}
-	frame := socket.NewFrame(socket.TypeAttachment, done)
-	if done.MessageID == nil {
-		h.app.Hub.ToUser(uploaderID, frame)
-		return
-	}
-	m, err := h.app.DB.GetMessage(ctx, *done.MessageID)
-	if err != nil {
-		h.app.Log.Error().Err(err).Str("attachment_id", a.ID.String()).Msg("load attachment message")
-		return
-	}
-	h.app.Broadcast(ctx, m.ContainerID, frame)
 }
 
 func serveFile(w http.ResponseWriter, r *http.Request, f *os.File, name, mimeType string, download bool) {
