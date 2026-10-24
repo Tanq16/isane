@@ -11,10 +11,11 @@ import (
 const recordingAudioBitrate = 48
 
 func (s *Service) StartRoomEgress(ctx context.Context, roomName, outPath string) (string, error) {
-	recordCtx, err := s.authorize(ctx, &auth.VideoGrant{RoomRecord: true})
+	recordCtx, cancel, err := s.apiContext(ctx, &auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return "", err
 	}
+	defer cancel()
 	info, err := s.egress.StartRoomCompositeEgress(recordCtx, &livekit.RoomCompositeEgressRequest{
 		RoomName:  roomName,
 		AudioOnly: true,
@@ -37,10 +38,11 @@ func (s *Service) StartRoomEgress(ctx context.Context, roomName, outPath string)
 }
 
 func (s *Service) StopEgress(ctx context.Context, egressID string) error {
-	ctx, err := s.authorize(ctx, &auth.VideoGrant{RoomRecord: true})
+	ctx, cancel, err := s.apiContext(ctx, &auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return err
 	}
+	defer cancel()
 	if _, err := s.egress.StopEgress(ctx, &livekit.StopEgressRequest{EgressId: egressID}); err != nil {
 		return fmt.Errorf("stop egress %s: %w", egressID, err)
 	}
@@ -48,10 +50,11 @@ func (s *Service) StopEgress(ctx context.Context, egressID string) error {
 }
 
 func (s *Service) ListEgress(ctx context.Context, roomName string) ([]string, error) {
-	ctx, err := s.authorize(ctx, &auth.VideoGrant{RoomRecord: true})
+	ctx, cancel, err := s.apiContext(ctx, &auth.VideoGrant{RoomRecord: true})
 	if err != nil {
 		return nil, err
 	}
+	defer cancel()
 	res, err := s.egress.ListEgress(ctx, &livekit.ListEgressRequest{RoomName: roomName, Active: true})
 	if err != nil {
 		return nil, fmt.Errorf("list egress for room %s: %w", roomName, err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,6 +27,9 @@ const (
 	maxPlaintext          = int(webpush.MaxRecordSize) - recordOverhead
 	pushTTL               = 86400
 	sendTimeout           = 10 * time.Second
+	dialTimeout           = 10 * time.Second
+	handshakeTimeout      = 10 * time.Second
+	headerTimeout         = 10 * time.Second
 	vapidReuse            = time.Hour
 )
 
@@ -86,11 +90,13 @@ type vapidHeader struct {
 func newVAPIDClient() *vapidClient {
 	return &vapidClient{
 		http: &http.Client{
-			Timeout: sendTimeout,
 			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
+				DialContext:           (&net.Dialer{Timeout: dialTimeout}).DialContext,
+				TLSHandshakeTimeout:   handshakeTimeout,
+				ResponseHeaderTimeout: headerTimeout,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   10,
+				IdleConnTimeout:       90 * time.Second,
 			},
 		},
 		cache: map[string]vapidHeader{},
