@@ -26,8 +26,6 @@ const (
 	strictTransport = "max-age=31536000; includeSubDomains"
 )
 
-var originExempt = []string{"/api/agent/", "/api/livekit/webhook"}
-
 type ctxKey int
 
 const ctxRequestID ctxKey = iota
@@ -60,11 +58,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 
 func (s *Server) sameOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !originChecked(r) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if !s.originAllowed(r) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !s.originAllowed(r) {
 			s.log.Warn().
 				Str("request_id", requestIDFrom(r.Context())).
 				Str("origin", r.Header.Get("Origin")).
@@ -84,21 +78,6 @@ func (s *Server) originAllowed(r *http.Request) bool {
 
 func (s *Server) publicOrigin() string {
 	return strings.TrimSuffix(s.app.Cfg().Server.PublicURL, "/")
-}
-
-func originChecked(r *http.Request) bool {
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		return false
-	}
-	if !strings.HasPrefix(r.URL.Path, "/api/") {
-		return false
-	}
-	for _, prefix := range originExempt {
-		if strings.HasPrefix(r.URL.Path, prefix) {
-			return false
-		}
-	}
-	return true
 }
 
 func (s *Server) recovery(next http.Handler) http.Handler {

@@ -17,9 +17,9 @@ func (s *Server) routes(mux *http.ServeMux) {
 	admin := handlers.NewAdmin(s.app)
 	settings := handlers.NewSettings(s.app)
 
-	mux.HandleFunc("POST /api/auth/login", sessions.Login)
-	mux.HandleFunc("POST /api/auth/logout", sessions.Logout)
-	mux.HandleFunc("POST /api/auth/accept-invite", sessions.AcceptInvite)
+	mux.Handle("POST /api/auth/login", s.sameOrigin(http.HandlerFunc(sessions.Login)))
+	mux.Handle("POST /api/auth/logout", s.sameOrigin(http.HandlerFunc(sessions.Logout)))
+	mux.Handle("POST /api/auth/accept-invite", s.sameOrigin(http.HandlerFunc(sessions.AcceptInvite)))
 	mux.Handle("GET /api/auth/me", s.user(sessions.Me))
 	mux.Handle("PATCH /api/auth/me", s.user(sessions.UpdateProfile))
 	mux.Handle("POST /api/auth/password", s.user(sessions.ChangePassword))
@@ -101,11 +101,11 @@ func (s *Server) routes(mux *http.ServeMux) {
 }
 
 func (s *Server) user(h http.HandlerFunc) http.Handler {
-	return s.session(handlers.RequireUser(h))
+	return s.sameOrigin(s.session(handlers.RequireUser(h)))
 }
 
 func (s *Server) adminOnly(h http.HandlerFunc) http.Handler {
-	return s.session(handlers.RequireAdmin(h))
+	return s.sameOrigin(s.session(handlers.RequireAdmin(h)))
 }
 
 func (s *Server) agent(h http.HandlerFunc) http.Handler {
