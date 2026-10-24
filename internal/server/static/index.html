@@ -35,7 +35,7 @@
     <button id="push-banner-dismiss" type="button" class="shrink-0 rounded-lg px-3 py-1.5 text-sm text-overlay1 transition-colors hover:text-text">Not now</button>
 </div>
 
-<div id="app" class="group flex min-h-0 flex-1 md:py-2 md:pr-2 md:data-[sidebar=closed]:pl-2" data-drawer="closed" data-sidebar="open" data-thread="closed" data-call="hidden">
+<div id="app" class="group flex min-h-0 flex-1 md:py-2 md:pr-2 md:data-[sidebar=closed]:pl-2" data-drawer="closed" data-sidebar="open" data-thread="closed" data-call="hidden" data-view="chat">
     <div id="drawer-scrim" class="fixed inset-0 z-40 hidden bg-scrim backdrop-blur-sm group-data-[drawer=open]:block md:hidden"></div>
 
     <aside id="sidebar" aria-label="Channels and conversations"
@@ -45,9 +45,12 @@
         class="hidden w-2 shrink-0 cursor-col-resize rounded-full bg-transparent transition-colors hover:bg-surface0 focus-visible:bg-mauve focus-visible:outline-none md:group-data-[sidebar=open]:block"></div>
 
     <main id="main" class="flex min-w-0 flex-1 flex-col bg-mantle md:rounded-xl">
-        <header id="timeline-header" class="flex h-12 w-full min-w-0 shrink-0 items-center gap-2 border-b border-surface0 px-4"></header>
-        <div id="timeline" class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"></div>
-        <div id="composer" class="shrink-0"></div>
+        <div class="flex min-h-0 flex-1 flex-col group-data-[view=threads]:hidden">
+            <header id="timeline-header" class="flex h-12 w-full min-w-0 shrink-0 items-center gap-2 border-b border-surface0 px-4"></header>
+            <div id="timeline" class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain"></div>
+            <div id="composer" class="shrink-0"></div>
+        </div>
+        <section id="threads-view" aria-label="Threads" class="hidden min-h-0 flex-1 flex-col group-data-[view=threads]:flex"></section>
     </main>
 
     <div id="thread-resize" role="separator" aria-orientation="vertical" aria-label="Resize the thread panel" tabindex="0"

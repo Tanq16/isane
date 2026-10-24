@@ -43,6 +43,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/containers/{id}/messages", s.user(messages.Post))
 	mux.Handle("PATCH /api/messages/{id}", s.user(messages.Edit))
 	mux.Handle("DELETE /api/messages/{id}", s.user(messages.Delete))
+	mux.Handle("GET /api/threads", s.user(messages.FollowedThreads))
 	mux.Handle("GET /api/threads/{root_id}/messages", s.user(messages.Thread))
 	mux.Handle("PUT /api/threads/{root_id}/subscription", s.user(messages.Subscribe))
 	mux.Handle("GET /api/search", s.user(messages.Search))

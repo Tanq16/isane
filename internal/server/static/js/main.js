@@ -7,6 +7,7 @@ import * as sidebar from './ui/sidebar.js'
 import * as timeline from './ui/timeline.js'
 import * as composer from './ui/composer.js'
 import * as thread from './ui/thread.js'
+import * as threads from './ui/threads.js'
 import * as call from './ui/call.js'
 import * as admin from './ui/admin.js'
 import { brandMark, el, field, textButton } from './ui/dom.js'
@@ -166,6 +167,7 @@ function mountAll() {
     [timeline, 'timeline'],
     [composer, 'composer'],
     [thread, 'thread-pane'],
+    [threads, 'threads-view'],
     [call, 'call-pane'],
     [admin, 'admin-root'],
   ]
@@ -189,9 +191,10 @@ async function loadUsers() {
   }
 }
 
-function setCurrent(containerId, threadRootId) {
+function setCurrent(containerId, threadRootId, view) {
   state.current.containerId = containerId ?? null
   state.current.threadRootId = threadRootId ?? null
+  state.current.view = view ?? null
   if (containerId) writeLocal(LAST_CONTAINER_KEY, containerId)
   notify('current')
 }
@@ -236,15 +239,23 @@ function openContainer(containerId) {
   setCurrent(containerId, null)
 }
 
+function landOnRoot(rootId, root) {
+  if (!root || !root.seq || state.current.threadRootId === rootId) return
+  if (location.pathname !== '/t/' + rootId) return
+  history.replaceState(null, '', '/t/' + rootId + '?m=' + root.seq)
+}
+
 async function openThreadRoute(rootId) {
   const root = findMessage(rootId)
   if (root) {
+    landOnRoot(rootId, root)
     setCurrent(root.container_id, rootId)
     return
   }
   try {
     const page = await loadThread(rootId)
     const owner = page.root || page.messages[0]
+    landOnRoot(rootId, page.root)
     setCurrent(owner ? owner.container_id : state.current.containerId, rootId)
   } catch (err) {
     console.error('thread load failed', rootId, err)
@@ -297,6 +308,10 @@ function route() {
   }
   if (path.startsWith('/t/')) {
     openThreadRoute(path.slice(3))
+    return
+  }
+  if (path === '/threads') {
+    setCurrent(null, null, 'threads')
     return
   }
   navigate('/', true)

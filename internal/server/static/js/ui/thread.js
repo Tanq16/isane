@@ -1,5 +1,7 @@
 import * as socket from '../socket.js'
-import { state, subscribe, notify, user, findMessage, loadThread, watchSends } from '../store.js'
+import {
+  state, subscribe, notify, user, findMessage, loadThread, watchSends, followedThread, refreshFollowed,
+} from '../store.js'
 import { containerLabel, containerPath, drawIcons, el, icon, iconButton, navigate } from './dom.js'
 import { createComposer } from './composer.js'
 import { followBottom } from './follow.js'
@@ -23,6 +25,7 @@ const signatures = new WeakMap()
 const loaded = new Set()
 const loading = new Set()
 const editing = new Set()
+const readSent = new Map()
 
 let mountedRoot = null
 let headerSignature = ''
@@ -152,6 +155,17 @@ function toggleMute(rootId, button) {
   state.threadSubs.set(rootId, next)
   socket.send('thread_sub', { thread_root_id: rootId, state: next })
   paintMute(rootId, button)
+  refreshFollowed()
+}
+
+function markRead(rootId) {
+  if (document.visibilityState !== 'visible') return
+  let seq = 0
+  for (const m of state.threads.get(rootId) || []) seq = Math.max(seq, m.seq ?? 0)
+  const entry = followedThread(rootId)
+  if (seq <= Math.max(readSent.get(rootId) || 0, entry ? entry.last_read_seq || 0 : 0)) return
+  readSent.set(rootId, seq)
+  socket.send('thread_read', { thread_root_id: rootId, seq })
 }
 
 function paintMute(rootId, button) {
@@ -255,6 +269,7 @@ function render() {
   dividerEl.textContent = list.length === 1 ? '1 reply' : list.length + ' replies'
   dividerEl.classList.toggle('hidden', list.length === 0)
   reconcile(list)
+  markRead(rootId)
 
   const c = rootContainer(rootId)
   const archived = Boolean(c && c.archived_at)
@@ -318,6 +333,9 @@ export function mount(root) {
   subscribe((keys) => {
     if (keys.includes('pending') && sentHere()) follower.follow()
     scheduleRender()
+  })
+  document.addEventListener('visibilitychange', () => {
+    if (state.current.threadRootId) markRead(state.current.threadRootId)
   })
   render()
 }

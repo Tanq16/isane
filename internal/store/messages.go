@@ -21,6 +21,15 @@ const messageByClientIDSQL = `select ` + messageCols + ` from messages where aut
 
 const allocateSeqSQL = `update containers set last_seq = last_seq + 1 where id = $1 returning last_seq`
 
+const followThreadSQL = `insert into thread_subscriptions (user_id, thread_root_id, state)
+	select u, $1::uuid, 'subscribed' from (
+		select $2::uuid as u
+		union select author_id from messages where id = $1
+		union select user_id from mentions where message_id = $1
+		union select unnest($3::uuid[])
+	) s
+	on conflict do nothing`
+
 func scanMessage(row pgx.Row) (Message, error) {
 	var m Message
 	err := row.Scan(&m.ID, &m.ContainerID, &m.Seq, &m.AuthorID, &m.Body, &m.ReplyToID, &m.ThreadRootID,
@@ -79,8 +88,7 @@ func (db *DB) InsertMessage(ctx context.Context, m NewMessage) (Message, error) 
 				where id = $1`, *m.ThreadRootID, inserted.CreatedAt); err != nil {
 				return mapErr(err)
 			}
-			if _, err := tx.Exec(ctx, `insert into thread_subscriptions (user_id, thread_root_id, state)
-				values ($1, $2, 'subscribed') on conflict do nothing`, m.AuthorID, *m.ThreadRootID); err != nil {
+			if _, err := tx.Exec(ctx, followThreadSQL, *m.ThreadRootID, m.AuthorID, m.MentionIDs); err != nil {
 				return mapErr(err)
 			}
 		}
@@ -146,6 +154,11 @@ func (db *DB) EditMessage(ctx context.Context, id uuid.UUID, body string, mentio
 		}
 		if _, err := tx.Exec(ctx, insertMentionsSQL, id, mentionIDs); err != nil {
 			return mapErr(err)
+		}
+		if edited.ThreadRootID != nil {
+			if _, err := tx.Exec(ctx, followThreadSQL, *edited.ThreadRootID, edited.AuthorID, mentionIDs); err != nil {
+				return mapErr(err)
+			}
 		}
 		out = edited
 		return nil

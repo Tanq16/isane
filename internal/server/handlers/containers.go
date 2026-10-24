@@ -232,12 +232,12 @@ func (h *Containers) SetRead(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, err)
 		return
 	}
-	seq, err := h.app.MarkRead(r.Context(), u.ID, id, req.Seq)
+	read, err := h.app.MarkRead(r.Context(), u.ID, id, req.Seq)
 	if err != nil {
 		WriteError(w, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, socket.ReadPayload{ContainerID: id, Seq: seq})
+	WriteJSON(w, http.StatusOK, read)
 }
 
 func (h *Containers) SetNotificationPref(w http.ResponseWriter, r *http.Request) {

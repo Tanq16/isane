@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/rs/zerolog/log"
@@ -271,6 +272,18 @@ func queryInt64(r *http.Request, name string) (int64, bool, error) {
 		return 0, false, badRequestf("%s must be an integer", name)
 	}
 	return n, true, nil
+}
+
+func queryTime(r *http.Request, name string) (*time.Time, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, badRequestf("%s must be an RFC 3339 timestamp", name)
+	}
+	return &t, nil
 }
 
 func queryLimit(r *http.Request, fallback, ceiling int) int {

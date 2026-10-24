@@ -1,5 +1,5 @@
 import * as socket from '../socket.js'
-import { state, user, findMessage } from '../store.js'
+import { state, user, findMessage, followedThread } from '../store.js'
 import { renderInto, plainText } from '../render.js'
 import { audioPlayer, recordingPlayer } from './audio.js'
 import { avatarNode, clockLabel, drawIcons, el, icon, relativeLabel, sizeLabel, stampLabel, timeNode, touchPrimary } from './dom.js'
@@ -134,9 +134,18 @@ function replyQuoteNode(m, ctx) {
   return wrap
 }
 
+function threadUnread(m) {
+  const entry = followedThread(m.id)
+  return Boolean(entry && entry.unread > 0)
+}
+
 function threadSummaryNode(m, ctx) {
   const button = el('button', 'mt-1 inline-flex h-7 items-center gap-2 rounded-md bg-surface0/50 py-1 pl-2.5 pr-2 transition-colors hover:bg-surface0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve')
   button.type = 'button'
+  if (threadUnread(m)) {
+    button.appendChild(el('span', 'h-2 w-2 shrink-0 rounded-full bg-blue'))
+    button.appendChild(el('span', 'sr-only', 'Unread replies.'))
+  }
   const count = m.thread_reply_count
   button.appendChild(el('span', 'text-xs font-semibold text-blue', count === 1 ? '1 reply' : count + ' replies'))
   if (m.thread_last_reply_at) {
@@ -346,5 +355,6 @@ export function messageSignature(view, ctx) {
     Boolean(liveCallOf(m)),
     m.recording ? m.recording.id : '',
     (m.attachments || []).map((a) => a.id + ':' + a.state).join(','),
+    ctx.showThread && threadUnread(m),
   ].join('|')
 }

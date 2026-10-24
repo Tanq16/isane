@@ -22,6 +22,7 @@ type Handler interface {
 	Read(ctx context.Context, c *Conn, p ReadPayload) error
 	Typing(ctx context.Context, c *Conn, p TypingPayload) error
 	ThreadSub(ctx context.Context, c *Conn, p ThreadSubPayload) error
+	ThreadRead(ctx context.Context, c *Conn, p ThreadReadPayload) error
 }
 
 type Hub struct {
@@ -240,6 +241,8 @@ func (h *Hub) dispatch(c *Conn, f Frame) {
 		err = handle(ctx, c, f, handler.Typing)
 	case TypeThreadSub:
 		err = handle(ctx, c, f, handler.ThreadSub)
+	case TypeThreadRead:
+		err = handle(ctx, c, f, handler.ThreadRead)
 	default:
 		h.log.Warn().Str("type", f.T).Str("user", c.user.Handle).Msg("unknown frame type")
 		return

@@ -161,7 +161,8 @@ func (a *App) EditMessage(ctx context.Context, actor store.User, messageID uuid.
 		return store.Message{}, fmt.Errorf("edit message: %w", err)
 	}
 	a.Broadcast(ctx, edited.ContainerID, socket.NewFrame(socket.TypeMessageEdited,
-		socket.MessageEditedPayload{ID: edited.ID, Body: edited.Body, EditedAt: edited.EditedAt}))
+		socket.MessageEditedPayload{ID: edited.ID, Body: edited.Body, EditedAt: edited.EditedAt,
+			ThreadRootID: edited.ThreadRootID}))
 	return edited, nil
 }
 
@@ -178,25 +179,30 @@ func (a *App) DeleteMessage(ctx context.Context, actor store.User, messageID uui
 		return store.Message{}, fmt.Errorf("delete message: %w", err)
 	}
 	a.Broadcast(ctx, deleted.ContainerID, socket.NewFrame(socket.TypeMessageDeleted,
-		socket.MessageDeletedPayload{ID: deleted.ID, ContainerID: deleted.ContainerID, Seq: deleted.Seq}))
+		socket.MessageDeletedPayload{ID: deleted.ID, ContainerID: deleted.ContainerID, Seq: deleted.Seq,
+			ThreadRootID: deleted.ThreadRootID}))
 	return deleted, nil
 }
 
-func (a *App) MarkRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (int64, error) {
+func (a *App) MarkRead(ctx context.Context, userID, containerID uuid.UUID, seq int64) (socket.ReadEventPayload, error) {
 	member, err := a.DB.IsMember(ctx, containerID, userID)
 	if err != nil {
-		return 0, fmt.Errorf("mark read: %w", err)
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w", err)
 	}
 	if !member {
-		return 0, fmt.Errorf("mark read: %w: not a member of this container", ErrForbidden)
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w: not a member of this container", ErrForbidden)
 	}
 	effective, err := a.DB.SetReadMarker(ctx, userID, containerID, seq)
 	if err != nil {
-		return 0, fmt.Errorf("mark read: %w", err)
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w", err)
 	}
-	a.Hub.ToUser(userID, socket.NewFrame(socket.TypeRead,
-		socket.ReadPayload{ContainerID: containerID, Seq: effective}))
-	return effective, nil
+	unread, mentions, err := a.DB.UnreadCounts(ctx, userID, containerID)
+	if err != nil {
+		return socket.ReadEventPayload{}, fmt.Errorf("mark read: %w", err)
+	}
+	read := socket.ReadEventPayload{ContainerID: containerID, Seq: effective, Unread: unread, Mentions: mentions}
+	a.Hub.ToUser(userID, socket.NewFrame(socket.TypeRead, read))
+	return read, nil
 }
 
 func (a *App) ResolveMentions(ctx context.Context, containerID uuid.UUID, body string) ([]uuid.UUID, error) {

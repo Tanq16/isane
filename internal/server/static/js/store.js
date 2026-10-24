@@ -7,20 +7,26 @@ export const state = {
   messages: new Map(),
   threads: new Map(),
   threadSubs: new Map(),
+  followed: null,
+  followedOlder: false,
   pending: new Map(),
   typing: new Map(),
   presence: new Set(),
   calls: new Map(),
   jobs: new Map(),
   settings: { allow_member_channels: true },
-  current: { containerId: null, threadRootId: null, replyToId: null },
+  current: { containerId: null, threadRootId: null, replyToId: null, view: null },
   quality: null,
   connection: 'live',
 }
 
+const FOLLOWED_PAGE = 50
+const FOLLOWED_REFRESH = 500
+
 const subscribers = new Set()
 const placeholders = new Map()
 let queuedKeys = null
+let followedTimer = 0
 
 export function subscribe(fn) {
   subscribers.add(fn)
@@ -60,10 +66,8 @@ export function unreadTotal() {
 export function containerUnread(c, seq) {
   const last = c.last_seq ?? 0
   if (seq >= last) return 0
-  const list = state.messages.get(c.id) ?? []
-  if (!list.length || (list[0].seq ?? 0) > seq) return Math.max(0, last - seq)
   let unread = 0
-  for (const m of list) {
+  for (const m of state.messages.get(c.id) ?? []) {
     if ((m.seq ?? 0) > seq && !m.thread_root_id && !m.deleted_at) unread++
   }
   return unread
@@ -181,4 +185,38 @@ export async function loadThread(rootId, opts = {}) {
   merge(state.threads, rootId, msgs, false)
   notify('messages', 'threads')
   return { root: (page && page.root) || null, messages: msgs }
+}
+
+export function followedThread(rootId) {
+  return (state.followed || []).find((t) => t.id === rootId) || null
+}
+
+export async function loadFollowed(before) {
+  const page = await get('/threads', before ? { before } : undefined)
+  const list = Array.isArray(page) ? page : []
+  state.followed = before ? (state.followed || []).concat(list.filter((t) => !followedThread(t.id))) : list
+  state.followedOlder = list.length >= FOLLOWED_PAGE
+  notify('followed')
+  return list
+}
+
+export function refreshFollowed() {
+  clearTimeout(followedTimer)
+  followedTimer = setTimeout(() => {
+    loadFollowed().catch((err) => console.error('followed threads failed', err))
+  }, FOLLOWED_REFRESH)
+}
+
+export function markThreadRead(rootId, seq) {
+  const entry = followedThread(rootId)
+  if (!entry) return
+  entry.last_read_seq = Math.max(entry.last_read_seq || 0, seq)
+  const replies = state.threads.get(rootId)
+  if (!replies) {
+    refreshFollowed()
+    return
+  }
+  entry.unread = replies.filter((m) =>
+    (m.seq ?? 0) > entry.last_read_seq && !m.deleted_at && (!state.me || m.author_id !== state.me.id)).length
+  notify('followed')
 }

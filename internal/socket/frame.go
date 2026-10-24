@@ -11,14 +11,15 @@ import (
 )
 
 const (
-	TypeHello     = "hello"
-	TypeSend      = "send"
-	TypeEdit      = "edit"
-	TypeDelete    = "delete"
-	TypeRead      = "read"
-	TypeTyping    = "typing"
-	TypeThreadSub = "thread_sub"
-	TypePing      = "ping"
+	TypeHello      = "hello"
+	TypeSend       = "send"
+	TypeEdit       = "edit"
+	TypeDelete     = "delete"
+	TypeRead       = "read"
+	TypeTyping     = "typing"
+	TypeThreadSub  = "thread_sub"
+	TypeThreadRead = "thread_read"
+	TypePing       = "ping"
 
 	TypeReady           = "ready"
 	TypeMessage         = "message"
@@ -101,22 +102,36 @@ type ThreadSubPayload struct {
 	State        store.ThreadSubState `json:"state"`
 }
 
+type ThreadReadPayload struct {
+	ThreadRootID uuid.UUID `json:"thread_root_id"`
+	Seq          int64     `json:"seq"`
+}
+
 type TypingEventPayload struct {
 	ContainerID  uuid.UUID  `json:"container_id"`
 	UserID       uuid.UUID  `json:"user_id"`
 	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
+type ReadEventPayload struct {
+	ContainerID uuid.UUID `json:"container_id"`
+	Seq         int64     `json:"seq"`
+	Unread      int64     `json:"unread"`
+	Mentions    int64     `json:"mentions"`
+}
+
 type MessageEditedPayload struct {
-	ID       uuid.UUID  `json:"id"`
-	Body     string     `json:"body"`
-	EditedAt *time.Time `json:"edited_at,omitempty"`
+	ID           uuid.UUID  `json:"id"`
+	Body         string     `json:"body"`
+	EditedAt     *time.Time `json:"edited_at,omitempty"`
+	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
 type MessageDeletedPayload struct {
-	ID          uuid.UUID `json:"id"`
-	ContainerID uuid.UUID `json:"container_id"`
-	Seq         int64     `json:"seq"`
+	ID           uuid.UUID  `json:"id"`
+	ContainerID  uuid.UUID  `json:"container_id"`
+	Seq          int64      `json:"seq"`
+	ThreadRootID *uuid.UUID `json:"thread_root_id,omitempty"`
 }
 
 type PresencePayload struct {

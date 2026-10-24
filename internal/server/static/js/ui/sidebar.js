@@ -11,6 +11,9 @@ import { mayManageChannels, openChannelSettings, openCreateChannel, openUserSett
 import { toast } from './toast.js'
 
 const COLLAPSE_KEY = 'isane:sidebar-sections'
+const ROW = 'relative flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-message focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve '
+const ROW_ACTIVE = 'bg-surface0 text-text'
+const ROW_IDLE = 'text-subtext0 hover:bg-surface0/60 hover:text-text'
 
 let rootEl = null
 let panelEl = null
@@ -18,6 +21,8 @@ let searchInput = null
 let searchResultsEl = null
 let footerEl = null
 let themeButton = null
+let threadsRow = null
+let threadContainers = new Set()
 
 const groups = new Map()
 const rows = new Map()
@@ -141,8 +146,7 @@ function paintRow(c, text) {
   const unread = (c.unread || 0) > 0
   const mentions = c.mentions || 0
 
-  row.node.className = 'relative flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-message focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mauve '
-    + (active ? 'bg-surface0 text-text' : 'text-subtext0 hover:bg-surface0/60 hover:text-text')
+  row.node.className = ROW + (active ? ROW_ACTIVE : ROW_IDLE)
   row.node.setAttribute('aria-current', active ? 'page' : 'false')
   row.rail.classList.toggle('hidden', active || (!unread && !mentions))
   row.rule.classList.toggle('hidden', !active)
@@ -168,6 +172,7 @@ function paintRow(c, text) {
   row.trail.replaceChildren()
   const call = state.calls.get(c.id)
   if (call && !call.ended_at) row.trail.appendChild(icon('phone-call', 'h-4 w-4 text-teal'))
+  if (threadContainers.has(c.id)) row.trail.appendChild(icon('message-square-text', 'h-3.5 w-3.5 text-overlay1'))
   if (c.archived_at) {
     row.trail.appendChild(el('span', 'text-micro uppercase tracking-widest text-overlay1', 'archived'))
   } else if (mentions > 0) {
@@ -213,7 +218,35 @@ function byName(a, b) {
   return (a.name || a.slug || '').localeCompare(b.name || b.slug || '')
 }
 
+function makeThreadsRow() {
+  const node = el('button')
+  node.type = 'button'
+  const rule = el('span', 'absolute bottom-1 left-0 top-1 w-0.5 rounded-full bg-mauve')
+  const lead = el('span', 'grid h-5 w-5 shrink-0 place-items-center')
+  lead.appendChild(icon('message-square-text', 'h-5 w-5 text-overlay1'))
+  const label = el('span', 'min-w-0 flex-1 truncate', 'Threads')
+  const count = el('span', 'ml-auto shrink-0 text-xs font-semibold tabular-nums text-overlay1')
+  node.append(rule, lead, label, count)
+  node.addEventListener('click', () => {
+    navigate('/threads')
+    closeDrawer()
+  })
+  return { node, rule, count }
+}
+
+function paintThreadsRow() {
+  const active = state.current.view === 'threads'
+  threadsRow.node.className = ROW + (active ? ROW_ACTIVE : ROW_IDLE)
+  threadsRow.node.setAttribute('aria-current', active ? 'page' : 'false')
+  threadsRow.rule.classList.toggle('hidden', !active)
+  const unread = (state.followed || []).filter((t) => t.unread > 0).length
+  threadsRow.count.textContent = unread ? String(unread) : ''
+  threadsRow.node.title = unread === 1 ? '1 thread with new replies' : unread ? unread + ' threads with new replies' : 'Threads you follow'
+}
+
 function renderGroups() {
+  threadContainers = new Set((state.followed || []).filter((t) => t.unread > 0).map((t) => t.container_id))
+  paintThreadsRow()
   const channels = containers('channel')
   const live = channels.filter((c) => !c.archived_at).sort(byName)
   const archived = channels.filter((c) => c.archived_at).sort(byName)
@@ -343,8 +376,9 @@ export function mount(root) {
 
   panelEl = el('div', 'flex h-full w-full min-w-60 flex-col px-2 py-2')
 
-  const head = el('div', 'flex h-8 shrink-0 items-center gap-1 px-2')
-  head.appendChild(brandMark('mr-auto h-7 w-7'))
+  const head = el('div', 'flex h-8 shrink-0 items-center gap-2 px-2')
+  head.appendChild(brandMark('h-7 w-7'))
+  head.appendChild(el('span', 'mr-auto truncate font-display text-message font-semibold text-text', 'Isane'))
   head.appendChild(iconButton('x', 'Close the channel list', closeDrawer, 'md:hidden'))
   panelEl.appendChild(head)
 
@@ -363,6 +397,9 @@ export function mount(root) {
 
   const nav = el('nav', 'mt-2 min-h-0 flex-1 overflow-y-auto overflow-x-hidden')
   nav.setAttribute('aria-label', 'Conversations')
+
+  threadsRow = makeThreadsRow()
+  nav.appendChild(threadsRow.node)
 
   const addChannel = smallIconButton('plus', 'Create a channel', () => openCreateChannel())
   addChannel.id = 'sidebar-add-channel'
