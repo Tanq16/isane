@@ -49,5 +49,4 @@ func init() {
 	cobra.OnInitialize(setupLogs)
 
 	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(vapidCmd)
 }
