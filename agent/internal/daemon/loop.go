@@ -45,8 +45,7 @@ func Serve(ctx context.Context, cfg Config, store *Store) error {
 	defer stop()
 	context.AfterFunc(ctx, func() { signal.Reset(os.Interrupt, syscall.SIGTERM) })
 
-	var wg sync.WaitGroup
-	served := 0
+	var registered []Agent
 	for _, agent := range agents {
 		if !agent.Registered() {
 			u.PrintWarn("skipping "+agent.Handle+", it has no registered command", nil)
@@ -55,11 +54,15 @@ func Serve(ctx context.Context, cfg Config, store *Store) error {
 		if err := store.WriteFetchHelper(agent.Handle); err != nil {
 			return err
 		}
-		served++
-		wg.Go(func() { serveAgent(ctx, cfg, store, agent) })
+		registered = append(registered, agent)
 	}
-	if served == 0 {
+	if len(registered) == 0 {
 		return errors.New("no agent on this machine is registered, run 'isane-agent register <handle> --model <model>' first")
+	}
+
+	var wg sync.WaitGroup
+	for _, agent := range registered {
+		wg.Go(func() { serveAgent(ctx, cfg, store, agent) })
 	}
 	wg.Wait()
 	return nil
