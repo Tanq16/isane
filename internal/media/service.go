@@ -193,11 +193,7 @@ func (s *Service) OpenThumb(a store.Attachment) (*os.File, error) {
 	if !a.HasThumb() {
 		return nil, fmt.Errorf("thumbnail for %s: %w", a.ID, fs.ErrNotExist)
 	}
-	f, err := os.Open(s.abs(*a.ThumbPath))
-	if err != nil {
-		return nil, fmt.Errorf("open thumbnail %s: %w", a.ID, err)
-	}
-	return f, nil
+	return os.Open(s.abs(*a.ThumbPath))
 }
 
 func (s *Service) Delete(ctx context.Context, a store.Attachment) error {
