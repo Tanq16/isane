@@ -175,7 +175,9 @@ Configuration lives in `config.yaml`, and every scalar key may be overridden by 
 ## Notes
 
 - **Web Push on iOS requires the site to be added to the home screen.** It does not work from a Safari tab, so the application shows a one-time instruction card when it detects iOS Safari not running standalone.
+- **Web Push on Android needs Chrome's battery usage set to Unrestricted in Android Settings.** Without it, notifications arrive late or not at all while the phone is locked.
 - **An iOS home-screen web app cannot hold a call when it is backgrounded or the screen locks.** The outgoing microphone stops. Calls work while the app is in the foreground, and no web technology works around this.
+- **A call on Android needs Isane on screen.** The microphone stops while Isane is in the background.
 - **Screen share does not exist in any mobile browser.** `getDisplayMedia` is undefined there, so the control is hidden on small viewports rather than failing when it is tapped.
 - **A call start is a notification, not a ring.** Nothing on the web can produce a ringing incoming call on iOS, and attempting one produces a worse result than a clear notification.
 - **A recording is one mixed audio file per recorded stretch.** LiveKit's egress mixes every participant into a single MP4, and the file arrives in the timeline as a system message carrying a player.
