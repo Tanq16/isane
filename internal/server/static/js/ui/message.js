@@ -321,7 +321,7 @@ function actionsNode(m, ctx) {
   const open = reactable(m)
   if (!actions.length && !open) return null
 
-  const bar = el('div', 'absolute -top-5 right-4 z-10 hidden max-w-[calc(100vw-2rem)] items-center gap-0.5 overflow-x-auto rounded-lg bg-base p-0.5 shadow-pop group-hover/msg:flex group-focus-within/msg:flex md:-top-3')
+  const bar = el('div', 'absolute -top-5 right-4 z-10 hidden max-w-[calc(100vw-2rem)] items-center gap-0.5 overflow-x-auto rounded-lg bg-base p-0.5 shadow-bar group-hover/msg:flex group-focus-within/msg:flex md:-top-3')
   if (open) {
     for (const [emoji, name] of QUICK_REACTIONS) {
       const mine = reactedBy(m, emoji)

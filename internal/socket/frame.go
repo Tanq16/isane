@@ -20,6 +20,7 @@ const (
 	TypeThreadSub  = "thread_sub"
 	TypeThreadRead = "thread_read"
 	TypeReact      = "react"
+	TypeVisibility = "visibility"
 	TypePing       = "ping"
 
 	TypeReady            = "ready"
@@ -69,6 +70,11 @@ func NewFrame(t string, d any) Frame {
 
 type HelloPayload struct {
 	Cursors map[uuid.UUID]int64 `json:"cursors"`
+	Hidden  bool                `json:"hidden"`
+}
+
+type VisibilityPayload struct {
+	Hidden bool `json:"hidden"`
 }
 
 type SendPayload struct {

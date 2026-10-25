@@ -114,7 +114,7 @@ function hello() {
   for (const [id, container] of state.containers) {
     if (typeof container.last_seq === 'number') cursors[id] = container.last_seq
   }
-  write('hello', { cursors })
+  write('hello', { cursors, hidden: !pageVisible() })
 }
 
 function drain() {
@@ -185,13 +185,15 @@ function revive() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (!pageVisible()) {
-    hiddenAt = Date.now()
-    return
-  }
-  if (isLive() && hiddenAt && Date.now() - hiddenAt > PING_INTERVAL) {
+  const visible = pageVisible()
+  if (visible && isLive() && hiddenAt && Date.now() - hiddenAt > PING_INTERVAL) {
     attempt = 0
     ws.close()
+    return
+  }
+  if (isLive()) write('visibility', { hidden: !visible })
+  if (!visible) {
+    hiddenAt = Date.now()
     return
   }
   revive()
