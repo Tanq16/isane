@@ -196,6 +196,7 @@
     --ctp-edge: transparent;
     --ctp-chip: var(--ctp-surface0);
     --ctp-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.45);
+    --ctp-shadow-bar: 0 2px 8px rgb(0 0 0 / 0.3);
 
     --thread-width: 380px;
     --call-width: 380px;
@@ -237,6 +238,7 @@
     --ctp-edge: #bcc0cc;
     --ctp-chip: #dce0e8;
     --ctp-shadow-pop: 0 8px 24px rgb(76 79 105 / 0.18);
+    --ctp-shadow-bar: 0 2px 8px rgb(76 79 105 / 0.12);
 
     color-scheme: light;
 }
@@ -272,6 +274,7 @@
     --color-edge: var(--ctp-edge);
 
     --shadow-pop: var(--ctp-shadow-pop);
+    --shadow-bar: var(--ctp-shadow-bar);
 
     --text-message: 0.9375rem;
     --text-message--line-height: 1.375rem;
